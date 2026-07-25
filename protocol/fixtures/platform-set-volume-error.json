@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "music",
+  "seq": 15,
+  "type": "platformResult",
+  "payload": {
+    "id": 26,
+    "ok": false,
+    "error": "the default output device does not allow setting its volume"
+  }
+}

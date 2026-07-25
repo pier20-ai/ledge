@@ -1,0 +1,4 @@
+{ "v": 1, "app": "wings", "seq": 2, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 3, "props": { "color": "accent" } },
+  { "op": "update", "id": 4, "props": { "content": "5 workers · 41 MB" } }
+] } }

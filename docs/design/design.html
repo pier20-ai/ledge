@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge Design System — v0.2</title>
+<style>
+/* ================================================================== tokens
+   Every value here is either LedgeTheme today (marked NOW) or this spec's
+   proposal (marked SPEC). The page renders specimens from these variables,
+   so the page IS the spec: if a specimen looks right, the token is right. */
+:root {
+  /* material */
+  --glass:        rgba(0,0,0,.92);   /* NOW  LedgeTheme.glass        */
+  --glass-solid:  #000;              /* NOW  .glassSolid             */
+  --raised:       rgba(255,255,255,.055);
+  --raised-hover: rgba(255,255,255,.085);
+  --sunken:       rgba(0,0,0,.35);
+  --hairline:     rgba(255,255,255,.09);
+  --track:        rgba(255,255,255,.14);
+  /* ink */
+  --ink-1: rgba(255,255,255,.94);
+  --ink-2: rgba(255,255,255,.56);
+  --ink-3: rgba(255,255,255,.32);
+  /* hue */
+  --accent: #FFB454;
+  --green:  #30D158;
+  --red:    #FF453A;
+  --violet: #8F61FF;
+  --cyan:   #2ED1F0;
+  --blue:   #3D8AFF;
+  /* tints & strokes (intent tokens) */
+  --accent-tint: rgba(255,180,84,.10);  --accent-stroke: rgba(255,180,84,.25);
+  --green-tint:  rgba(48,209,88,.09);   --green-stroke:  rgba(48,209,88,.25);
+  --red-tint:    rgba(255,69,58,.09);   --red-stroke:    rgba(255,69,58,.25);
+  --violet-tint: rgba(143,97,255,.08);  --violet-stroke: rgba(143,97,255,.20);
+  /* geometry — SPEC radius scale */
+  --r-track: 2px;    /* slider tracks, progress                   */
+  --r-chip:  8px;    /* small nested tiles                        */
+  --r-card:  12px;   /* cards, tiles, boxes  (was 10 and 12 mixed)*/
+  --r-content: 14px; /* panel content container (26 − 12 inset)   */
+  --r-panel: 26px;   /* expanded panel bottom corners             */
+  --r-pill:  999px;  /* controls: capsule = height/2              */
+  /* page chrome (not shell tokens) */
+  --page: #17181B;
+  --well: #0B0C0E;
+  --doc-ink: rgba(235,237,240,.92);
+  --doc-dim: rgba(235,237,240,.50);
+  --redline: var(--cyan);
+  --defect: var(--red);
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  * { transition: none !important; animation: none !important; }
+}
+body {
+  background: var(--page);
+  color: var(--doc-ink);
+  font: 15px/1.6 var(--sys);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 28px 120px; }
+
+/* ------------------------------------------------ doc typography */
+.eyebrow {
+  font: 600 11px/1 var(--mono);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 14px;
+}
+h1 { font-size: 44px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+h2 {
+  font-size: 26px; font-weight: 700; letter-spacing: -0.01em;
+  margin: 0 0 6px;
+}
+h3 { font-size: 16px; font-weight: 600; margin: 26px 0 8px; }
+section { margin-top: 96px; }
+.section-head { display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 14px; margin-bottom: 26px; }
+.section-head .num { font: 600 13px var(--mono); color: var(--doc-dim); }
+p.lede { font-size: 17px; color: var(--doc-dim); max-width: 70ch; }
+p { max-width: 76ch; }
+p + p { margin-top: 10px; }
+.dim { color: var(--doc-dim); }
+code, .v { font: 12.5px var(--mono); color: var(--cyan); background: rgba(46,209,240,.07); padding: 1px 5px; border-radius: 4px; }
+.v { color: var(--doc-ink); background: rgba(255,255,255,.06); }
+
+/* ------------------------------------------------ specimen wells */
+.well {
+  background: linear-gradient(180deg, #101114 0%, var(--well) 100%);
+  border: 1px solid rgba(255,255,255,.07);
+  border-radius: 14px;
+  padding: 34px;
+  margin: 18px 0;
+  overflow-x: auto;
+}
+.well.tight { padding: 22px; }
+.caption { font: 12px var(--mono); color: var(--doc-dim); margin-top: 10px; max-width: none; }
+.caption b { color: var(--doc-ink); font-weight: 600; }
+.defect-tag, .spec-tag {
+  display: inline-block; font: 700 10px/1 var(--mono); letter-spacing: .12em;
+  padding: 4px 7px; border-radius: 4px; vertical-align: 2px; margin-right: 8px;
+}
+.defect-tag { color: var(--red); background: var(--red-tint); border: 1px solid var(--red-stroke); }
+.spec-tag { color: var(--green); background: var(--green-tint); border: 1px solid var(--green-stroke); }
+
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+@media (max-width: 860px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+
+/* ------------------------------------------------ tables */
+table { border-collapse: collapse; width: 100%; margin: 14px 0; font-size: 13.5px; }
+th { font: 600 11px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--doc-dim); text-align: left; padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(255,255,255,.14); white-space: nowrap; }
+td { padding: 8px 14px 8px 0; border-bottom: 1px solid rgba(255,255,255,.06); vertical-align: top; }
+td.m { font: 12.5px var(--mono); white-space: nowrap; }
+tr.bad td { color: rgba(255,120,110,.9); }
+
+/* ================================================================== shell
+   Faithful re-renderings of the Swift components, from the tokens above. */
+.screen {
+  position: relative;
+  background:
+    radial-gradient(120% 90% at 50% 0%, #2A2C33 0%, #1B1C21 55%, #141519 100%);
+  border-radius: 10px;
+  padding-bottom: 44px;
+  overflow: hidden;
+}
+.menubar { height: 38px; display: flex; align-items: stretch; justify-content: center; }
+.notch {
+  background: var(--glass-solid);
+  color: var(--ink-1);
+  height: 38px; min-width: 230px;
+  border-radius: 0 0 12px 12px;   /* collapsedBottomRadius 12 */
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 16px; gap: 24px;
+  box-shadow: 0 6px 14px rgba(0,0,0,.5);
+}
+.wing { font: 500 11px var(--sys); color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.wing .live { color: var(--green); }
+.camera { width: 8px; height: 8px; border-radius: 50%; background: #0A0A0C; border: 1px solid rgba(255,255,255,.05); flex: none; }
+
+.panel {
+  background: var(--glass);
+  width: 420px; margin: 26px auto 0;
+  border-radius: 16px 16px var(--r-panel) var(--r-panel);
+  box-shadow: 0 18px 40px rgba(0,0,0,.55);
+  padding: 12px;
+}
+.panel-content { border-radius: var(--r-content); padding: 8px; }
+
+/* --- ledge components ------------------------------------------------- */
+.l-btn {
+  font: 600 11.5px var(--sys); color: var(--ink-1);
+  height: 34px; padding: 0 14px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  border: 1px solid transparent; border-radius: var(--r-pill);
+  background: transparent; cursor: pointer;
+  transition: background .12s ease, border-color .12s ease, transform .08s ease;
+  user-select: none; -webkit-user-select: none;
+}
+.l-btn:active { transform: scale(.96); }
+.l-btn.plain:hover { background: var(--raised-hover); }
+.l-btn.glassv { background: var(--raised); border-color: var(--hairline); }
+.l-btn.glassv:hover { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.14); }
+.l-btn.accentv { background: var(--accent); color: var(--glass-solid); }
+.l-btn.accentv:hover { background: #FFC06B; }
+.l-btn.iconly { width: 34px; padding: 0; gap: 0; }
+.l-btn.iconly:active { transform: scale(.92); }
+.l-btn .sf { font-size: 14px; line-height: 1; }
+.l-btn.r10 { border-radius: 10px; }
+.l-btn.r12 { border-radius: 12px; }
+
+.l-input {
+  height: 34px; border-radius: var(--r-pill);
+  background: var(--raised); border: 1px solid var(--hairline);
+  color: var(--ink-1); font: 12.5px var(--sys);
+  padding: 0 14px; width: 100%;
+  transition: border-color .12s ease;
+}
+.l-input::placeholder { color: var(--ink-3); }
+.l-input:focus { outline: none; border-color: rgba(255,180,84,.7); }
+
+.l-slider { position: relative; height: 22px; display: flex; align-items: center; }
+.l-slider .tr { position: absolute; left: 6px; right: 6px; height: 4px; border-radius: var(--r-track); background: var(--track); }
+.l-slider .fi { position: absolute; left: 6px; width: 46%; height: 4px; border-radius: var(--r-track); background: rgba(255,255,255,.85); }
+.l-slider .kn { position: absolute; left: calc(46% - 1px); width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+
+.l-pill {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 20px; padding: 0 8px; border-radius: var(--r-pill);
+  font: 600 10px var(--sys);
+}
+.l-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.l-card { background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-card); padding: 12px; }
+.l-hair { height: 1px; background: var(--hairline); }
+
+.strip-icon {
+  width: 34px; height: 34px; border-radius: var(--r-pill);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-2); background: transparent; border: none; cursor: pointer;
+  font-size: 14px; position: relative;
+  transition: color .12s ease, transform .08s ease;
+}
+.strip-icon:hover, .strip-icon.active { color: var(--ink-1); }
+.strip-icon:active { transform: scale(.92); }
+.strip-icon.active::after { content: ""; position: absolute; bottom: 3px; left: 50%; margin-left: -2px; width: 4px; height: 4px; border-radius: 2px; background: var(--ink-1); }
+
+.art-tile { width: 54px; height: 54px; border-radius: var(--r-chip); background: linear-gradient(135deg, #4A3A68, #1E4A56); flex: none; }
+
+/* --- new kinds (ratified additions) ----------------------------------- */
+.tgl { width: 36px; height: 20px; border-radius: var(--r-pill); background: var(--track); display: inline-flex; align-items: center; padding: 2px; transition: background .15s ease; cursor: pointer; border: none; }
+.tgl .knob { width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: transform .15s ease; }
+.tgl.on { background: var(--accent); }
+.tgl.on .knob { transform: translateX(16px); }
+.seg { display: inline-flex; background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-pill); padding: 2px; }
+.seg button { border: none; background: transparent; color: var(--ink-2); font: 600 11px var(--sys); height: 24px; padding: 0 12px; border-radius: var(--r-pill); cursor: pointer; transition: background .12s ease, color .12s ease; }
+.seg button:hover { color: var(--ink-1); }
+.seg button.on { background: rgba(255,255,255,.12); color: var(--ink-1); }
+.stp { display: inline-flex; align-items: center; background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-pill); height: 28px; }
+.stp button { width: 28px; height: 28px; border: none; background: transparent; color: var(--ink-1); font-size: 14px; cursor: pointer; border-radius: var(--r-pill); }
+.stp button:hover { background: var(--raised-hover); }
+.stp .val { font: 600 12px var(--mono); color: var(--ink-1); min-width: 52px; text-align: center; }
+.prg { display: block; height: 4px; border-radius: var(--r-track); background: var(--track); overflow: hidden; }
+.prg > span { display: block; height: 100%; border-radius: var(--r-track); background: rgba(255,255,255,.85); }
+.spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--track); border-top-color: var(--ink-1); animation: spin .9s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------ redlines */
+.redline-x { position: relative; }
+.redline-x::before {
+  content: ""; position: absolute; top: -8px; bottom: -8px; left: 50%; width: 0;
+  border-left: 1px dashed var(--redline); opacity: .8;
+}
+.mlabel { font: 10.5px var(--mono); color: var(--redline); }
+.mlabel.bad { color: var(--defect); }
+
+/* defect diagram (4× scale) */
+.dg { display: flex; gap: 40px; align-items: flex-end; flex-wrap: wrap; }
+.dg-btn {
+  position: relative; width: 204px; height: 136px; border-radius: 40px;
+  background: var(--raised); border: 2px solid var(--hairline);
+}
+.dg-btn .icon { position: absolute; top: 50%; transform: translateY(-50%); font-size: 52px; color: var(--ink-1); }
+.dg-btn .ghost { position: absolute; top: 50%; transform: translateY(-50%); width: 20px; height: 56px; border: 1.5px dashed var(--defect); border-radius: 4px; }
+.dg-btn .cl { position: absolute; top: -14px; bottom: -14px; left: 50%; border-left: 1.5px dashed var(--redline); }
+.dg-cap { margin-top: 14px; }
+
+/* radius audit strip */
+.aud { display: flex; gap: 22px; align-items: flex-end; flex-wrap: wrap; }
+.aud .item { text-align: center; }
+.aud .shape { background: var(--raised); border: 1px solid var(--track); margin: 0 auto; }
+.aud .lab { font: 10.5px var(--mono); color: var(--doc-dim); margin-top: 8px; }
+.aud .lab b { color: var(--doc-ink); }
+.aud .item.bad .shape { border-color: var(--red-stroke); background: var(--red-tint); }
+.aud .item.bad .lab b { color: var(--red); }
+
+/* swatches */
+.sw { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.sw .s { border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,.08); }
+.sw .chip { height: 52px; }
+.sw .meta { padding: 8px 10px; background: #101114; font: 11px var(--mono); }
+.sw .meta b { display: block; color: var(--doc-ink); font-weight: 600; }
+.sw .meta span { color: var(--doc-dim); }
+
+/* type ramp */
+.tr-row { display: flex; align-items: baseline; gap: 22px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.tr-row .tag { font: 11px var(--mono); color: var(--doc-dim); width: 210px; flex: none; }
+.tr-row .sample { color: var(--ink-1); font-family: var(--sys); white-space: nowrap; }
+
+/* laws */
+.law { display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+.law .n { font: 700 13px var(--mono); color: var(--accent); flex: none; width: 34px; }
+.law p { margin: 0; }
+.law b { color: var(--doc-ink); }
+
+/* open questions */
+.q { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; margin: 18px 0; }
+.q .qq { font-weight: 600; }
+.q .rec { color: var(--doc-dim); font-size: 13.5px; margin-top: 4px; }
+.q .rec b { color: var(--accent); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<!-- ============================================================ HERO -->
+<header style="padding-top:72px">
+  <div class="eyebrow">Ledge · Design System · v0.2 · ratified 2026-07-25</div>
+  <h1>One ruler for the notch.</h1>
+  <p class="lede" style="margin-top:16px">
+    Eleven apps now render through §5, and the seams show: transport icons sit
+    5&hairsp;pt off center, nine different corner radii coexist without a rule, and
+    five components carry private color literals that bypass the theme. This
+    document specifies the material, geometry, type, motion, and every component
+    — as law, not convention — so the cleanup agents have one unambiguous target.
+  </p>
+  <p class="caption" style="margin-top:14px">
+    Sources: <code>Theme.swift</code>, <code>LedgeComponents.swift</code>, <code>UIComponents.swift</code>,
+    <code>ProtocolRenderer.swift</code>, <code>ShellSurfaceView.swift</code> · measured 2026-07-25.
+    Specimens on this page are HTML renderings of the same tokens; hover and press them.
+  </p>
+
+  <div class="well" style="padding:0; margin-top:34px">
+    <div class="screen">
+      <div class="menubar">
+        <div class="notch">
+          <span class="wing"><span class="live">●</span>&ensp;NVDA +2.4%</span>
+          <span class="camera"></span>
+          <span class="wing">Bad Moon Rising — CCR</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-content">
+          <div style="display:flex; gap:12px; align-items:center">
+            <div class="art-tile"></div>
+            <div style="min-width:0">
+              <div style="font:600 12.5px var(--sys); color:var(--ink-1)">Bad Moon Rising</div>
+              <div style="font:11.5px var(--sys); color:var(--ink-2); margin-top:2px">Creedence Clearwater Revival</div>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="l-slider"><div class="tr"></div><div class="fi"></div><div class="kn"></div></div>
+            <div style="display:flex; justify-content:space-between; font:10px var(--mono); color:var(--ink-3)"><span>1:04</span><span>2:20</span></div>
+          </div>
+          <div style="display:flex; justify-content:center; gap:10px; margin-top:8px">
+            <button class="l-btn glassv iconly redline-x" aria-label="Previous"><span class="sf">⏮</span></button>
+            <button class="l-btn accentv iconly redline-x" aria-label="Play"><span class="sf">▶</span></button>
+            <button class="l-btn glassv iconly redline-x" aria-label="Next"><span class="sf">⏭</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="caption">The hero is the deliverable: Now Playing rendered to this spec.
+    Dashed <span class="mlabel">cyan</span> lines mark true centers — the transport icons sit on them.
+    Capsule controls (<b>ratified</b>, D8/Q1), concentric panel corners (already shipping).</p>
+</header>
+
+<!-- ============================================================ D1 -->
+<section id="d1">
+  <div class="section-head"><span class="num">D1</span><h2>Why now — the three defects</h2></div>
+
+  <h3><span class="defect-tag">DEFECT</span>Icon-only buttons render off center</h3>
+  <p>
+    <code>LedgeButton.layout()</code> centers the group <span class="v">icon + gap(5) + label</span>.
+    With <code>label=""</code> the label still contributes its 5&hairsp;pt cell pad and the
+    icon still pays the 5&hairsp;pt gap — 10&hairsp;pt of phantom content, so the icon lands
+    5&hairsp;pt left of center. Every icon-only button in every app is wrong by the same amount:
+    music's transport, chess's controls, anything <code>&lt;button label="" icon="sf:…"&gt;</code>.
+  </p>
+  <div class="well tight">
+    <div class="dg">
+      <div>
+        <div class="dg-btn">
+          <span class="icon" style="left:56px">▶</span>
+          <span class="ghost" style="left:132px"></span>
+          <span class="cl"></span>
+        </div>
+        <div class="dg-cap"><span class="mlabel bad">today — icon center 5 pt left of frame center</span><br>
+        <span class="caption">dashed red = the empty label's phantom 5 pt + the unearned 5 pt gap</span></div>
+      </div>
+      <div>
+        <div class="dg-btn" style="border-radius:68px">
+          <span class="icon" style="left:50%; transform:translate(-50%,-50%)">▶</span>
+          <span class="cl"></span>
+        </div>
+        <div class="dg-cap"><span class="mlabel">spec — empty label ⇒ zero width, zero gap; square capsule</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="caption">Diagram at 4× scale. Fix: in both <code>intrinsicContentSize</code> and <code>layout()</code>,
+    an empty label contributes <b>no width and no gap</b>; an icon-only button becomes a 34×34 square.</p>
+
+  <h3 style="margin-top:40px"><span class="defect-tag">DEFECT</span>Nine radii, no rule</h3>
+  <p>Every radius in the shell today, at true scale:</p>
+  <div class="well tight">
+    <div class="aud">
+      <div class="item"><div class="shape" style="width:64px;height:44px;border-radius:0 0 26px 26px"></div><div class="lab"><b>26</b><br>panel</div></div>
+      <div class="item"><div class="shape" style="width:56px;height:40px;border-radius:14px"></div><div class="lab"><b>14</b><br>content</div></div>
+      <div class="item"><div class="shape" style="width:44px;height:34px;border-radius:12px"></div><div class="lab"><b>12</b><br>input</div></div>
+      <div class="item"><div class="shape" style="width:24px;height:24px;border-radius:12px"></div><div class="lab"><b>12</b><br>send disc</div></div>
+      <div class="item bad"><div class="shape" style="width:64px;height:34px;border-radius:10px"></div><div class="lab"><b>10</b><br>button</div></div>
+      <div class="item bad"><div class="shape" style="width:44px;height:34px;border-radius:10px"></div><div class="lab"><b>10</b><br>box/card</div></div>
+      <div class="item bad"><div class="shape" style="width:34px;height:34px;border-radius:8px"></div><div class="lab"><b>8</b><br>strip icon</div></div>
+      <div class="item"><div class="shape" style="width:14px;height:14px;border-radius:7px"></div><div class="lab"><b>7</b><br>knob</div></div>
+      <div class="item"><div class="shape" style="width:5px;height:5px;border-radius:2.5px"></div><div class="lab"><b>2.5</b><br>dot</div></div>
+      <div class="item"><div class="shape" style="width:40px;height:4px;border-radius:2px"></div><div class="lab"><b>2</b><br>track</div></div>
+    </div>
+  </div>
+  <p class="caption">
+    The interesting find: the <b>panel already obeys a rule</b> — content container radius
+    14 = panel 26 − 12 inset (concentric corners). The knob, dot, and track are capsules — also a rule.
+    Only the mid-size components (button 10, box 10, icon 8, input 12) are arbitrary. D4 keeps the two
+    rules that exist and deletes the arbitrary middle.
+  </p>
+
+  <h3 style="margin-top:40px"><span class="defect-tag">DEFECT</span>Color literals bypass the theme</h3>
+  <table>
+    <tr><th>site</th><th>literal</th><th>should be</th></tr>
+    <tr class="bad"><td><code>LedgeButton</code> glass hover</td><td class="m">white .10 / border .14</td><td class="m">new tokens <span class="v">raisedHover2</span> / <span class="v">hairlineHover</span></td></tr>
+    <tr class="bad"><td><code>LedgeInput</code> fill</td><td class="m">white .07</td><td class="m"><span class="v">raised</span> (.055) — or promote .07 to the token</td></tr>
+    <tr class="bad"><td><code>LedgeSlider</code> track / fill</td><td class="m">white .14 / white .85</td><td class="m"><span class="v">track</span> / new <span class="v">inkFill</span></td></tr>
+    <tr class="bad"><td><code>ErrorCard</code>, chart fills</td><td class="m">assorted alphas</td><td class="m">theme tokens</td></tr>
+  </table>
+  <p class="caption">Not visual bugs today — the values are fine — but each literal is a future
+    inconsistency. Law 1: if a color isn't in <code>Theme.swift</code>, it doesn't exist.</p>
+</section>
+
+<!-- ============================================================ D2 -->
+<section id="d2">
+  <div class="section-head"><span class="num">D2</span><h2>Material &amp; color</h2></div>
+  <p class="lede">The material is black glass. Ink is one white at four opacities. Hue is
+    spent only on meaning — never on chrome.</p>
+
+  <h3>Glass (surfaces)</h3>
+  <div class="sw">
+    <div class="s"><div class="chip" style="background:#000"></div><div class="meta"><b>glassSolid</b><span>#000 — notch shape, accent-button ink</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(0,0,0,.92)"></div><div class="meta"><b>glass</b><span>black .92 — panel body</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(255,255,255,.055)"></div><div class="meta"><b>raised</b><span>white .055 — cards, glass buttons</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(255,255,255,.085)"></div><div class="meta"><b>raisedHover</b><span>white .085 — hover wash</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(0,0,0,.35)"></div><div class="meta"><b>sunken</b><span>black .35 — wells, canvas mats</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(255,255,255,.09)"></div><div class="meta"><b>hairline</b><span>white .09 — every border, 1 px</span></div></div>
+    <div class="s"><div class="chip" style="background:rgba(255,255,255,.14)"></div><div class="meta"><b>track</b><span>white .14 — slider/progress beds</span></div></div>
+  </div>
+
+  <h3>Ink</h3>
+  <div class="sw">
+    <div class="s"><div class="chip" style="background:#0B0C0E"><div style="padding:16px;font:600 14px var(--sys);color:rgba(255,255,255,.94)">Primary</div></div><div class="meta"><b>primary</b><span>white .94 — content</span></div></div>
+    <div class="s"><div class="chip" style="background:#0B0C0E"><div style="padding:16px;font:500 14px var(--sys);color:rgba(255,255,255,.56)">Secondary</div></div><div class="meta"><b>secondary</b><span>white .56 — supporting</span></div></div>
+    <div class="s"><div class="chip" style="background:#0B0C0E"><div style="padding:16px;font:500 14px var(--sys);color:rgba(255,255,255,.32)">Tertiary</div></div><div class="meta"><b>tertiary</b><span>white .32 — placeholders, units</span></div></div>
+  </div>
+
+  <h3>Hue (meaning only)</h3>
+  <div class="sw">
+    <div class="s"><div class="chip" style="background:#FFB454"></div><div class="meta"><b>accent</b><span>#FFB454 — the one brand hue: primary actions, focus, glow</span></div></div>
+    <div class="s"><div class="chip" style="background:#30D158"></div><div class="meta"><b>green</b><span>#30D158 — gains, live, success</span></div></div>
+    <div class="s"><div class="chip" style="background:#FF453A"></div><div class="meta"><b>red</b><span>#FF453A — losses, alarm, error</span></div></div>
+    <div class="s"><div class="chip" style="background:#8F61FF"></div><div class="meta"><b>violet</b><span>P3 — agentic/AI surfaces</span></div></div>
+    <div class="s"><div class="chip" style="background:#2ED1F0"></div><div class="meta"><b>cyan</b><span>P3 — data, links, info</span></div></div>
+    <div class="s"><div class="chip" style="background:#3D8AFF"></div><div class="meta"><b>blue</b><span>P3 — reserved (charts)</span></div></div>
+  </div>
+  <p class="caption" style="margin-top:14px">
+    Each hue also exists as a <b>tint</b> (fill ≈ .09) and a <b>stroke</b> (≈ .25) pair — apps say
+    <code>fill="greenTint"</code>, never a value. Rule of use: at most <b>one hue family per card</b>;
+    accent appears at most once per panel (the primary action). Everything else is ink and glass.
+  </p>
+</section>
+
+<!-- ============================================================ D3 -->
+<section id="d3">
+  <div class="section-head"><span class="num">D3</span><h2>Type</h2></div>
+  <p class="lede">SF only, five sizes, three jobs. The ramp is already right — this section
+    makes its usage rules explicit.</p>
+  <div class="well tight">
+    <div class="tr-row"><span class="tag">xl · 30 pt · bold</span><span class="sample" style="font-size:30px;font-weight:700">$214.62</span></div>
+    <div class="tr-row"><span class="tag">l · 15 pt · semibold</span><span class="sample" style="font-size:15px;font-weight:600">Section titles, track names</span></div>
+    <div class="tr-row"><span class="tag">m · 12.5 pt · regular</span><span class="sample" style="font-size:12.5px">Body — the default reading size</span></div>
+    <div class="tr-row"><span class="tag">s · 11.5 pt · semibold</span><span class="sample" style="font-size:11.5px;font-weight:600">Button labels, row emphasis</span></div>
+    <div class="tr-row"><span class="tag">xs · 10 pt · medium</span><span class="sample" style="font-size:10px;font-weight:500">PILLS · UNITS · TIMESTAMPS</span></div>
+    <div class="tr-row"><span class="tag">numeric · any size</span><span class="sample" style="font-family:var(--mono);font-size:13px">04:19 · +2.41% · 60 BPM</span></div>
+  </div>
+  <table>
+    <tr><th>rule</th><th>detail</th></tr>
+    <tr><td>Changing numbers use <code>numericFont</code></td><td>monospaced digits — clocks, prices, and scores must not jitter as digits change. Today only some apps do this; it becomes the renderer's job when <code>text</code> content is numeric-live (<code>mono</code> prop exists; apps must use it).</td></tr>
+    <tr><td>One line, truncate tail</td><td>Text never wraps silently. The §5 <code>truncate</code> prop is currently <b>unread by the renderer</b> — implement as <code>maxLines</code> during cleanup (cimedic ships its own <code>wrap()</code> as a workaround).</td></tr>
+    <tr><td>No new sizes</td><td>An app that wants 13 pt is wrong. Five sizes is the whole ramp.</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ D4 -->
+<section id="d4">
+  <div class="section-head"><span class="num">D4</span><h2>Geometry — spacing, radius, hit targets</h2></div>
+
+  <h3>Spacing: the 4-pt grid</h3>
+  <p>All gaps and pads from <span class="v">4 · 8 · 12 · 16 · 20</span>. Stack default gap 8,
+    card pad 12, panel content pad 12 (= the concentric inset). Odd values are a review flag.</p>
+
+  <h3>Radius: two rules replace nine values</h3>
+  <div class="well tight">
+    <table style="margin:0">
+      <tr><th>rule</th><th>applies to</th><th>value</th></tr>
+      <tr><td><b>Capsule</b> — radius = height/2</td><td>buttons, icon buttons, inputs, pills, dots, knobs, tracks, the collapsed notch itself</td><td class="m">r-pill (34 pt ⇒ 17)</td></tr>
+      <tr><td><b>Concentric</b> — child radius = parent radius − inset (floor 4)</td><td>panel 26 → content 14 → tiles 8; cards 12 → nested chips 8</td><td class="m">r-panel 26 · r-content 14 · r-card 12 · r-chip 8</td></tr>
+    </table>
+  </div>
+  <p class="caption">This is why the current button "feels off": radius 10 on a 34-pt control is
+    neither capsule (17) nor concentric with anything. The panel got this right on day one;
+    the components never followed. All layer corners get <code>cornerCurve = .continuous</code>
+    (Apple's squircle — the notch cutout itself curves continuously, and r10 next to it reads cheap).</p>
+
+  <div class="well tight">
+    <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center">
+      <button class="l-btn glassv r10">Radius 10 — today</button>
+      <button class="l-btn glassv r12">Radius 12 — concentric</button>
+      <button class="l-btn glassv">Capsule 17 — proposed</button>
+      <button class="l-btn accentv">Capsule accent</button>
+    </div>
+  </div>
+  <p class="caption">Q1 side by side, live — <b>ruled: capsule</b> (D8). It is the notch's own
+    silhouette, and it makes icon-only buttons perfect circles for free.</p>
+
+  <h3>Control metrics (one table, one source)</h3>
+  <table>
+    <tr><th>control</th><th>height</th><th>pad-x</th><th>radius</th><th>content</th></tr>
+    <tr><td>Button (labeled)</td><td class="m">34</td><td class="m">14</td><td class="m">capsule 17</td><td class="m">label s/semibold · icon 11 semibold · gap 5</td></tr>
+    <tr><td>Button (icon-only)</td><td class="m">34 × 34</td><td class="m">—</td><td class="m">circle</td><td class="m">icon 14 medium, dead center</td></tr>
+    <tr><td>Strip icon</td><td class="m">34 × 34</td><td class="m">—</td><td class="m">circle</td><td class="m">icon 14 medium · tint-only hover (no bg wash — settled earlier)</td></tr>
+    <tr><td>Input</td><td class="m">34</td><td class="m">14</td><td class="m">capsule 17</td><td class="m">text m · placeholder tertiary, baseline-centered</td></tr>
+    <tr><td>Slider</td><td class="m">22 hit</td><td class="m">6</td><td class="m">track 4 capsule · knob 14 circle</td><td class="m">honors min/max/step (today ignored — fix)</td></tr>
+    <tr><td>Pill / badge</td><td class="m">20</td><td class="m">8</td><td class="m">capsule 10</td><td class="m">xs/semibold + tint/stroke pair</td></tr>
+    <tr><td>Send disc</td><td class="m">24 × 24</td><td class="m">—</td><td class="m">circle</td><td class="m">accent fill, glassSolid glyph</td></tr>
+  </table>
+  <p class="caption">These constants move into one <code>LedgeMetrics</code> enum next to
+    <code>LedgeTheme</code>. A component with a hardcoded size is a review reject.</p>
+</section>
+
+<!-- ============================================================ D5 -->
+<section id="d5">
+  <div class="section-head"><span class="num">D5</span><h2>Motion</h2></div>
+  <p class="lede">Already tuned with Manu in the loop — recorded here as law so nobody
+    "improves" it.</p>
+  <table>
+    <tr><th>spring</th><th>response / damping</th><th>used for</th></tr>
+    <tr><td>open</td><td class="m">0.42 / 0.80</td><td>collapsed → expanded (slight overshoot, alive)</td></tr>
+    <tr><td>close</td><td class="m">0.45 / 1.00</td><td>expanded → collapsed (critically damped, no bounce)</td></tr>
+    <tr><td>morph</td><td class="m">0.40 / 0.85</td><td>panel resize between apps</td></tr>
+    <tr><td>bump</td><td class="m">0.30 / 0.75</td><td>attention nudge on the collapsed pill</td></tr>
+  </table>
+  <table>
+    <tr><th>interaction</th><th>value</th></tr>
+    <tr><td>Hover open / close / morph grace</td><td class="m">0.20 s dwell · 0.60 s debounce · 0.90 s forgiveness during morph</td></tr>
+    <tr><td>Press (labeled button)</td><td class="m">scale 0.96, 80 ms in / 120 ms out, about the visual center</td></tr>
+    <tr><td>Press (icon button)</td><td class="m">scale 0.92, same timing</td></tr>
+    <tr><td>Hover washes</td><td class="m">120 ms ease; layout ticks (slider drag, chart update) animate <b>never</b></td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ D6 -->
+<section id="d6">
+  <div class="section-head"><span class="num">D6</span><h2>Components</h2></div>
+  <p class="lede">The full §5 vocabulary plus shell chrome. Every specimen below is live —
+    hover and press. <span class="spec-tag">SPEC</span> marks a change from today.</p>
+
+  <h3>Button — three variants × three content modes</h3>
+  <div class="well tight">
+    <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center">
+      <button class="l-btn plain">Plain</button>
+      <button class="l-btn glassv">Glass</button>
+      <button class="l-btn accentv">Accent</button>
+      <button class="l-btn glassv"><span class="sf" style="font-size:11px">↻</span>Icon + label</button>
+      <button class="l-btn glassv iconly" aria-label="Refresh"><span class="sf">↻</span></button>
+      <button class="l-btn accentv iconly" aria-label="Play"><span class="sf">▶</span></button>
+    </div>
+  </div>
+  <table>
+    <tr><th></th><th>rule</th></tr>
+    <tr><td class="m">variants</td><td><b>plain</b> transparent → raisedHover · <b>glass</b> raised + hairline → white .10 + hairlineHover · <b>accent</b> accent fill, glassSolid ink, +12% white on hover. Accent ≤ once per panel.</td></tr>
+    <tr><td class="m">centering</td><td>Measure the string (<code>attributedStringValue.size()</code>), center the icon+gap+label group. <span class="spec-tag">SPEC</span>Empty label ⇒ zero width <i>and</i> zero gap.</td></tr>
+    <tr><td class="m">icon-only</td><td><span class="spec-tag">SPEC</span>Width = height = 34, circle, icon 14 pt medium (up from 11 — transport glyphs read at arm's length), press scale 0.92.</td></tr>
+    <tr><td class="m">disabled</td><td><span class="spec-tag">SPEC</span>New state: content at .35 alpha, no hover, no press. Apps need it (trader's Execute while a proposal is stale).</td></tr>
+  </table>
+
+  <h3>Input</h3>
+  <div class="well tight" style="max-width:420px"><input class="l-input" placeholder="Ask anything…"></div>
+  <p class="caption">Raised fill + hairline; focus swaps the border to accent .70 (live above — click it).
+    Text vertically centered by measurement, placeholder tertiary. <span class="spec-tag">SPEC</span>capsule,
+    fill uses the <code>raised</code> token (today an inline .07).</p>
+
+  <h3>Slider</h3>
+  <div class="well tight" style="max-width:420px"><div class="l-slider"><div class="tr"></div><div class="fi"></div><div class="kn"></div></div></div>
+  <p class="caption">Track white .14 (4 pt capsule), fill white .85 — progress is ink, not accent.
+    Knob 14 pt, shadowed. Layout under <code>CATransaction.setDisableActions</code> — the knob tracks
+    the pointer exactly. <span class="spec-tag">SPEC</span>honor <code>min/max/step</code> props (today silently 0…1).
+    <span class="spec-tag">SPEC</span><code>rate</code> (slider &amp; progress): value units/sec of shell-side
+    self-advance between commits — a scrubber glides at 60 fps off a 3 s poll. New commits re-anchor
+    (glide on small deltas, jump on big); dragging suspends it; rate 0 = static. Never a substitute for
+    the app's own reconciliation poll.</p>
+
+  <h3>New kinds — ratified additions</h3>
+  <p>Six components apps have been faking, promoted to §5 with the D8 rulings. Each earned its
+    place — the evidence column names the shipped app that hand-rolled it.</p>
+  <div class="well tight">
+    <div style="display:flex; gap:28px; align-items:center; flex-wrap:wrap">
+      <span style="display:inline-flex; align-items:center; gap:10px">
+        <button class="tgl on" role="switch" aria-checked="true" aria-label="on" onclick="this.classList.toggle('on')"><span class="knob"></span></button>
+        <button class="tgl" role="switch" aria-checked="false" aria-label="off" onclick="this.classList.toggle('on')"><span class="knob"></span></button>
+      </span>
+      <span class="seg" role="tablist"><button class="on">1D</button><button>1W</button><button>1M</button></span>
+      <span class="stp"><button aria-label="decrement">−</button><span class="val">07:30</span><button aria-label="increment">+</button></span>
+      <span style="width:130px"><span class="prg"><span style="width:64%"></span></span></span>
+      <span class="spin" role="img" aria-label="loading"></span>
+      <span class="l-pill" style="color:var(--accent); background:var(--accent-tint); border:1px solid var(--accent-stroke)">PAPER</span>
+    </div>
+  </div>
+  <table>
+    <tr><th>kind</th><th>spec</th><th>evidence</th></tr>
+    <tr><td class="m">toggle</td><td>36×20 capsule; knob 16 white, shadowed; track token off → accent on; 150 ms ease; emits <code>change {on}</code>.</td><td>Settings fakes toggles with buttons</td></tr>
+    <tr><td class="m">segment</td><td>Capsule group, raised + hairline, 2 pt pad; segments h 24, pad-x 12, s/semibold; selected = white .12 wash + primary ink; emits <code>change {value}</code>.</td><td>Alarm's am/pm &amp; field focus; stocks range rows</td></tr>
+    <tr><td class="m">stepper</td><td>h 28 capsule; −/+ hit 28×28; value in numeric font, min-width 52; honors <code>min/max/step</code>, hold-to-repeat; emits <code>change {value}</code>.</td><td>Alarm hand-rolled its 24-h time picker</td></tr>
+    <tr><td class="m">progress</td><td>4 pt capsule, track bed + ink .85 fill; read-only by definition — never a disguised slider. Indeterminate = use spinner instead.</td><td>Music position (read-only), alarm countdown</td></tr>
+    <tr><td class="m">spinner</td><td>16 pt ring, 2 pt stroke, track bed + ink cap, 0.9 s linear rotation; secondary by default.</td><td>Deals/stocks fetch latency; cimedic while <code>ctx.agent</code> runs</td></tr>
+    <tr><td class="m">pill</td><td><code>&lt;pill label tone/&gt;</code> — h 20 capsule, pad-x 8, xs/semibold; tone = hue family or neutral, always the tint + stroke + hue-ink triple.</td><td>Every app builds these from stacks (LIVE, PAPER, ±%)</td></tr>
+  </table>
+  <p class="caption">Also in this wave, one container upgrade rather than a kind: vertical stacks
+    accept <code>scroll</code> (NSScrollView wrapper, height capped by the panel limit) — deals
+    lists and chess's move list currently just clip. If it balloons it ships separately; it must
+    not block the components.</p>
+
+  <h3>Pills, dots, hairlines</h3>
+  <div class="well tight">
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <span class="l-pill" style="color:var(--green); background:var(--green-tint); border:1px solid var(--green-stroke)">LIVE</span>
+      <span class="l-pill" style="color:var(--accent); background:var(--accent-tint); border:1px solid var(--accent-stroke)">PAPER</span>
+      <span class="l-pill" style="color:var(--red); background:var(--red-tint); border:1px solid var(--red-stroke)">−2.4%</span>
+      <span class="l-pill" style="color:var(--violet); background:var(--violet-tint); border:1px solid var(--violet-stroke)">AGENT</span>
+      <span class="l-pill" style="color:var(--ink-2); background:var(--raised); border:1px solid var(--hairline)">DRAFT</span>
+      <span class="l-dot" style="background:var(--green)"></span>
+      <span class="l-dot" style="background:var(--red)"></span>
+    </div>
+    <div class="l-hair" style="margin-top:16px"></div>
+  </div>
+  <p class="caption">A pill is always a tint + stroke + hue-ink triple from one family
+    (<code>CenteredTextBox</code> — never a raw NSTextField, which top-aligns) — now first-class
+    as the <code>pill</code> kind above. Dots 5 pt. Hairline is the only divider: 1 px, white .09.</p>
+
+  <h3>Cards &amp; stacks</h3>
+  <div class="well tight">
+    <div class="grid3">
+      <div class="l-card"><div style="font:600 11.5px var(--sys); color:var(--ink-1)">raised + hairline</div><div style="font:11px var(--sys); color:var(--ink-2); margin-top:4px">the default card</div></div>
+      <div class="l-card" style="background:var(--green-tint); border-color:var(--green-stroke)"><div style="font:600 11.5px var(--sys); color:var(--green)">greenTint + stroke</div><div style="font:11px var(--sys); color:var(--ink-2); margin-top:4px">status card</div></div>
+      <div class="l-card" style="background:var(--sunken); border-color:transparent"><div style="font:600 11.5px var(--sys); color:var(--ink-1)">sunken</div><div style="font:11px var(--sys); color:var(--ink-2); margin-top:4px">wells, canvas mats</div></div>
+    </div>
+  </div>
+  <p class="caption">Stack fill/stroke/radius props take intent tokens only. <span class="spec-tag">SPEC</span>card
+    radius unifies at 12 (RoundedBoxView's 10 dies); nested chips 8 by the concentric rule; pad 12.</p>
+
+  <h3>Images &amp; tiles</h3>
+  <div class="well tight">
+    <div style="display:flex; gap:12px; align-items:center">
+      <div class="art-tile"></div>
+      <div class="art-tile" style="width:34px;height:34px;border-radius:8px;background:var(--raised);display:flex;align-items:center;justify-content:center;color:var(--ink-2)">♪</div>
+      <div class="art-tile" style="border-radius:8px;background:var(--raised)"></div>
+    </div>
+  </div>
+  <p class="caption">File images aspect-<b>fill</b> their box, radius 8 (chip tier). A missing file renders
+    the quiet raised box (right) — never a broken-image glyph. SF-symbol images are unstyled glyphs;
+    the box around an icon is a stack's job.</p>
+
+  <h3>Chart</h3>
+  <div class="well tight" style="max-width:420px">
+    <svg width="100%" height="64" viewBox="0 0 380 64" role="img" aria-label="sparkline">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#30D158" stop-opacity=".25"/><stop offset="1" stop-color="#30D158" stop-opacity="0"/>
+      </linearGradient></defs>
+      <path d="M0 50 L40 44 L80 47 L120 33 L160 37 L200 24 L240 28 L280 15 L320 20 L380 8 L380 64 L0 64 Z" fill="url(#g)"/>
+      <path d="M0 50 L40 44 L80 47 L120 33 L160 37 L200 24 L240 28 L280 15 L320 20 L380 8" fill="none" stroke="#30D158" stroke-width="1.8" stroke-linejoin="round"/>
+    </svg>
+  </div>
+  <p class="caption">Stroke 1.8, round joins, gradient fill hue .25 → 0, 3 pt vertical breathing room.
+    Color by semantic token; green/red by sign is app logic, not renderer magic.</p>
+
+  <h3>Panel wings &amp; the exclusion zone <span class="spec-tag" style="margin-left:8px">SPEC</span></h3>
+  <p>The expanded panel's top row — cutout height — is an <b>exclusion zone</b>: the §5 tree mounts
+    below it, so no app can put content behind the camera (nearly every app did). The areas flanking
+    the cutout are the two <b>panel wings</b>: the LEFT wing defaults to the app's name (s/semibold,
+    secondary, ellipsized) and an app may claim it with a <code>&lt;wing side="left"&gt;</code> root
+    child; the RIGHT wing is shell-reserved for the <b>Edit-with-AI affordance</b> — a size-s glass
+    capsule (wand.and.stars + "Edit") that presents the app's chat surface. A right wing from an app
+    is a rejected commit. Zones hard-clamp and ellipsize when the panel nears cutout width — the same
+    discipline as the collapsed wings' RC fix. Distinct concept from §3.3's collapsed wings below.</p>
+
+  <h3>Wings (collapsed live text)</h3>
+  <p>Cutout-anchored — the shape grows symmetrically off the hardware cutout, never centers on its own
+    width. Text 11 pt medium secondary, ellipsized, hard-clamped so it can never slide behind the camera.
+    Latest-asker-wins; wings release on every lifecycle transition. Canvas wings draw into the same strip
+    at the same height. (All shipping — recorded as law after the RC fix.)</p>
+
+  <h3>App strip (shell chrome) <span class="spec-tag" style="margin-left:8px">SPEC</span></h3>
+  <p>Layout: <span class="v">[scrolling icon area] [+ new-app] [gap ≥ 12] [settings, pinned right]</span>.
+    Icons scroll horizontally (overlay scrollers, no visual change when everything fits); the
+    <b>+ and settings never scroll out of reach</b>, and the safe gap before settings survives maximum
+    crowding. Icons stay 34 pt circles, tint-only hover, syncHover verified against the live pointer
+    even mid-scroll (L5).</p>
+
+  <h3>Canvas</h3>
+  <p>The app's pixels, the shell's frame: canvases sit on a <code>sunken</code> mat with chip radius 8.
+    Upscaled sprites draw with interpolation <b>none</b> (pixel art stays crisp); everything else high.
+    Click events report canvas-local, y-down coordinates.</p>
+
+  <h3>Error card / placeholder</h3>
+  <p>Honest and directive, never mood: name the phase (<i>no host · no apps · starting</i>) and the
+    exact command that fixes it (<code>cd host &amp;&amp; bun run start</code>). Errors don't apologize;
+    empty states say what to do next. This is the voice for all system copy.</p>
+</section>
+
+<!-- ============================================================ D7 -->
+<section id="d7">
+  <div class="section-head"><span class="num">D7</span><h2>The laws</h2></div>
+  <p class="lede">The checklist for the cleanup agents — and for every component that comes after.
+    Each law exists because we shipped its violation.</p>
+  <div>
+    <div class="law"><span class="n">L1</span><p><b>One ruler.</b> Every color from <code>LedgeTheme</code>, every metric from <code>LedgeMetrics</code> (new). An inline literal in a component is a defect even when the value is correct.</p></div>
+    <div class="law"><span class="n">L2</span><p><b>Centering is measured, never trusted.</b> NSTextField/NSButton cell metrics lie; measure the string and center the content group yourself. Empty content contributes zero width and zero gap.</p></div>
+    <div class="law"><span class="n">L3</span><p><b>Radii come from the two rules.</b> Controls are capsules; nested containers are concentric (parent − inset, floor 4). All corners <code>.continuous</code>.</p></div>
+    <div class="law"><span class="n">L4</span><p><b>Press scales about the visual center</b> (<code>setPressScale</code> — layer anchor is (0,0), compensate). 0.96 labeled / 0.92 icon, 80 ms in, 120 ms out.</p></div>
+    <div class="law"><span class="n">L5</span><p><b>Hover is verified against the live pointer</b> (<code>syncHover</code> + <code>NSEvent.mouseLocation</code>). Tracking areas go stale whenever the panel morphs under a stationary cursor.</p></div>
+    <div class="law"><span class="n">L6</span><p><b>State changes animate; layout ticks don't.</b> Hover washes ease 120 ms; drag ticks, chart updates, and corner changes run under <code>CATransaction.setDisableActions</code>.</p></div>
+    <div class="law"><span class="n">L7</span><p><b>Text never wraps silently.</b> One line, tail truncation, measured intrinsic width (+6). Multi-line is opt-in via <code>maxLines</code> — implement the §5 <code>truncate</code> prop while in there.</p></div>
+    <div class="law"><span class="n">L8</span><p><b>One white.</b> Ink is white at .94/.56/.32; washes at .055/.085/.09/.14. No new grays, no new alphas without a token and a reason.</p></div>
+    <div class="law"><span class="n">L9</span><p><b>Hue is meaning.</b> Apps name intent (<code>accent</code>, <code>greenTint</code>…); the shell owns values. One hue family per card; accent once per panel.</p></div>
+    <div class="law"><span class="n">L10</span><p><b>Draw against bounds, never dirtyRect.</b> The halo bug's law. Layer backgrounds preferred over <code>draw(_:)</code> where possible.</p></div>
+  </div>
+</section>
+
+<!-- ============================================================ D8 -->
+<section id="d8">
+  <div class="section-head"><span class="num">D8</span><h2>Rulings — closed 2026-07-25</h2></div>
+  <p class="lede">All six questions ruled by Manu; recommendations adopted as-is. This section is
+    the contract for the cleanup wave.</p>
+  <table>
+    <tr><th>q</th><th>ruling</th></tr>
+    <tr><td class="m">Q1</td><td><b>Capsule</b> — every control radius = height/2, <code>.continuous</code>; icon-only buttons are circles. Buttons leave 10 behind.</td></tr>
+    <tr><td class="m">Q2</td><td><b>Inputs are capsules</b> — one shape language for everything you press or type into.</td></tr>
+    <tr><td class="m">Q3</td><td><b>Icon-only glyphs at 14 pt medium</b>, matching the app strip; labeled buttons keep 11 semibold icons.</td></tr>
+    <tr><td class="m">Q4</td><td><b><code>size</code> prop lands</b>: s 28 / m 34 (default) / l 40, capsule at every size.</td></tr>
+    <tr><td class="m">Q5</td><td><b><code>toggle</code> lands</b> — and with it the five other faked components promoted in D6 "New kinds": segment, stepper, progress, spinner, pill.</td></tr>
+    <tr><td class="m">Q6</td><td><b>Slider fill stays ink-white</b> — progress is content, not brand; accent remains reserved for actions (L9).</td></tr>
+  </table>
+</section>
+
+<footer style="margin-top:110px; border-top:1px solid rgba(255,255,255,.08); padding-top:20px" class="caption">
+  Ledge design system v0.2 · drafted and ratified 2026-07-25 from the shipped Swift components ·
+  cleanup wave in flight: LedgeMetrics, icon-only fix, capsule/concentric radius migration, literal
+  purge, slider min/max/step, truncate/maxLines, disabled state, size ramp, six new kinds
+  (toggle · segment · stepper · progress · spinner · pill), stack scroll.
+</footer>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,3 @@
+{ "v": 1, "app": "music", "seq": 3, "type": "platform",
+  "payload": { "id": 5, "call": "observe", "kind": "distributedNotification",
+               "name": "com.apple.Music.playerInfo" } }

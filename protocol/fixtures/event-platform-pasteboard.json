@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "app": "clips",
+  "seq": 21,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "pasteboard",
+      "name": "changed",
+      "userInfo": {
+        "changeCount": 4821,
+        "types": [
+          "public.utf8-plain-text",
+          "public.html"
+        ],
+        "hasStrings": true
+      }
+    }
+  }
+}

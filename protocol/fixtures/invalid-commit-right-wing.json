@@ -1,0 +1,6 @@
+{ "_expect": "resyncRequest", "v": 1, "app": "wings", "seq": 7, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v" } },
+  { "op": "create", "id": 2, "kind": "wing", "props": { "side": "right" } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

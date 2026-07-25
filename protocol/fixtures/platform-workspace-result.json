@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "app": "focus",
+  "seq": 12,
+  "type": "platformResult",
+  "payload": {
+    "id": 22,
+    "ok": true,
+    "data": {
+      "frontmost": {
+        "bundleId": "com.apple.dt.Xcode",
+        "localizedName": "Xcode"
+      },
+      "idleSeconds": 4.5,
+      "screenLocked": false
+    }
+  }
+}

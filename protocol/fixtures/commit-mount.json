@@ -1,0 +1,12 @@
+{ "v": 1, "app": "stocks", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "pad": 14, "gap": 8 } },
+  { "op": "create", "id": 2, "kind": "text", "props": { "content": "AAPL", "size": "s", "weight": "bold", "color": "secondary" } },
+  { "op": "create", "id": 3, "kind": "text", "props": { "content": "$214.62", "size": "xl", "weight": "bold", "mono": true } },
+  { "op": "create", "id": 4, "kind": "chart", "props": { "points": [0.2, 0.4, 0.3, 0.7, 1.0], "color": "green", "fill": true } },
+  { "op": "create", "id": 5, "kind": "button", "props": { "label": "Refresh", "variant": "glass", "onClick": true } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

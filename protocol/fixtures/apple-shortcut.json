@@ -1,0 +1,2 @@
+{ "v": 1, "app": "inbox", "seq": 42, "type": "apple",
+  "payload": { "id": 4, "kind": "shortcut", "name": "Log Note", "input": { "note": "standup at 10" } } }

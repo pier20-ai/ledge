@@ -1,0 +1,1 @@
+{ "v": 1, "app": "stocks", "seq": 1, "type": "event", "payload": { "id": 5, "name": "click", "data": {} } }

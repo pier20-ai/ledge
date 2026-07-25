@@ -1,0 +1,9 @@
+{ "v": 1, "app": "gallery", "seq": 4, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 2, "props": { "size": "l" } },
+  { "op": "update", "id": 4, "props": { "size": "s" } },
+  { "op": "update", "id": 5, "props": { "size": "l" } },
+  { "op": "update", "id": 6, "props": { "disabled": null } },
+  { "op": "update", "id": 7, "props": { "value": 145 } },
+  { "op": "update", "id": 8, "props": { "maxLines": 1 } },
+  { "op": "update", "id": 9, "props": { "truncate": true } }
+] } }

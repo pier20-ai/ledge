@@ -1,0 +1,4 @@
+{ "_expect": "resyncRequest", "v": 1, "app": "stocks", "seq": 3, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 9, "kind": "text", "props": { "content": "x" } },
+  { "op": "insert", "parent": 999, "id": 9, "before": null }
+] } }

@@ -1,0 +1,14 @@
+{
+  "name": "ledge-demo-apps",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "//": "The apps root's shared dependency set — the repo analogue of ~/.ledge/node_modules (spec §6). Apps import these bare; nothing here is a build tool. Versions are pinned exactly and bun.lock is committed, per spec §6 ('always ship the lockfile').",
+  "//react": "React is deliberately linked to the host's copy rather than pinned by version. Hooks live in module-level state (ReactCurrentDispatcher), so an app's `react` and the host reconciler's `react` must be the SAME module instance — two identical 18.3.1 copies is a `dispatcher.useState of null` crash on the app's first useState. The old node_modules symlink satisfied this by accident; this states it on purpose. See host/README.md.",
+  "dependencies": {
+    "cheerio": "1.2.0",
+    "chess.js": "1.4.0",
+    "react": "file:../../host/node_modules/react",
+    "stockfish": "18.0.8"
+  }
+}

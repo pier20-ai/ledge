@@ -1,0 +1,2 @@
+{ "v": 1, "app": "deals", "seq": 11, "type": "notifyAction",
+  "payload": { "id": 7, "action": "open" } }

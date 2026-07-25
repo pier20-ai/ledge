@@ -1,0 +1,4 @@
+{ "v": 1, "app": "", "seq": 10, "type": "builder", "payload": { "app": "stocks", "turn": 3, "event": "text", "delta": "Making the price track the delta…" } }
+{ "v": 1, "app": "", "seq": 11, "type": "builder", "payload": { "app": "stocks", "turn": 3, "event": "tool", "name": "edit", "detail": "app.jsx +2 −1" } }
+{ "v": 1, "app": "", "seq": 12, "type": "builder", "payload": { "app": "stocks", "turn": 3, "event": "status", "state": "reloaded", "ms": 1200 } }
+{ "v": 1, "app": "", "seq": 13, "type": "builder", "payload": { "app": "stocks", "turn": 3, "event": "done", "ok": true } }

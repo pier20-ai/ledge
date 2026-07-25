@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "types": [
+      "bun"
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "@ledge/jsx",
+    "paths": {
+      "@ledge/jsx": [
+        "./src/ledge-jsx"
+      ],
+      "@ledge/jsx/*": [
+        "./src/ledge-jsx/*"
+      ]
+    },
+    "lib": [
+      "ESNext"
+    ]
+  },
+  "include": [
+    "src",
+    "test"
+  ]
+}

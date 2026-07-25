@@ -1,0 +1,2 @@
+{ "v": 1, "app": "music", "seq": 10, "type": "platformResult",
+  "payload": { "id": 7, "ok": false, "error": "unsupported observe kind 'carrierPigeon'" } }

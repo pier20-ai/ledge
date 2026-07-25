@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "focus",
+  "seq": 3,
+  "type": "platform",
+  "payload": {
+    "id": 11,
+    "call": "observe",
+    "kind": "workspace",
+    "name": "didActivateApplication"
+  }
+}

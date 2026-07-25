@@ -1,0 +1,20 @@
+{ "v": 1, "app": "gallery", "seq": 3, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "button", "props": { "label": "Small", "variant": "glass", "size": "s", "onClick": true } },
+  { "op": "create", "id": 3, "kind": "button", "props": { "label": "Medium", "variant": "glass", "onClick": true } },
+  { "op": "create", "id": 4, "kind": "button", "props": { "label": "Large", "variant": "accent", "size": "l", "onClick": true } },
+  { "op": "create", "id": 5, "kind": "button", "props": { "label": "", "icon": "sf:play.fill", "variant": "accent", "onClick": true } },
+  { "op": "create", "id": 6, "kind": "button", "props": { "label": "Execute", "variant": "accent", "disabled": true, "onClick": true } },
+  { "op": "create", "id": 7, "kind": "slider", "props": { "value": 90, "min": 60, "max": 200, "step": 5, "onChange": true } },
+  { "op": "create", "id": 8, "kind": "text", "props": { "content": "A long clinical note that has to wrap across three lines before it tail-truncates.", "size": "m", "maxLines": 3 } },
+  { "op": "create", "id": 9, "kind": "text", "props": { "content": "clipped, not ellipsized", "size": "s", "truncate": false } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "insert", "parent": 1, "id": 7, "before": null },
+  { "op": "insert", "parent": 1, "id": 8, "before": null },
+  { "op": "insert", "parent": 1, "id": 9, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "app": "focus",
+  "seq": 4,
+  "type": "platform",
+  "payload": {
+    "id": 22,
+    "call": "workspace"
+  }
+}

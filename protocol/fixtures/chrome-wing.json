@@ -1,0 +1,4 @@
+{ "v": 1, "app": "stocks", "seq": 11, "type": "chrome", "payload": { "request": "wing", "wing": {
+  "text": "AAPL ▲ 1.2%",
+  "canvas": { "id": 12, "w": 64 }
+} } }

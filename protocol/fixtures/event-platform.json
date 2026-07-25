@@ -1,0 +1,6 @@
+{ "v": 1, "app": "music", "seq": 11, "type": "event",
+  "payload": { "id": 0, "name": "platform",
+               "data": { "kind": "distributedNotification",
+                         "name": "com.apple.Music.playerInfo",
+                         "userInfo": { "Player State": "Playing", "Name": "Bad Moon Rising",
+                                       "Total Time": 140000, "Loved": false } } } }

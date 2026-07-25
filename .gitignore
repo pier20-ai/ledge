@@ -1,0 +1,24 @@
+shell/.build/
+host/node_modules/
+.DS_Store
+
+# Demo-app runtime artifacts (spec §6): the apps root's installed dependencies
+# (`bun install` in protocol/demo-apps — its package.json and bun.lock ARE
+# tracked), plus host-written crash logs / transpile caches.
+protocol/demo-apps/node_modules
+protocol/demo-apps/*/crash.log
+protocol/demo-apps/*/.build/
+# App-owned persistence (spec §6): the live demo apps cache their last-known
+# state next to app.jsx. Data, not source — and the watcher ignores it.
+protocol/demo-apps/*/prices.json
+protocol/demo-apps/*/alarms.json
+protocol/demo-apps/*/*.tmp
+# music: album art pulled from the running player (art-<track hash>.jpg).
+protocol/demo-apps/music/art-*.jpg
+# trader: the paper ledger (bun:sqlite, WAL).
+protocol/demo-apps/trader/ledger.sqlite*
+# cimedic: the user's own {owner, repo, workflow} — config.example.json IS tracked.
+protocol/demo-apps/cimedic/config.json
+
+# Default output of scripts/snapshot-demos.sh.
+.snapshots/

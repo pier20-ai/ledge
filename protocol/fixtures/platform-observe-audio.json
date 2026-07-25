@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "music",
+  "seq": 5,
+  "type": "platform",
+  "payload": {
+    "id": 15,
+    "call": "observe",
+    "kind": "audio",
+    "name": "changed"
+  }
+}

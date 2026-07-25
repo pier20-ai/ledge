@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "app": "focus",
+  "seq": 21,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "workspace",
+      "name": "didActivateApplication",
+      "userInfo": {
+        "bundleId": "com.apple.Safari",
+        "localizedName": "Safari"
+      }
+    }
+  }
+}

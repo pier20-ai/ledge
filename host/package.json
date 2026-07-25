@@ -1,0 +1,26 @@
+{
+  "name": "ledge-host",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "bun": ">=1.3.9"
+  },
+  "scripts": {
+    "start": "bun src/host.ts",
+    "fake-shell": "bun src/fakes/fake-shell.ts",
+    "test": "bash scripts/test-stable.sh",
+    "start:demos": "bun src/host.ts --apps-root ../protocol/demo-apps",
+    "test:fast": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.9",
+    "@types/react": "18.3.12",
+    "@types/react-reconciler": "0.28.8",
+    "typescript": "5.7.3"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-reconciler": "0.29.2"
+  }
+}

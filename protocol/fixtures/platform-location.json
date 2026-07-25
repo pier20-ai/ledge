@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "app": "weather",
+  "seq": 4,
+  "type": "platform",
+  "payload": {
+    "id": 23,
+    "call": "location"
+  }
+}

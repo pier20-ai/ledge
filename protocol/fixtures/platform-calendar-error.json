@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 13,
+  "type": "platformResult",
+  "payload": {
+    "id": 21,
+    "ok": false,
+    "error": "calendar access was refused in System Settings › Privacy & Security › Calendars"
+  }
+}

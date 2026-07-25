@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "focus",
+  "seq": 13,
+  "type": "platformResult",
+  "payload": {
+    "id": 22,
+    "ok": false,
+    "error": "this shell has no workspace capability"
+  }
+}

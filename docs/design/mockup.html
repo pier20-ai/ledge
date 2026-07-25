@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledge — Notch UI Mockups</title>
+<style>
+  :root{
+    --bg:#08090D;
+    --glass:rgba(9,9,12,.88);
+    --glass-solid:#0A0A0D;
+    --hair:rgba(255,255,255,.09);
+    --tx1:rgba(255,255,255,.94);
+    --tx2:rgba(255,255,255,.56);
+    --tx3:rgba(255,255,255,.32);
+    --accent:#FFB454;            /* platform amber — pings & attention only */
+    --green:#30D158; --red:#FF453A;
+    --curve:cubic-bezier(.32,.72,0,1);
+    --ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:var(--bg);color:var(--tx1);font-family:var(--ui);-webkit-font-smoothing:antialiased}
+  body{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:52px 20px 80px}
+
+  /* ---------- page chrome (quiet) ---------- */
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.22em;color:var(--tx3);text-transform:uppercase}
+  h1{font:600 30px/1.15 var(--ui);letter-spacing:-.02em;margin:12px 0 8px}
+  .sub{font:400 14px/1.5 var(--ui);color:var(--tx2);max-width:520px;text-align:center}
+  header{display:flex;flex-direction:column;align-items:center;margin-bottom:36px;text-align:center}
+
+  /* ---------- the display ---------- */
+  .stage{width:min(880px,100%);}
+  .display{
+    position:relative;height:440px;border-radius:18px 18px 12px 12px;overflow:hidden;
+    border:1px solid #26262b;box-shadow:0 30px 80px -20px rgba(0,0,0,.8), inset 0 0 0 1px rgba(255,255,255,.03);
+    background:
+      radial-gradient(120% 90% at 18% -10%, #3A3F86 0%, transparent 55%),
+      radial-gradient(90% 80% at 85% 0%, #124E58 0%, transparent 60%),
+      radial-gradient(70% 60% at 60% 100%, #55284E 0%, transparent 55%),
+      #0A0F22;
+  }
+  .menubar{
+    position:absolute;inset:0 0 auto 0;height:34px;
+    display:flex;align-items:center;justify-content:space-between;padding:0 16px;
+    background:rgba(255,255,255,.06);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);
+    font:500 12.5px/1 var(--ui);color:rgba(255,255,255,.85);
+  }
+  .mb-l,.mb-r{display:flex;align-items:center;gap:16px}
+  .mb-l .app{font-weight:700}
+  .mb-l span:not(.app){color:rgba(255,255,255,.68)}
+  .mb-r{gap:12px}
+  .mb-r svg{opacity:.85}
+  .mb-r .clock{font-variant-numeric:tabular-nums}
+
+  /* ---------- the notch (signature: one shape, five states) ---------- */
+  .notch{
+    position:absolute;top:0;left:50%;transform:translateX(-50%);
+    width:210px;height:34px;cursor:pointer;
+    background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
+    border-radius:0 0 12px 12px;
+    transition:width .45s var(--curve),height .45s var(--curve),border-radius .45s var(--curve);
+    box-shadow:0 18px 50px -12px rgba(0,0,0,.65);
+    z-index:5;
+  }
+  /* concave fillets into the menubar */
+  .notch::before,.notch::after{
+    content:"";position:absolute;top:0;width:12px;height:12px;pointer-events:none;
+  }
+  .notch::before{left:-12px;background:radial-gradient(circle 12px at 0 100%, transparent 11.5px, var(--glass-solid) 12px)}
+  .notch::after{right:-12px;background:radial-gradient(circle 12px at 100% 100%, transparent 11.5px, var(--glass-solid) 12px)}
+  .camera{position:absolute;top:13px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, #1c2430 0 30%, #05070a 70%);z-index:6;pointer-events:none}
+
+  /* state geometry */
+  .display[data-state=live]     .notch{width:340px}
+  .display[data-state=stocks]   .notch{width:440px;height:294px;border-radius:0 0 26px 26px}
+  .display[data-state=music]    .notch{width:440px;height:228px;border-radius:0 0 26px 26px}
+  .display[data-state=deals]    .notch{width:440px;height:278px;border-radius:0 0 26px 26px}
+  .display[data-state=chat]     .notch{width:440px;height:384px;border-radius:0 0 26px 26px}
+  .display[data-state=new]      .notch{width:440px;height:352px;border-radius:0 0 26px 26px}
+  .display[data-state=settings] .notch{width:440px;height:302px;border-radius:0 0 26px 26px}
+
+  /* panel content switching */
+  .pane{position:absolute;inset:0;opacity:0;visibility:hidden;transform:scale(.98);
+    transition:opacity .28s ease .1s, transform .32s var(--curve) .1s, visibility 0s .3s}
+  .display[data-state=idle]     .pane.idle,
+  .display[data-state=live]     .pane.live,
+  .display[data-state=stocks]   .pane.stocks,
+  .display[data-state=music]    .pane.music,
+  .display[data-state=deals]    .pane.deals,
+  .display[data-state=chat]     .pane.chat,
+  .display[data-state=new]      .pane.new,
+  .display[data-state=settings] .pane.settings{opacity:1;visibility:visible;transform:scale(1);transition-delay:.16s,.16s,0s}
+
+  /* ---------- app strip (shell chrome, all expanded states) ---------- */
+  .appbar{position:absolute;left:0;right:0;bottom:0;height:42px;z-index:7;
+    display:flex;align-items:center;gap:2px;padding:0 12px;
+    border-top:1px solid var(--hair);
+    opacity:0;visibility:hidden;transform:translateY(6px);
+    transition:opacity .28s ease .12s, transform .32s var(--curve) .12s, visibility 0s .3s}
+  .display[data-state=stocks] .appbar,
+  .display[data-state=music]  .appbar,
+  .display[data-state=deals]  .appbar,
+  .display[data-state=chat]   .appbar,
+  .display[data-state=new]    .appbar,
+  .display[data-state=settings] .appbar{opacity:1;visibility:visible;transform:translateY(0);transition-delay:.18s,.18s,0s}
+  .abtn{position:relative;width:34px;height:30px;border:0;background:none;border-radius:8px;cursor:pointer;
+    display:grid;place-items:center;color:#fff;opacity:.38;transition:opacity .15s, background .15s}
+  .abtn:hover{opacity:.75;background:rgba(255,255,255,.06)}
+  .abtn:focus-visible{outline:2px solid var(--accent);outline-offset:1px;opacity:1}
+  .abtn.on{opacity:1}
+  .abtn.on::after{content:"";position:absolute;bottom:1px;left:50%;transform:translateX(-50%);
+    width:3.5px;height:3.5px;border-radius:50%;background:#fff}
+  .abtn svg{display:block}
+  .abdiv{width:1px;height:16px;background:var(--hair);margin:0 8px;flex:none}
+  .abgap{flex:1}
+
+  /* ---------- settings ---------- */
+  .slab{font:600 9px/1 var(--mono);letter-spacing:.16em;color:var(--tx3);text-transform:uppercase;margin:9px 0 5px}
+  .srow{display:flex;align-items:center;gap:8px;padding:6px 1px}
+  .srow b{font:600 12px/1 var(--ui)}
+  .srow .file{font:500 10px/1 var(--mono);color:var(--tx3)}
+  .perm{font:600 8.5px/1 var(--mono);letter-spacing:.05em;padding:3px 5px;border-radius:4px;
+    background:rgba(255,255,255,.07);color:var(--tx2)}
+  .perm.granted{background:rgba(48,209,88,.12);color:var(--green)}
+  .srow .sp{flex:1}
+  .tog{width:30px;height:18px;border-radius:9px;background:rgba(255,255,255,.16);position:relative;flex:none;
+    cursor:pointer;transition:background .2s}
+  .tog::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+    background:#fff;transition:transform .2s var(--curve);box-shadow:0 1px 3px rgba(0,0,0,.4)}
+  .tog.on{background:var(--green)}
+  .tog.on::after{transform:translateX(12px)}
+
+  /* ---------- shared bits ---------- */
+  .hdr{display:flex;align-items:center;justify-content:space-between;height:34px;padding:0 16px;
+    font:600 11.5px/1 var(--ui);color:var(--tx2)}
+  .hdr .l{display:flex;align-items:center;gap:6px}
+  .hdr .live-dot{width:5px;height:5px;border-radius:50%;background:var(--green);animation:pulse 2.4s infinite}
+  .body{padding:2px 16px 0}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+  /* ---------- live wings ---------- */
+  .pane.live{display:flex;align-items:center;justify-content:space-between;padding:0 14px}
+  .wing{display:flex;align-items:center;gap:7px;font:600 12px/1 var(--ui)}
+  .wing .up{color:var(--green);font-family:var(--mono);font-size:11.5px}
+  .eq{display:flex;align-items:flex-end;gap:2px;height:14px}
+  .eq i{width:3px;border-radius:1.5px;background:var(--accent);animation:eq 1s ease-in-out infinite}
+  .eq i:nth-child(1){height:60%;animation-delay:0s}
+  .eq i:nth-child(2){height:100%;animation-delay:.25s}
+  .eq i:nth-child(3){height:45%;animation-delay:.5s}
+  @keyframes eq{0%,100%{transform:scaleY(.5)}50%{transform:scaleY(1)}}
+
+  /* ---------- stocks ---------- */
+  .price-row{display:flex;align-items:baseline;gap:10px;margin-top:2px}
+  .ticker{font:700 13px/1 var(--ui);color:var(--tx2);letter-spacing:.02em}
+  .price{font:700 30px/1 var(--mono);letter-spacing:-.02em}
+  .delta{font:600 13px/1 var(--mono);color:var(--green)}
+  .spark{margin:10px 0 8px}
+  .alert{display:flex;align-items:center;gap:8px;margin:2px 0 10px;padding:7px 10px;border-radius:9px;
+    background:rgba(255,180,84,.10);border:1px solid rgba(255,180,84,.22);
+    font:500 11.5px/1.2 var(--ui);color:var(--accent)}
+  .alert .when{margin-left:auto;color:rgba(255,180,84,.55);font-family:var(--mono);font-size:10.5px}
+  .watch{display:flex;gap:8px}
+  .chip{flex:1;display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:9px;
+    background:rgba(255,255,255,.05);border:1px solid var(--hair);font:600 11.5px/1 var(--ui)}
+  .chip .d{font-family:var(--mono);font-size:11px}
+  .chip .d.up{color:var(--green)} .chip .d.dn{color:var(--red)}
+
+  /* ---------- music ---------- */
+  .music-row{display:flex;align-items:center;gap:12px;margin-top:4px}
+  .art{width:46px;height:46px;border-radius:9px;flex:none;position:relative;overflow:hidden;
+    background:conic-gradient(from 210deg at 60% 40%, #FF5E7E, #7B4DFF 40%, #17E0C8 75%, #FF5E7E);
+    box-shadow:0 6px 18px -6px rgba(123,77,255,.6)}
+  .art::after{content:"";position:absolute;inset:0;background:radial-gradient(circle at 50% 50%, transparent 34%, rgba(0,0,0,.35) 36% 100%)}
+  .track{min-width:0}
+  .track b{display:block;font:600 13.5px/1.3 var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .track span{font:400 11.5px/1.4 var(--ui);color:var(--tx2)}
+  .scrub{margin:12px 0 10px}
+  .scrub .bar{height:4px;border-radius:2px;background:rgba(255,255,255,.14);position:relative;overflow:hidden}
+  .scrub .fill{position:absolute;inset:0;width:38%;border-radius:2px;background:rgba(255,255,255,.85)}
+  .scrub .t{display:flex;justify-content:space-between;font:500 9.5px/1 var(--mono);color:var(--tx3);margin-top:5px}
+  .transport{display:flex;align-items:center;justify-content:center;gap:26px}
+  .tbtn{background:none;border:0;color:var(--tx1);cursor:pointer;display:grid;place-items:center;
+    width:34px;height:34px;border-radius:50%;transition:background .15s}
+  .tbtn:hover{background:rgba(255,255,255,.08)}
+  .tbtn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .tbtn.play{background:rgba(255,255,255,.10)}
+
+  /* ---------- deals ---------- */
+  .deal{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;margin-bottom:6px;
+    background:rgba(255,255,255,.045);border:1px solid var(--hair)}
+  .deal.hit{background:rgba(48,209,88,.09);border-color:rgba(48,209,88,.25)}
+  .deal .ico{width:28px;height:28px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:13px;
+    background:rgba(255,255,255,.07)}
+  .deal .info{min-width:0;flex:1}
+  .deal .info b{display:block;font:600 12px/1.3 var(--ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .deal .info span{font:500 10.5px/1.3 var(--ui);color:var(--tx2)}
+  .deal .p{text-align:right;font-family:var(--mono)}
+  .deal .p b{display:block;font-size:13px}
+  .deal .p span{font-size:10px;color:var(--green)}
+  .deal .p .old{color:var(--tx3);text-decoration:line-through}
+  .hit-tag{font:700 9px/1 var(--mono);letter-spacing:.08em;color:var(--green);
+    padding:3px 6px;border-radius:5px;background:rgba(48,209,88,.15)}
+
+  /* ---------- ai chat ---------- */
+  .chatlog{display:flex;flex-direction:column;gap:8px;padding:0 16px;height:134px;overflow:hidden}
+  .msg{max-width:82%;padding:8px 11px;border-radius:13px;font:400 12.5px/1.45 var(--ui)}
+  .msg.user{align-self:flex-end;background:rgba(255,255,255,.13);border-bottom-right-radius:4px}
+  .msg.ai{align-self:flex-start;background:rgba(255,255,255,.055);border:1px solid var(--hair);border-bottom-left-radius:4px}
+  .diff{align-self:flex-start;width:82%;border-radius:11px;overflow:hidden;border:1px solid var(--hair);background:rgba(0,0,0,.35)}
+  .diff .fh{display:flex;justify-content:space-between;padding:6px 10px;background:rgba(255,255,255,.05);
+    font:600 10px/1 var(--mono);color:var(--tx2)}
+  .diff .fh .pm{color:var(--tx3)} .diff .fh .pm b{color:var(--green);font-weight:600} .diff .fh .pm i{color:var(--red);font-style:normal}
+  .diff pre{padding:7px 10px;font:400 10.5px/1.55 var(--mono);color:var(--tx2)}
+  .diff .add{color:#7CE7A2;background:rgba(48,209,88,.08);display:block}
+  .diff .del{color:#FF8A80;background:rgba(255,69,58,.07);display:block;text-decoration:line-through;text-decoration-color:rgba(255,138,128,.4)}
+  .status{align-self:flex-start;display:flex;align-items:center;gap:6px;font:500 10.5px/1 var(--mono);color:var(--green)}
+  .status::before{content:"✓"}
+  .chat-tgl{width:24px;height:22px;border:0;border-radius:6px;background:none;cursor:pointer;
+    color:#fff;opacity:.4;font-size:12px;line-height:1;transition:opacity .15s, background .15s}
+  .chat-tgl:hover{opacity:.85;background:rgba(255,255,255,.07)}
+  .chat-tgl:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .chat-tgl.on{opacity:1;color:var(--accent)}
+  .preview{padding:2px 16px 8px}
+  .preview .price{font-size:22px}
+  .pdiv{display:flex;align-items:center;gap:8px;margin:2px 16px 10px;
+    font:600 8.5px/1 var(--mono);letter-spacing:.16em;color:var(--tx3);text-transform:uppercase}
+  .pdiv span{flex:1;height:1px;background:var(--hair)}
+  .empty-preview{margin:4px 16px 10px;padding:18px 16px;border:1.5px dashed rgba(255,255,255,.14);
+    border-radius:12px;text-align:center;font:400 11.5px/1.5 var(--ui);color:var(--tx3)}
+  .typing{align-self:flex-start;display:flex;gap:3.5px;padding:9px 12px;border-radius:13px;
+    border-bottom-left-radius:4px;background:rgba(255,255,255,.055);border:1px solid var(--hair)}
+  .typing i{width:4px;height:4px;border-radius:50%;background:var(--tx2);animation:blink 1.2s infinite}
+  .typing i:nth-child(2){animation-delay:.2s}
+  .typing i:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,100%{opacity:.25}50%{opacity:.9}}
+  .chat-input{position:absolute;left:12px;right:12px;bottom:52px;display:flex;align-items:center;gap:8px;
+    padding:9px 12px;border-radius:12px;background:rgba(255,255,255,.07);border:1px solid var(--hair)}
+  .chat-input span{font:400 12.5px/1 var(--ui);color:var(--tx3);flex:1}
+  .send{width:24px;height:24px;border-radius:50%;background:var(--accent);border:0;display:grid;place-items:center;cursor:pointer}
+  .send svg{display:block}
+
+  /* ---------- switcher & readout ---------- */
+  .switcher{display:flex;gap:4px;margin:26px auto 0;padding:4px;border-radius:13px;width:max-content;
+    background:rgba(255,255,255,.05);border:1px solid var(--hair)}
+  .switcher button{border:0;background:none;color:var(--tx2);font:600 12.5px/1 var(--ui);
+    padding:8px 15px;border-radius:9px;cursor:pointer;transition:all .18s}
+  .switcher button:hover{color:var(--tx1)}
+  .switcher button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  .switcher button.on{background:rgba(255,255,255,.12);color:var(--tx1)}
+  .readout{margin:18px auto 0;display:flex;gap:26px;justify-content:center;
+    font:500 11px/1.6 var(--mono);color:var(--tx3)}
+  .readout b{color:var(--tx2);font-weight:600}
+  .foot{margin-top:44px;font:400 12px/1.6 var(--ui);color:var(--tx3);text-align:center;max-width:560px}
+
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
+  }
+  @media (max-width:700px){
+    .display{height:420px}
+    .mb-l span:not(.app){display:none}
+    .readout{flex-wrap:wrap;gap:8px 20px;padding:0 12px}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Ledge · Notch App Platform</div>
+  <h1>One shape, every app</h1>
+  <p class="sub">The notch is a single piece of black glass that morphs. Click a state below — or click the notch itself to cycle.</p>
+</header>
+
+<div class="stage">
+  <div class="display" id="display" data-state="idle">
+
+    <!-- menubar -->
+    <div class="menubar">
+      <div class="mb-l">
+        <span class="app">Finder</span><span>File</span><span>Edit</span><span>View</span><span>Go</span>
+      </div>
+      <div class="mb-r">
+        <svg width="15" height="11" viewBox="0 0 15 11" fill="none"><path d="M7.5 10.4 5.2 8a3.3 3.3 0 0 1 4.6 0L7.5 10.4Z" fill="#fff"/><path d="M3.3 6a6 6 0 0 1 8.4 0l-1.3 1.4a4.1 4.1 0 0 0-5.8 0L3.3 6Z" fill="#fff" opacity=".75"/><path d="M1.2 3.9a9 9 0 0 1 12.6 0l-1.3 1.3a7.1 7.1 0 0 0-10 0L1.2 3.9Z" fill="#fff" opacity=".5"/></svg>
+        <svg width="24" height="12" viewBox="0 0 24 12" fill="none"><rect x=".5" y=".5" width="20" height="11" rx="3" stroke="#fff" opacity=".5"/><rect x="2" y="2" width="14" height="8" rx="1.6" fill="#fff"/><path d="M22 4v4c1.1-.2 1.8-1 1.8-2s-.7-1.8-1.8-2Z" fill="#fff" opacity=".5"/></svg>
+        <span class="clock">Fri Jul 24</span><span class="clock">9:41 AM</span>
+      </div>
+    </div>
+
+    <!-- the notch -->
+    <div class="notch" id="notch" role="button" tabindex="0" aria-label="Notch panel — click to cycle states">
+      <div class="camera"></div>
+
+      <!-- idle: nothing but hardware -->
+      <div class="pane idle"></div>
+
+      <!-- live activity wings -->
+      <div class="pane live">
+        <div class="wing"><span class="mono" style="font-size:11.5px;color:var(--tx2)">AAPL</span><span class="up">▲ 1.2%</span></div>
+        <div class="wing"><div class="eq"><i></i><i></i><i></i></div></div>
+      </div>
+
+      <!-- stocks -->
+      <div class="pane stocks">
+        <div class="hdr">
+          <div class="l"><span class="live-dot"></span>Stocks</div>
+          <div class="l"><span class="mono" style="font-size:10px">60s</span><button class="chat-tgl" data-s="chat" aria-label="Open chat for Stocks">✦</button></div>
+        </div>
+        <div class="body">
+          <div class="price-row">
+            <span class="ticker">AAPL</span>
+            <span class="price">$214.62</span>
+            <span class="delta">▲ 1.24%</span>
+          </div>
+          <svg class="spark" width="100%" height="44" viewBox="0 0 408 44" preserveAspectRatio="none">
+            <defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#30D158" stop-opacity=".35"/><stop offset="1" stop-color="#30D158" stop-opacity="0"/>
+            </linearGradient></defs>
+            <path d="M0 34 L30 30 L60 33 L95 24 L130 27 L165 18 L200 22 L235 14 L270 17 L305 10 L340 13 L375 6 L408 4 V44 H0 Z" fill="url(#sg)"/>
+            <path d="M0 34 L30 30 L60 33 L95 24 L130 27 L165 18 L200 22 L235 14 L270 17 L305 10 L340 13 L375 6 L408 4" fill="none" stroke="#30D158" stroke-width="1.8" stroke-linejoin="round"/>
+          </svg>
+          <div class="alert">⚡ Ping — crossed your $214 mark<span class="when">2m ago</span></div>
+          <div class="watch">
+            <div class="chip"><span>NVDA</span><span class="d up">+2.8%</span></div>
+            <div class="chip"><span>TSLA</span><span class="d dn">−0.9%</span></div>
+            <div class="chip"><span>BTC</span><span class="d up">+0.4%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- music -->
+      <div class="pane music">
+        <div class="hdr"><div class="l">Now Playing</div><span class="mono" style="font-size:10px">Spotify</span></div>
+        <div class="body">
+          <div class="music-row">
+            <div class="art"></div>
+            <div class="track"><b>Nightcall</b><span>Kavinsky — OutRun</span></div>
+          </div>
+          <div class="scrub">
+            <div class="bar"><div class="fill"></div></div>
+            <div class="t"><span>1:36</span><span>−2:42</span></div>
+          </div>
+          <div class="transport">
+            <button class="tbtn" aria-label="Previous"><svg width="15" height="14" viewBox="0 0 15 14" fill="#fff"><path d="M2 1h2v12H2zM14 1v12L5 7z"/></svg></button>
+            <button class="tbtn play" aria-label="Pause"><svg width="12" height="14" viewBox="0 0 12 14" fill="#fff"><rect width="4" height="14" rx="1"/><rect x="8" width="4" height="14" rx="1"/></svg></button>
+            <button class="tbtn" aria-label="Next"><svg width="15" height="14" viewBox="0 0 15 14" fill="#fff"><path d="M13 1h-2v12h2zM1 1v12l9-6z"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- deals -->
+      <div class="pane deals">
+        <div class="hdr"><div class="l"><span class="live-dot"></span>Deal Watch</div><span class="mono" style="font-size:10px">3 tracked</span></div>
+        <div class="body">
+          <div class="deal hit">
+            <div class="ico">🎧</div>
+            <div class="info"><b>Sony WH-1000XM5</b><span>amazon.com · target $250</span></div>
+            <div class="p"><b>$248</b><span>−$150</span></div>
+            <span class="hit-tag">HIT</span>
+          </div>
+          <div class="deal">
+            <div class="ico">⌨️</div>
+            <div class="info"><b>Keychron Q1 Pro</b><span>keychron.com</span></div>
+            <div class="p"><b>$199</b><span class="old">$219</span></div>
+          </div>
+          <div class="deal">
+            <div class="ico">💻</div>
+            <div class="info"><b>Studio Display</b><span>apple.com · refurb</span></div>
+            <div class="p"><b>$1,359</b><span class="old">$1,599</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- chat open on Stocks: live preview above, transcript below -->
+      <div class="pane chat">
+        <div class="hdr">
+          <div class="l"><span class="live-dot"></span>Stocks</div>
+          <div class="l"><span class="mono" style="font-size:10px">stocks.jsx</span><button class="chat-tgl on" data-s="stocks" aria-label="Close chat">✦</button></div>
+        </div>
+        <div class="preview">
+          <div class="price-row">
+            <span class="ticker">AAPL</span>
+            <span class="price" style="color:var(--green)">$214.62</span>
+            <span class="delta">▲ 1.24%</span>
+          </div>
+        </div>
+        <div class="pdiv"><span></span>Transcript<span></span></div>
+        <div class="chatlog">
+          <div class="msg user">make the price green when it's up</div>
+          <div class="diff">
+            <div class="fh"><span>stocks.jsx</span><span class="pm"><b>+2</b> <i>−1</i></span></div>
+            <pre><span class="del">&lt;text size="xl" weight="bold"&gt;</span><span class="add">&lt;text size="xl" weight="bold"</span><span class="add">  color={delta &gt; 0 ? "green" : "red"}&gt;</span></pre>
+          </div>
+          <div class="status">Worker reloaded · 1.2s — live above</div>
+        </div>
+        <div class="chat-input">
+          <span>Ask for a change…</span>
+          <button class="send" aria-label="Send"><svg width="10" height="11" viewBox="0 0 10 11" fill="none"><path d="M5 10V1M5 1 1.5 4.5M5 1l3.5 3.5" stroke="#0A0A0D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+
+      <!-- [+] new app: empty tuple (no code yet, transcript just starting) -->
+      <div class="pane new">
+        <div class="hdr">
+          <div class="l">New app</div>
+          <span class="mono" style="font-size:10px;color:var(--tx3)">untitled.jsx</span>
+        </div>
+        <div class="empty-preview">Preview appears here as the app is built</div>
+        <div class="pdiv"><span></span>Transcript<span></span></div>
+        <div class="chatlog">
+          <div class="msg user">track flight UA 884 tomorrow, ping me if the gate changes</div>
+          <div class="msg ai">On it — writing flight.jsx with a monitor() on the departures feed. It'll need network access to flightaware.com.</div>
+          <div class="typing"><i></i><i></i><i></i></div>
+        </div>
+        <div class="chat-input">
+          <span>Describe an app…</span>
+          <button class="send" aria-label="Send"><svg width="10" height="11" viewBox="0 0 10 11" fill="none"><path d="M5 10V1M5 1 1.5 4.5M5 1l3.5 3.5" stroke="#0A0A0D" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+
+      <!-- settings (built-in) -->
+      <div class="pane settings">
+        <div class="hdr"><div class="l">Settings</div><span class="mono" style="font-size:10px">4 workers · 38 MB</span></div>
+        <div class="body">
+          <div class="slab">Apps</div>
+          <div class="srow"><b>Stocks</b><span class="file">stocks.jsx</span><span class="perm">NET</span><span class="sp"></span><span class="tog on" role="switch" aria-checked="true" tabindex="0" aria-label="Stocks enabled"></span></div>
+          <div class="srow"><b>Music</b><span class="file">music.jsx</span><span class="perm granted">APPLESCRIPT ✓</span><span class="sp"></span><span class="tog on" role="switch" aria-checked="true" tabindex="0" aria-label="Music enabled"></span></div>
+          <div class="srow"><b>Deal Watch</b><span class="file">deals.jsx</span><span class="perm">NET</span><span class="perm granted">NOTIFY ✓</span><span class="sp"></span><span class="tog on" role="switch" aria-checked="true" tabindex="0" aria-label="Deal Watch enabled"></span></div>
+          <div class="slab">General</div>
+          <div class="srow"><b>Launch at login</b><span class="sp"></span><span class="tog on" role="switch" aria-checked="true" tabindex="0" aria-label="Launch at login"></span></div>
+          <div class="srow"><b>Throttle monitors on battery</b><span class="sp"></span><span class="tog on" role="switch" aria-checked="true" tabindex="0" aria-label="Throttle on battery"></span></div>
+        </div>
+      </div>
+
+      <!-- shell app strip: apps · [+] new · Settings -->
+      <div class="appbar" role="tablist" aria-label="Apps">
+        <button class="abtn on" data-s="stocks" aria-label="Stocks">
+          <svg width="17" height="14" viewBox="0 0 17 14" fill="none"><path d="M1.5 11.5 6 7l3 2.5L15.5 3" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M11.5 2.5h4.2v4.2" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="abtn" data-s="music" aria-label="Music">
+          <svg width="15" height="16" viewBox="0 0 15 16" fill="none"><path d="M5.5 13V3.2l8-1.7V11" stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><circle cx="3.2" cy="13" r="2.3" fill="#fff"/><circle cx="11.2" cy="11" r="2.3" fill="#fff"/></svg>
+        </button>
+        <button class="abtn" data-s="deals" aria-label="Deal Watch">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M1.8 2.8c0-.6.4-1 1-1h4.4c.3 0 .5.1.7.3l6.3 6.3c.4.4.4 1 0 1.4l-4.4 4.4c-.4.4-1 .4-1.4 0L2.1 7.9a1 1 0 0 1-.3-.7V2.8Z" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><circle cx="5.3" cy="5.3" r="1.1" fill="#fff"/></svg>
+        </button>
+        <button class="abtn" data-s="new" aria-label="New app">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1.5v11M1.5 7h11" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <div class="abgap"></div>
+        <div class="abdiv"></div>
+        <button class="abtn" data-s="settings" aria-label="Settings">
+          <svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 3h13M1.5 7h13M1.5 11h13"/><circle cx="5.5" cy="3" r="1.8" fill="var(--glass-solid)"/><circle cx="10.5" cy="7" r="1.8" fill="var(--glass-solid)"/><circle cx="4.5" cy="11" r="1.8" fill="var(--glass-solid)"/></svg>
+        </button>
+      </div>
+
+    </div><!-- /notch -->
+  </div><!-- /display -->
+
+  <div class="switcher" role="tablist" aria-label="Notch state">
+    <button data-s="idle"   class="on">Idle</button>
+    <button data-s="live">Live wings</button>
+    <button data-s="stocks">Stocks</button>
+    <button data-s="music">Music</button>
+    <button data-s="deals">Deals</button>
+    <button data-s="chat">Chat ✦</button>
+    <button data-s="new">New app</button>
+    <button data-s="settings">Settings</button>
+  </div>
+
+  <div class="readout" id="readout">
+    <span><b id="ro-name">Idle</b></span>
+    <span>size <b id="ro-size">210 × 34</b></span>
+    <span>material <b>black 88% · blur 40</b></span>
+    <span>curve <b>(.32,.72,0,1) · 450ms</b></span>
+  </div>
+
+  <p class="foot">An app is a (transcript, code) tuple. Every app header carries a ✦ that opens its chat below a live preview — edits hot-reload in view. The [+] in the strip is an empty tuple: a transcript that hasn't produced code yet. The bottom strip is shell chrome; apps can never draw over it.</p>
+</div>
+
+<script>
+  const states = {
+    idle:    ["Idle — hardware only", "210 × 34"],
+    live:    ["Live wings — monitor() pings", "340 × 34"],
+    stocks:  ["Stocks app", "440 × 294"],
+    music:   ["Music app", "440 × 228"],
+    deals:   ["Deal Watch app", "440 × 278"],
+    chat:    ["Stocks + chat — (transcript, code)", "440 × 384"],
+    new:     ["New app — empty tuple", "440 × 352"],
+    settings:["Settings — built-in", "440 × 302"],
+  };
+  const order = Object.keys(states);
+  const display = document.getElementById('display');
+  const syncBtns = [...document.querySelectorAll('.switcher [data-s], .appbar [data-s]')];
+  const stripAlias = { chat: 'stocks' };   // chat open on stocks lights the stocks icon
+  function setState(s){
+    display.dataset.state = s;
+    syncBtns.forEach(b => {
+      const inStrip = !!b.closest('.appbar');
+      b.classList.toggle('on', b.dataset.s === s || (inStrip && b.dataset.s === stripAlias[s]));
+    });
+    document.getElementById('ro-name').textContent = states[s][0];
+    document.getElementById('ro-size').textContent = states[s][1];
+  }
+  document.querySelectorAll('[data-s]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); setState(b.dataset.s); }));
+  const notch = document.getElementById('notch');
+  const cycle = () => setState(order[(order.indexOf(display.dataset.state)+1) % order.length]);
+  notch.addEventListener('click', e => { if (!e.target.closest('.tbtn,.send,.appbar,.tog,.chat-tgl,[data-s]')) cycle(); });
+  notch.addEventListener('keydown', e => {
+    if ((e.key==='Enter'||e.key===' ') && e.target===notch) { e.preventDefault(); cycle(); }
+  });
+  document.querySelectorAll('.tog').forEach(t => {
+    const flip = () => { t.classList.toggle('on'); t.setAttribute('aria-checked', t.classList.contains('on')); };
+    t.addEventListener('click', e => { e.stopPropagation(); flip(); });
+    t.addEventListener('keydown', e => { if (e.key==='Enter'||e.key===' ') { e.preventDefault(); flip(); } });
+  });
+</script>
+</body>
+</html>

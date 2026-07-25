@@ -1,0 +1,3 @@
+{ "v": 1, "app": "flights", "seq": 13, "type": "event",
+  "payload": { "id": 0, "name": "drop",
+               "data": { "paths": ["/Users/you/Downloads/boarding-pass.pdf"] } } }

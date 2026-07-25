@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "app": "files",
+  "seq": 12,
+  "type": "platformResult",
+  "payload": {
+    "id": 24,
+    "ok": true,
+    "data": [
+      {
+        "path": "/Users/you/Documents/lease.pdf",
+        "name": "lease.pdf",
+        "contentType": "com.adobe.pdf",
+        "modified": "2026-07-20T11:02:00Z"
+      },
+      {
+        "path": "/Users/you/Documents/receipt.pdf",
+        "name": "receipt.pdf",
+        "contentType": "com.adobe.pdf"
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "music",
+  "seq": 13,
+  "type": "platformResult",
+  "payload": {
+    "id": 25,
+    "ok": false,
+    "error": "no default output device"
+  }
+}

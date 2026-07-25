@@ -1,0 +1,22 @@
+{ "v": 1, "app": "gallery", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 12, "scroll": true } },
+  { "op": "create", "id": 2, "kind": "toggle", "props": { "on": true, "onChange": true } },
+  { "op": "create", "id": 3, "kind": "toggle", "props": { "on": false, "disabled": true, "onChange": true } },
+  { "op": "create", "id": 4, "kind": "segment", "props": { "options": [{ "id": "1d", "label": "1D" }, { "id": "1w", "label": "1W" }, { "id": "1m", "label": "1M" }], "value": "1w", "onChange": true } },
+  { "op": "create", "id": 5, "kind": "stepper", "props": { "value": 7, "min": 0, "max": 23, "step": 1, "onChange": true } },
+  { "op": "create", "id": 6, "kind": "stepper", "props": { "value": 450, "min": 0, "max": 1439, "step": 5, "format": "07:30", "onChange": true } },
+  { "op": "create", "id": 7, "kind": "progress", "props": { "value": 0.64 } },
+  { "op": "create", "id": 8, "kind": "spinner", "props": {} },
+  { "op": "create", "id": 9, "kind": "pill", "props": { "label": "PAPER", "tone": "accent" } },
+  { "op": "create", "id": 10, "kind": "pill", "props": { "label": "DRAFT", "tone": "neutral" } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "insert", "parent": 1, "id": 7, "before": null },
+  { "op": "insert", "parent": 1, "id": 8, "before": null },
+  { "op": "insert", "parent": 1, "id": 9, "before": null },
+  { "op": "insert", "parent": 1, "id": 10, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

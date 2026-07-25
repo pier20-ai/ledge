@@ -1,0 +1,6 @@
+{
+  "//": "Copy to config.json next to app.jsx. `workflow` is optional and filters by workflow NAME; drop it to watch every workflow in the repo. `gh` must be installed and authenticated (gh auth login) — set LEDGE_GH_CMD to point every gh call at a fixture script instead.",
+  "owner": "cli",
+  "repo": "cli",
+  "workflow": "CI"
+}

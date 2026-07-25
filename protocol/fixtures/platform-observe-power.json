@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "battery",
+  "seq": 3,
+  "type": "platform",
+  "payload": {
+    "id": 13,
+    "call": "observe",
+    "kind": "power",
+    "name": "changed"
+  }
+}

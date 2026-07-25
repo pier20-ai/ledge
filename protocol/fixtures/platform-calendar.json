@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 4,
+  "type": "platform",
+  "payload": {
+    "id": 21,
+    "call": "calendar",
+    "from": "2026-07-25T09:00:00Z",
+    "to": "2026-07-26T09:00:00Z"
+  }
+}

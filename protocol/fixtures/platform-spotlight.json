@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "app": "files",
+  "seq": 4,
+  "type": "platform",
+  "payload": {
+    "id": 24,
+    "call": "spotlight",
+    "query": "kMDItemContentType == \"com.adobe.pdf\"",
+    "scopes": [
+      "/Users/you/Documents"
+    ]
+  }
+}

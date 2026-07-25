@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "app": "music",
+  "seq": 14,
+  "type": "platformResult",
+  "payload": {
+    "id": 26,
+    "ok": true,
+    "data": {
+      "volume": 1
+    }
+  }
+}

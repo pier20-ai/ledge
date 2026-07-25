@@ -1,0 +1,10 @@
+{ "v": 1, "app": "nowplaying", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 4, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "slider", "props": { "value": 64, "min": 0, "max": 224, "rate": 1, "onChange": true } },
+  { "op": "create", "id": 3, "kind": "progress", "props": { "value": 0.2, "rate": 0.0033333333333333335 } },
+  { "op": "create", "id": 4, "kind": "slider", "props": { "value": 0.5 } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

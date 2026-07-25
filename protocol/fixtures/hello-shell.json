@@ -1,0 +1,1 @@
+{ "v": 1, "app": "", "seq": 1, "type": "hello", "payload": { "v": 1, "gen": 7, "screen": { "notchWidth": 189, "menubarHeight": 32, "scale": 2, "maxPanelHeight": 480 } } }

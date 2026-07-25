@@ -1,0 +1,22 @@
+{
+  "v": 1,
+  "app": "music",
+  "seq": 21,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "audio",
+      "name": "changed",
+      "userInfo": {
+        "deviceName": "AirPods Pro",
+        "volume": 0.42,
+        "muted": false,
+        "transportType": "bluetooth",
+        "batteryPercent": 78,
+        "reason": "device"
+      }
+    }
+  }
+}

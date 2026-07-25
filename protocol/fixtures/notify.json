@@ -1,0 +1,5 @@
+{ "v": 1, "app": "deals", "seq": 51, "type": "notify",
+  "payload": { "id": 7, "text": "Sony WH-1000XM5 is $278 — under your $300 target",
+               "title": "Deal Watch",
+               "actions": [{ "id": "open", "label": "Open listing" },
+                           { "id": "snooze", "label": "Snooze a week" }] } }

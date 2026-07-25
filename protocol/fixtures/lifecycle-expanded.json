@@ -1,0 +1,1 @@
+{ "v": 1, "app": "stocks", "seq": 2, "type": "lifecycle", "payload": { "phase": "expanded", "screen": { "notchWidth": 189, "menubarHeight": 32, "scale": 2 } } }

@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "app": "stocks",
+  "seq": 21,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "reachability",
+      "name": "changed",
+      "userInfo": {
+        "satisfied": true,
+        "expensive": false,
+        "constrained": false,
+        "interface": "wifi"
+      }
+    }
+  }
+}

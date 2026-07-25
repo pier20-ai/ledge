@@ -1,0 +1,2 @@
+{ "v": 1, "app": "inbox", "seq": 10, "type": "appleResult",
+  "payload": { "id": 4, "ok": false, "error": "shortcut \"Log Note\" not found" } }

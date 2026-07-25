@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 17,
+  "type": "platformResult",
+  "payload": {
+    "id": 27,
+    "ok": false,
+    "error": "speak text is 812 characters; the limit is 500"
+  }
+}

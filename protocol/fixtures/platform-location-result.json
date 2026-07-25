@@ -1,0 +1,16 @@
+{
+  "v": 1,
+  "app": "weather",
+  "seq": 12,
+  "type": "platformResult",
+  "payload": {
+    "id": 23,
+    "ok": true,
+    "data": {
+      "lat": 37.7749,
+      "lon": -122.4194,
+      "accuracyMeters": 1200,
+      "timestamp": "2026-07-25T09:14:03Z"
+    }
+  }
+}

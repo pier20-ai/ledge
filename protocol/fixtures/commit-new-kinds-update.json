@@ -1,0 +1,11 @@
+{ "v": 1, "app": "gallery", "seq": 2, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 2, "props": { "on": false } },
+  { "op": "update", "id": 3, "props": { "disabled": null, "on": true } },
+  { "op": "update", "id": 4, "props": { "value": "1m" } },
+  { "op": "update", "id": 5, "props": { "value": 21 } },
+  { "op": "update", "id": 6, "props": { "value": 465, "format": "07:45" } },
+  { "op": "update", "id": 7, "props": { "value": 0.2 } },
+  { "op": "update", "id": 8, "props": {} },
+  { "op": "update", "id": 9, "props": { "label": "LIVE", "tone": "green" } },
+  { "op": "update", "id": 10, "props": { "tone": "violet" } }
+] } }

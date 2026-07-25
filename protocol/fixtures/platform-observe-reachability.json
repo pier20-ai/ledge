@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "stocks",
+  "seq": 3,
+  "type": "platform",
+  "payload": {
+    "id": 14,
+    "call": "observe",
+    "kind": "reachability",
+    "name": "changed"
+  }
+}

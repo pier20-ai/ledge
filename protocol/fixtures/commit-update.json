@@ -1,0 +1,4 @@
+{ "v": 1, "app": "stocks", "seq": 2, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 3, "props": { "content": "$215.10", "color": "green" } },
+  { "op": "remove", "id": 5 }
+] } }

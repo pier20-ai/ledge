@@ -1,0 +1,7 @@
+{ "v": 1, "app": "", "seq": 2, "type": "catalog", "payload": { "apps": [
+  { "id": "stocks", "name": "Stocks", "icon": "sf:chart.line.uptrend.xyaxis", "order": 0, "enabled": true, "running": true },
+  { "id": "music", "name": "Music", "icon": "sf:music.note", "order": 1, "enabled": true, "running": true },
+  { "id": "chess", "name": "Chess", "icon": "sf:crown", "order": 2, "enabled": true, "running": true,
+    "panel": { "width": 520, "maxHeight": 560 } },
+  { "id": "deals", "name": "Deal Watch", "icon": "sf:tag", "order": 3, "enabled": false, "running": false }
+] } }

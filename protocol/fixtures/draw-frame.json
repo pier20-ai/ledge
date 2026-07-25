@@ -1,0 +1,9 @@
+{ "v": 1, "app": "play", "seq": 4, "type": "draw", "payload": { "id": 12, "ops": [
+  { "op": "clear" },
+  { "op": "rect", "x": 40, "y": 8, "w": 10, "h": 10, "fill": "#30D158", "radius": 2 },
+  { "op": "line", "points": [[0, 20], [80, 20]], "stroke": "#FFFFFF22", "width": 1 },
+  { "op": "text", "x": 4, "y": 12, "content": "1200", "size": 9, "color": "#FFFFFF" },
+  { "op": "image", "src": "/tmp/ledge-fixtures/sprites.png",
+    "sx": 16, "sy": 0, "sw": 16, "sh": 16, "x": 60, "y": 4, "w": 16, "h": 16 },
+  { "op": "orbit", "x": 4, "y": 4, "r": 3 }
+] } }

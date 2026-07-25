@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "weather",
+  "seq": 13,
+  "type": "platformResult",
+  "payload": {
+    "id": 23,
+    "ok": false,
+    "error": "location timed out after 8 s"
+  }
+}

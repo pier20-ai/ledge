@@ -1,0 +1,2 @@
+{ "v": 1, "app": "flights", "seq": 12, "type": "captureResult",
+  "payload": { "id": 2, "ok": true, "path": "/var/folders/T/ledge-capture-9F3A.png" } }

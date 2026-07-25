@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "files",
+  "seq": 13,
+  "type": "platformResult",
+  "payload": {
+    "id": 24,
+    "ok": false,
+    "error": "spotlight query is not a valid metadata predicate"
+  }
+}

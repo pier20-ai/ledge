@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "clips",
+  "seq": 3,
+  "type": "platform",
+  "payload": {
+    "id": 12,
+    "call": "observe",
+    "kind": "pasteboard",
+    "name": "changed"
+  }
+}

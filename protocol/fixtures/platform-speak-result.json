@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 16,
+  "type": "platformResult",
+  "payload": {
+    "id": 27,
+    "ok": true
+  }
+}

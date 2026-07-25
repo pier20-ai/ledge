@@ -1,0 +1,27 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 12,
+  "type": "platformResult",
+  "payload": {
+    "id": 21,
+    "ok": true,
+    "data": [
+      {
+        "title": "Standup",
+        "start": "2026-07-25T10:00:00Z",
+        "end": "2026-07-25T10:15:00Z",
+        "allDay": false,
+        "calendar": "Work"
+      },
+      {
+        "title": "Design review",
+        "start": "2026-07-25T14:00:00Z",
+        "end": "2026-07-25T15:00:00Z",
+        "allDay": false,
+        "calendar": "Work",
+        "location": "Studio"
+      }
+    ]
+  }
+}

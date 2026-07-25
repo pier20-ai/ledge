@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "agenda",
+  "seq": 5,
+  "type": "platform",
+  "payload": {
+    "id": 27,
+    "call": "speak",
+    "text": "Standup in five minutes.",
+    "rate": 0.5
+  }
+}

@@ -1,0 +1,12 @@
+{ "v": 1, "app": "wings", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "wing", "props": { "side": "left" } },
+  { "op": "create", "id": 3, "kind": "text", "props": { "content": "●", "size": "xs", "color": "green" } },
+  { "op": "create", "id": 4, "kind": "text", "props": { "content": "4 workers · 38 MB", "size": "xs", "weight": "medium", "color": "secondary", "mono": true } },
+  { "op": "create", "id": 5, "kind": "text", "props": { "content": "APPS", "size": "xs", "weight": "semibold", "color": "secondary", "mono": true } },
+  { "op": "insert", "parent": 2, "id": 3, "before": null },
+  { "op": "insert", "parent": 2, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

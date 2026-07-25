@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "app": "battery",
+  "seq": 21,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "power",
+      "name": "changed",
+      "userInfo": {
+        "level": 0.62,
+        "charging": false,
+        "onAC": false,
+        "lowPowerMode": true
+      }
+    }
+  }
+}
