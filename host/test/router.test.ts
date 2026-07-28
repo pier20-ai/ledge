@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import type { ShellSession } from "../src/connection";
 import type { Envelope } from "../src/protocol/envelope";
 import { Router } from "../src/router";
+import { Builder } from "../src/builder";
+import { FakeCodex } from "../src/fakes/fake-codex";
 import type { RestartScheduler } from "../src/supervisor";
 import type { Mutation } from "../src/render/mutations";
 
@@ -249,5 +251,50 @@ describe("Router end-to-end (real workers)", () => {
 
     // The pre-existing app is untouched — a rescan must not restart the world.
     expect(session.envelopesFor("counter", "app").filter((e) => e.payload.state === "started").length).toBe(1);
+  }, 30000);
+
+  // The builder's two ends (spec §4.3 in, §3.6 out). The Builder's own behaviour
+  // is covered in builder.test.ts; what is unproven without this is the WIRING —
+  // a `builderInput` envelope actually reaching it, and its events coming back
+  // out as `builder` envelopes tagged with the right app and turn.
+  test("builderInput runs a turn and its events reach the shell", async () => {
+    const root = await makeAppsRoot({ stocks: COUNTER(0) });
+    const session = new RecordingSession();
+    const fake = new FakeCodex();
+
+    const router = new Router({
+      appsRoot: root,
+      scheduler: new FakeScheduler(),
+      watch: false,
+    });
+    openRouter = router;
+    // Replace the router's builder with one wired to the fake, keeping the
+    // router's own sink so the outbound half is the production path.
+    const sink = (router as unknown as { sendBuilder: (a: string, t: number, e: unknown) => void });
+    (router as unknown as { builder: Builder }).builder = new Builder({
+      appsRoot: root,
+      sink: {
+        builder: (app, turn, event) => sink.sendBuilder(app, turn, event),
+        log: () => {},
+      },
+      client: { spawn: () => fake.process },
+    });
+
+    await router.bindSession(session);
+    router.onEnvelope(session, {
+      v: 1,
+      app: "stocks",
+      seq: 1,
+      type: "builderInput",
+      payload: { text: "make it green" },
+    });
+
+    await waitFor(() => fake.requests.some((r) => r.method === "turn/start"));
+    fake.emitTurn("thread-1", "on it");
+    await waitFor(() => session.envelopesFor("stocks", "builder").length >= 2);
+
+    const events = session.envelopesFor("stocks", "builder").map((e) => e.payload);
+    expect(events[0]).toEqual({ turn: 1, event: "text", delta: "on it" });
+    expect(events[1]).toEqual({ turn: 1, event: "done", status: "completed" });
   }, 30000);
 });

@@ -8,6 +8,8 @@
 
 import { join, resolve } from "node:path";
 import { AgentRunner } from "./agent";
+import { Builder } from "./builder";
+import type { BuilderEvent } from "./codex/events";
 import type { ShellSession } from "./connection";
 import type { Envelope } from "./protocol/envelope";
 import type { Mutation } from "./render/mutations";
@@ -83,6 +85,8 @@ export interface RouterOptions {
   /** Runs `ctx.agent` turns (spec §8). Injected in tests so no test ever
    * invokes a real agent CLI. */
   agentRunner?: AgentRunner;
+  /** Injected in tests so nothing ever spawns a real Codex (spec §8). */
+  builder?: Builder;
   /** Overrides the capability deadlines above. Tests shorten them; nothing in
    * production does. */
   timeouts?: {
@@ -106,6 +110,7 @@ export class Router implements SupervisorSink {
   private readonly scheduler: RestartScheduler;
   private readonly transpile: (modulePath: string) => Promise<TranspileError | null>;
   private readonly agentRunner: AgentRunner;
+  private readonly builder: Builder;
   private readonly appleTimeoutMs: number;
   private readonly captureTimeoutMs: number;
   private readonly platformTimeoutMs: number;
@@ -148,6 +153,15 @@ export class Router implements SupervisorSink {
     this.scheduler = options.scheduler ?? realScheduler;
     this.transpile = options.transpile ?? transpileCheck;
     this.agentRunner = options.agentRunner ?? new AgentRunner({ log: (line) => this.hostLog(line) });
+    this.builder =
+      options.builder ??
+      new Builder({
+        appsRoot: this.appsRoot,
+        sink: {
+          builder: (app, turn, event) => this.sendBuilder(app, turn, event),
+          log: (line) => this.hostLog(line),
+        },
+      });
     this.appleTimeoutMs = options.timeouts?.apple ?? APPLE_TIMEOUT_MS;
     this.captureTimeoutMs = options.timeouts?.capture ?? CAPTURE_TIMEOUT_MS;
     this.platformTimeoutMs = options.timeouts?.platform ?? PLATFORM_TIMEOUT_MS;
@@ -326,10 +340,12 @@ export class Router implements SupervisorSink {
         });
         break;
       }
-      case "builderInput":
-        // No AI/builder integration in this phase (explicit): the chat is inert.
-        this.hostLog(`[ledge-host] builderInput for '${envelope.app}' ignored (chat inert this phase)`);
+      case "builderInput": {
+        // The user typed into an app's chat, or asked to stop (spec §4.3).
+        const payload = envelope.payload as { text?: string; cancel?: boolean };
+        void this.builder.handleInput(envelope.app, payload);
         break;
+      }
       default:
         this.hostLog(`[ledge-host] unhandled envelope type ${envelope.type}`);
     }
@@ -337,6 +353,9 @@ export class Router implements SupervisorSink {
 
   /** Stop everything (host shutdown / tests): terminate workers, close watcher. */
   shutdown(): void {
+    // The app-server is a child of this process; leaving one behind would hold
+    // the user's Codex session open after Ledge is gone.
+    this.builder.shutdown();
     this.closeWatcher?.();
     this.closeWatcher = null;
     for (const supervisor of this.supervisors.values()) supervisor.stop();
@@ -390,6 +409,20 @@ export class Router implements SupervisorSink {
     if (wing) this.wings.set(app, wing);
     else this.wings.delete(app);
     this.session?.send(app, "chrome", { request: "wing", wing });
+  }
+
+  /**
+   * One `builder` event to the shell (spec §3.6). `turn` groups events into the
+   * exchange that produced them, so the editor can collapse a finished turn
+   * without the shell having to infer boundaries from the stream.
+   */
+  private sendBuilder(app: string, turn: number, event: BuilderEvent): void {
+    // Text deltas are the bulk of the stream and arrive token by token; logging
+    // each one would bury everything else in the host log.
+    if (event.event !== "text") {
+      this.hostLog(`[ledge-host] builder -> ${app} ${event.event}`);
+    }
+    this.session?.send(app, "builder", { turn, ...event });
   }
 
   chrome(app: string, request: ChromeRequest, ms?: number): void {

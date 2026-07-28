@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { toBuilderEvent } from "../scripts/codex-harness";
+import { toBuilderEvent } from "../src/codex/events";
 
 // Codex app-server notification → spec §3.6 `builder` event.
 //
