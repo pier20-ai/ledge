@@ -21,7 +21,13 @@ export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
 
 /** The presentation an app may ask the shell for (spec §3.3). `attention` is
  * not here: it has its own message because it is a ping, not a state request. */
-export type ChromeRequest = "expand" | "collapse";
+/**
+ * `peek` is the third presentation rung, between the collapsed wing and the
+ * full panel: show the app's `<mini>` subtree just below the notch for a few
+ * seconds, then put it away. A track change, an alarm firing, your turn in
+ * chess — moments that deserve more than a wing and less than the panel.
+ */
+export type ChromeRequest = "expand" | "collapse" | "peek";
 
 /** Which side of the shared app health state threw (spec §6 rule 2, §7): the
  * monitor loop, or a React render (initial mount / event / ctx.update). */
@@ -288,7 +294,9 @@ export type WorkerToHost =
   | { type: "meta"; meta: AppMeta }
   | { type: "draw"; id: number; ops: unknown[] }
   | { type: "wing"; wing: WingSpec | null }
-  | { type: "chrome"; request: ChromeRequest }
+  // `ms` applies to `peek` only: how long the mini view stays up before the
+  // shell puts it away. Absent means the shell's default dwell.
+  | { type: "chrome"; request: ChromeRequest; ms?: number }
   | ({ type: "notify" } & NotifyRequest)
   | { type: "attention" }
   | { type: "apple"; id: number; request: AppleRequest }
@@ -344,6 +352,10 @@ export type HostToWorker =
 export interface WorkerBoot {
   /** Absolute path or file: URL of the app module to import. */
   modulePath: string;
+  /** Directory to resolve `react` from — the one the APPS resolve against
+   * (`~/.ledge`, or the apps root in the repo). The reconciler and the app must
+   * share one React instance or hooks break; see render/runtime.ts. */
+  modulesRoot: string;
   /** Grants ctx.platform. Set by the host only for the Settings app. */
   privileged?: boolean;
 }

@@ -67,7 +67,13 @@ One frame per React commit. Mutations apply **in array order, all-or-nothing**. 
 On `crashed`, Swift shows a built-in error card in that app's panel (spec §7) — no app cooperation required.
 
 ### 3.3 `chrome`
-App-level presentation requests: `{ "request": "expand" | "collapse" | "attention" }`. `attention` = subtle glow on the notch wing (used by `monitor()` pings). Swift may deny `expand` (e.g. user is in a fullscreen game); denial is silent.
+App-level presentation requests: `{ "request": "expand" | "collapse" | "attention" | "peek" | "wing" }`. `attention` = subtle glow on the notch wing (used by `monitor()` pings). Swift may deny `expand` (e.g. user is in a fullscreen game); denial is silent.
+
+**`peek` — the mini view.** `{ "request": "peek", "ms": 4000 }` shows the app's `mini` node (§5) in a small surface below the notch, then puts it away. This is the middle rung of three: a **wing** is always-on and glanceable inside the collapsed pill, a **peek** is a moment worth interrupting for, and the **panel** is everything. A track change, an alarm firing, your turn in a game.
+
+The split between the two halves is deliberate: `mini` is *what* (declarative, kept current by the app's ordinary renders) and `peek` is *when* (imperative, one moment). Because Swift already holds a live view of the mini, a peek costs no round trip — and hovering one promotes straight to the full panel, which is the gesture that has to feel immediate. A "which view am I in" prop would put a worker hop in that path instead.
+
+Denied silently when the app has no `mini`, when the panel is already open, or when another app is presented: a peek is only ever an escalation from collapsed. Never an interruption of something the user is already reading. `ms` is clamped host-side (0.5–20 s); a peek is a glance, and an app that wants the panel has `expand`.
 
 ### 3.4 `draw`
 Imperative drawing for one `canvas` instance — bypasses the reconciler so games can run at frame rate without React commits:
@@ -159,6 +165,7 @@ Small on purpose. Everything maps to a native view; layout is stack-based only.
 | `slider` | NSSlider              | `value`, `min`, `max`, `onChange` |
 | `input`  | NSTextField           | `value`, `placeholder`, `onChange`, `onSubmit` |
 | `canvas` | custom CGContext view | `w`, `h`, `focusable`, `onKey` — pixels via `draw` frames (§3.4), for games |
+| `mini`   | shell peek surface    | children — the small view shown below the notch by `ctx.peek` (§3.3). A **direct child of the root**, like `wing`: it is a shell zone, not a box in the app's layout. |
 
 Event handler props (`onClick`, …) serialize as `true` over the wire; the reconciler keeps the function on the host side keyed by `(id, name)`.
 
@@ -197,6 +204,7 @@ export default function App({ price = "—" }) {
 - `ctx.notify(text, { attention })` — UserNotification + optional notch-wing glow.
 - `ctx.apple.script(source)` / `ctx.apple.shortcut(name, input)` — AppleScript & Shortcuts, executed by the shell process (workers can't own TCC prompts; macOS handles consent natively).
 - `ctx.attention()` — notch glow without a notification.
+- `ctx.peek(ms)` — show the app's `mini` node below the notch for a moment (§3.3).
 
 Everything else is the platform: HTTP is `fetch`, persistence is `bun:sqlite` or `fs` + `JSON` in `import.meta.dir`, pacing is `Bun.sleep`/`setInterval`, the app's path is `import.meta.dir`, logging is `console.*` (the host captures worker stdout/stderr into the app's log). Persistence guidance lives in `AGENTS.md`, not in API: SQLite (WAL) for anything append-heavy, write-temp-then-`rename` for JSON — atomicity is the app's job, and SQLite gives it for free.
 

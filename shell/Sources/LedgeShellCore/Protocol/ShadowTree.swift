@@ -24,13 +24,30 @@ public enum ComponentKind: String, Sendable, CaseIterable {
     /// those are the live-activity areas on the pill, this is chrome the app may
     /// fill while its panel is open. See protocol/README.md.
     case wing
+    /// The **mini view** — the small surface shown below the notch when an app
+    /// peeks (spec §3.3 extension, `ctx.peek`). Like `wing` it is a zone rather
+    /// than part of the panel's layout: the app keeps it rendered, and the shell
+    /// shows it on its own schedule. Declarative on purpose — the shell already
+    /// holds a live view, so a peek (or a hover promoting one to the full panel)
+    /// never round-trips to the worker.
+    case mini
 
     /// Whether children may be attached under this kind. Containers (`stack`),
-    /// `button` (a single child), and `wing` (its zone content) are attachable;
-    /// nothing else is.
+    /// `button` (a single child), and the two zone kinds (`wing`, `mini`) are
+    /// attachable; nothing else is.
     var isAttachable: Bool {
         switch self {
-        case .stack, .button, .wing: true
+        case .stack, .button, .wing, .mini: true
+        default: false
+        }
+    }
+
+    /// Kinds that are shell *zones* rather than boxes in the app's own layout:
+    /// they must be direct children of the root, and their views are handed to
+    /// shell chrome instead of being inserted into the content stack.
+    var isRootZone: Bool {
+        switch self {
+        case .wing, .mini: true
         default: false
         }
     }
@@ -178,11 +195,11 @@ public final class ShadowTree {
         case badProps(id: Int, key: String)
         case badBefore(id: Int)
         case missingField(op: String)
-        /// A `wing` that is not a direct child of the root. The zone it fills is
-        /// panel chrome, not a box inside the app's layout — a wing nested in a
-        /// card would render somewhere its parent cannot see, which is a worse
-        /// answer than refusing the commit.
-        case misplacedWing(id: Int)
+        /// A zone kind (`wing`, `mini`) that is not a direct child of the root.
+        /// The surface it fills is shell chrome, not a box inside the app's
+        /// layout — one nested in a card would render somewhere its parent
+        /// cannot see, which is a worse answer than refusing the commit.
+        case misplacedZone(id: Int, kind: ComponentKind)
     }
 
     private(set) var nodes: [Int: Node] = [:]
@@ -284,9 +301,9 @@ public final class ShadowTree {
         // may legally insert a wing under a node that only *becomes* the root a
         // few mutations later (`setRoot` is conventionally last, see
         // commit-mount.json), so mid-batch the tree is allowed to be wrong.
-        for (id, node) in workNodes where node.kind == .wing {
+        for (id, node) in workNodes where node.kind.isRootZone {
             guard let parent = node.parent, parent == workRoot else {
-                return .failure(.misplacedWing(id: id))
+                return .failure(.misplacedZone(id: id, kind: node.kind))
             }
         }
 

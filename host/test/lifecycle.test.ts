@@ -8,10 +8,12 @@ import type { HostToWorker, WorkerToHost } from "../src/worker/messages";
 // the gap where the worker entry silently discarded lifecycle messages.
 
 const entryUrl = new URL("../src/worker/entry.ts", import.meta.url);
+// Workers resolve react from the host package (src/render/runtime.ts).
+const HOST_ROOT = new URL("..", import.meta.url).pathname;
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url).href;
 
 function bootWorker(modulePath: string) {
-  const worker = new Worker(entryUrl, { workerData: { modulePath } });
+  const worker = new Worker(entryUrl, { workerData: { modulePath, modulesRoot: HOST_ROOT } });
   const buffer: WorkerToHost[] = [];
   const waiters: ((msg: WorkerToHost) => void)[] = [];
   worker.on("message", (msg: WorkerToHost) => {

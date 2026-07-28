@@ -326,7 +326,12 @@ export async function monitor(ctx) {
       publish(now);
       publishWing(now);
       ctx.notify(`${due.label} — ${clockOf(due)}`, { attention: true });
-      ctx.expand();
+      // Peek rather than expand (§3.3 extension). Seizing the whole panel is the
+      // one thing the notch should never do to you mid-sentence — and an alarm
+      // firing while you are reading another app is exactly when it would. The
+      // peek says what is ringing; hovering it opens this panel, Snooze and
+      // Dismiss included. The notification above is still the loud channel.
+      ctx.peek(8000);
       console.log(`ALARM FIRED: ${due.label} at ${clockOf(due)}`);
       await save();
     } else {
@@ -387,6 +392,18 @@ function Ringing({ ringing, onSnooze, onDismiss }) {
         <text content="●" size="xs" color="red" />
         <text content="ringing" size="s" weight="semibold" color="red" />
       </wing>
+
+      {/* The peek surface (§3.3 extension): what a firing alarm says before you
+          have reached for anything. Deliberately has no Snooze/Dismiss — a
+          glance you might not be looking at is the wrong place for a button you
+          could hit by accident. Hovering promotes to this panel, which has both. */}
+      <mini>
+        <stack axis="h" gap={10}>
+          <image src="sf:alarm.waves.left.and.right" w={22} h={22} />
+          <text content={ringing.time} size="l" weight="bold" mono />
+          <text content={ringing.label} size="s" color="secondary" truncate />
+        </stack>
+      </mini>
 
       {/* A spacer either side centres the group — leftover space in one stack is
           split evenly between its spacers (protocol/README.md). */}

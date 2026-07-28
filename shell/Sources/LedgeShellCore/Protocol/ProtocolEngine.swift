@@ -25,7 +25,8 @@ public protocol ProtocolEngineDelegate: AnyObject {
     /// plus this phase's `wing` (§3.3 extension) whose payload rides along —
     /// `wing` is non-nil only for `request == "wing"` with a spec attached; a
     /// `wing` request with a nil spec releases the notch.
-    func chromeRequest(app: String, request: String, wing: WingSpec?)
+    /// `ms` accompanies `peek` only; nil everywhere else means "your default".
+    func chromeRequest(app: String, request: String, wing: WingSpec?, ms: Double?)
 
     /// Blit coalesced draw ops to one app's canvas (spec §3.4). Called on flush.
     /// Scoped by app because node ids restart at 1 per worker (§3.1).
@@ -285,7 +286,12 @@ public final class ProtocolEngine {
         // An empty wing object carries no instruction; treat it as a release so
         // the shell never has to reason about "a wing that shows nothing".
         let wing = payload.wing.flatMap { $0.isEmpty ? nil : $0 }
-        delegate?.chromeRequest(app: envelope.app, request: payload.request, wing: wing)
+        delegate?.chromeRequest(
+            app: envelope.app,
+            request: payload.request,
+            wing: wing,
+            ms: payload.ms
+        )
     }
 
     private func handleDraw(_ envelope: Envelope) {

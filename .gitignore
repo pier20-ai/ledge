@@ -22,3 +22,8 @@ protocol/demo-apps/cimedic/config.json
 
 # Default output of scripts/snapshot-demos.sh.
 .snapshots/
+
+# Build output: the compiled host (bun build --compile) and the assembled,
+# signed Ledge.app — both produced by scripts/bundle-app.sh.
+dist/
+host/dist/

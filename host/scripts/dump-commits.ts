@@ -14,6 +14,7 @@
 import { basename, dirname, resolve } from "node:path";
 import { InMemorySink } from "../src/render/mutations";
 import { createAppSession } from "../src/render/session";
+import { loadReactRuntime } from "../src/render/runtime";
 import { sanitizeAppMeta } from "../src/worker/meta";
 
 const args = Bun.argv.slice(2);
@@ -44,7 +45,10 @@ if (typeof module.default !== "function") {
 }
 
 const sink = new InMemorySink();
-createAppSession(module.default as never, sink);
+// React comes from the apps root, same as in a worker — one instance,
+// resolved from disk (see src/render/runtime.ts).
+const runtime = await loadReactRuntime(dirname(dirname(entryPath)));
+createAppSession(module.default as never, sink, runtime);
 
 const mutations = sink.commits[0];
 if (!mutations) {

@@ -14,7 +14,7 @@ final class RecordingDelegate: ProtocolEngineDelegate {
     var discardAllCount = 0
     var errorCards: [ErrorCard] = []
     var lifecycles: [(app: String, state: String)] = []
-    var chromeRequests: [(app: String, request: String, wing: WingSpec?)] = []
+    var chromeRequests: [(app: String, request: String, wing: WingSpec?, ms: Double?)] = []
     var draws: [Draw] = []
     var catalogs: [CatalogPayload] = []
     var builderEvents: [BuilderPayload] = []
@@ -28,8 +28,8 @@ final class RecordingDelegate: ProtocolEngineDelegate {
         errorCards.append(ErrorCard(app: app, message: message, stack: stack))
     }
     func appLifecycle(app: String, state: String) { lifecycles.append((app, state)) }
-    func chromeRequest(app: String, request: String, wing: WingSpec?) {
-        chromeRequests.append((app, request, wing))
+    func chromeRequest(app: String, request: String, wing: WingSpec?, ms: Double?) {
+        chromeRequests.append((app, request, wing, ms))
     }
     func drawCanvas(app: String, id: Int, ops: [JSONValue]) {
         draws.append(Draw(app: app, id: id, ops: ops))

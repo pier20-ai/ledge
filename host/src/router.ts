@@ -6,7 +6,7 @@
 // injected via `bindSession`/`clearSession` so the router is fully testable
 // against the FakeShell (or a recording session) with no real socket.
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { AgentRunner } from "./agent";
 import type { ShellSession } from "./connection";
 import type { Envelope } from "./protocol/envelope";
@@ -138,7 +138,12 @@ export class Router implements SupervisorSink {
   private closeWatcher: (() => void) | null = null;
 
   constructor(options: RouterOptions) {
-    this.appsRoot = options.appsRoot;
+    // Absolute from here down. `--apps-root ../protocol/demo-apps` is the
+    // natural way to run the host from the repo, and a relative root leaks into
+    // module resolution as "relative to the process cwd" (see
+    // render/runtime.ts). Normalising once, at the edge, means nothing
+    // downstream — app dirs, crash.log paths, log lines — has to think about it.
+    this.appsRoot = resolve(options.appsRoot);
     this.factory = options.factory;
     this.scheduler = options.scheduler ?? realScheduler;
     this.transpile = options.transpile ?? transpileCheck;
@@ -387,9 +392,10 @@ export class Router implements SupervisorSink {
     this.session?.send(app, "chrome", { request: "wing", wing });
   }
 
-  chrome(app: string, request: ChromeRequest): void {
-    this.hostLog(`[ledge-host] chrome <- ${app} ${request}`);
-    this.session?.send(app, "chrome", { request });
+  chrome(app: string, request: ChromeRequest, ms?: number): void {
+    this.hostLog(`[ledge-host] chrome <- ${app} ${request}${ms === undefined ? "" : ` ${ms}ms`}`);
+    // `ms` rides along only for `peek`; the shell reads what its verb names.
+    this.session?.send(app, "chrome", ms === undefined ? { request } : { request, ms });
   }
 
   /**
@@ -537,6 +543,10 @@ export class Router implements SupervisorSink {
     return new AppSupervisor({
       appId,
       appDir: join(this.appsRoot, appId),
+      // The apps root, not the app folder: node resolution walks up from here to
+      // the shared node_modules, which is exactly the copy the app's own
+      // `import "react"` finds (render/runtime.ts).
+      modulesRoot: this.appsRoot,
       sink: this,
       factory: this.factory,
       scheduler: this.scheduler,
@@ -636,11 +646,74 @@ export class Router implements SupervisorSink {
       appsRoot: this.appsRoot,
       apps: appIds,
       onReload: (appId) => {
-        this.hostLog(`[ledge-host] app.jsx changed -> reloading '${appId}'`);
+        this.hostLog(`[ledge-host] source changed -> reloading '${appId}'`);
         this.reloadApp(appId);
+      },
+      onAppsChanged: () => {
+        void this.rescanApps();
       },
       onError: (appId, error) => this.hostLog(`[ledge-host] watch '${appId}' failed: ${String(error)}`),
     });
+  }
+
+  /**
+   * Re-scan the apps root and reconcile: start workers for apps that appeared,
+   * stop workers for apps that are gone, re-publish the catalog if the set
+   * changed, and re-arm the watcher over the new id list.
+   *
+   * The registry used to be read exactly once, at `bindSession`, which made "the
+   * app you just created is invisible until you restart the host" a permanent
+   * fact of the system. That is survivable when apps are hand-written; it is not
+   * survivable when an agent scaffolds one and then wants to show you.
+   *
+   * Diffing rather than blindly re-publishing matters because the watcher fires
+   * on *any* root-level activity — including writes inside an app's own folder —
+   * so most calls here find nothing changed and must do nothing at all.
+   */
+  private async rescanApps(): Promise<void> {
+    if (!this.session) return;
+
+    let apps: CatalogApp[];
+    try {
+      apps = await scanApps(this.appsRoot);
+    } catch (error) {
+      this.hostLog(`[ledge-host] rescan failed: ${String(error)}`);
+      return;
+    }
+
+    const before = new Set(this.catalogApps.map((app) => app.id));
+    const after = new Set(apps.map((app) => app.id));
+    const added = apps.filter((app) => !before.has(app.id));
+    const removed = [...before].filter((id) => !after.has(id));
+    if (added.length === 0 && removed.length === 0) return;
+
+    // The scan is the fallback identity (dirname + placeholder icon); a started
+    // worker replaces it via `meta`, exactly as at bind time. Merging the
+    // previous catalog's meta forward keeps existing apps from flickering back
+    // to their placeholder name for the moment between rescan and re-publish.
+    const previous = new Map(this.catalogApps.map((app) => [app.id, app]));
+    this.catalogApps = apps.map((app) => previous.get(app.id) ?? app);
+
+    for (const app of removed) {
+      this.hostLog(`[ledge-host] app '${app}' removed`);
+      const supervisor = this.supervisors.get(app);
+      this.supervisors.delete(app);
+      supervisor?.stop();
+    }
+
+    this.sendCatalog();
+
+    for (const app of added) {
+      if (!app.enabled) continue;
+      this.hostLog(`[ledge-host] app '${app.id}' appeared -> starting`);
+      const supervisor = this.makeSupervisor(app.id);
+      this.supervisors.set(app.id, supervisor);
+      await supervisor.start();
+    }
+
+    // Re-arm over the new id set: the previous watcher has no handle on a folder
+    // that did not exist when it was created.
+    this.ensureWatcher(this.catalogApps.filter((app) => app.enabled).map((app) => app.id));
   }
 }
 

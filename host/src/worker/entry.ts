@@ -15,6 +15,7 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { createAppSession } from "../render/session";
 import type { MutationSink } from "../render/mutations";
+import { loadReactRuntime, type ReactRuntime } from "../render/runtime";
 import { createCtx } from "./ctx";
 import { sanitizeAppMeta } from "./meta";
 import { runMonitorLoop, type MonitorClock } from "./monitor";
@@ -89,6 +90,16 @@ export async function runWorker(
 ): Promise<void> {
   captureConsole(io.post);
 
+  // Before the app module, so a missing/mis-seeded node_modules is reported as
+  // this app's crash rather than surfacing later as a null hooks dispatcher.
+  let runtime: ReactRuntime;
+  try {
+    runtime = await loadReactRuntime(boot.modulesRoot);
+  } catch (error) {
+    io.post(toCrash("render", error));
+    return;
+  }
+
   let module: Record<string, unknown>;
   try {
     module = (await import(boot.modulePath)) as Record<string, unknown>;
@@ -125,7 +136,7 @@ export async function runWorker(
 
   let session;
   try {
-    session = createAppSession(App as Parameters<typeof createAppSession>[0], sink);
+    session = createAppSession(App as Parameters<typeof createAppSession>[0], sink, runtime);
   } catch (error) {
     // Initial render threw — the tree never mounted (spec §7).
     io.post(toCrash("render", error));

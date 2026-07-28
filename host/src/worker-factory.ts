@@ -24,7 +24,16 @@ export interface WorkerHooks {
 
 export type WorkerFactory = (boot: WorkerBoot, hooks: WorkerHooks) => WorkerHandle;
 
-const entryUrl = new URL("./worker/entry.ts", import.meta.url);
+/** True when running inside a `bun build --compile` binary (modules live in the
+ * virtual `$bunfs` filesystem rather than on disk). */
+const isCompiled = import.meta.url.includes("/$bunfs/");
+
+/**
+ * The worker entrypoint (see src/worker-entry.ts for the full why). Compiled
+ * binaries embed extra entrypoints at the bundle root **as .js**; on disk the
+ * source is .ts. Same basename either way, so only the extension moves.
+ */
+const entryUrl = new URL(`./worker-entry.${isCompiled ? "js" : "ts"}`, import.meta.url);
 
 /** The production factory: a real Bun Worker over node:worker_threads booting
  * `src/worker/entry.ts` with `boot` as `workerData` (matches worker.test.ts). */

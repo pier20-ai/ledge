@@ -16,6 +16,34 @@ export interface RunHostOptions {
   appsRoot?: string;
 }
 
+/**
+ * Exit when stdin reaches EOF — the shell's half of shutdown, and the only half
+ * that is actually reliable.
+ *
+ * `Ledge.app` launches the host as a child with a pipe on stdin and never writes
+ * to it. When the shell exits the pipe's write end closes and this resolves, so
+ * the host (and every app worker, and every subprocess an app spawned — chess
+ * runs Stockfish) goes down with it.
+ *
+ * `applicationWillTerminate` on the Swift side is NOT sufficient: it does not run
+ * on SIGKILL or on a crash, which is exactly when an orphaned host is most likely
+ * and most annoying — it holds the socket and fights the next launch. A closed
+ * pipe is delivered by the kernel no matter how the parent died.
+ */
+async function exitOnStdinEOF(stop: () => void): Promise<void> {
+  try {
+    // Reading to completion IS the wait; we never expect any actual bytes.
+    for await (const _chunk of Bun.stdin.stream()) {
+      // Ignore input. A parent that writes to us is not part of the contract.
+    }
+  } catch {
+    // A broken pipe is the same signal as a clean EOF: the parent is gone.
+  }
+  console.log("[ledge-host] parent closed stdin — shutting down");
+  stop();
+  process.exit(0);
+}
+
 export interface RunningHost {
   connection: ShellConnection;
   router: Router;
@@ -57,18 +85,24 @@ export async function runHost(options: RunHostOptions = {}): Promise<RunningHost
 }
 
 if (import.meta.main) {
-  // Usage: bun src/host.ts [socketPath] [--apps-root <path>]
+  // Usage: ledge [socketPath] [--apps-root <path>] [--exit-on-stdin-eof]
   const args = Bun.argv.slice(2);
   let socketPath: string | undefined;
   let appsRoot: string | undefined;
+  let exitOnEOF = false;
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (arg === "--apps-root") {
       appsRoot = args[i + 1];
       i += 1;
+    } else if (arg === "--exit-on-stdin-eof") {
+      // Set by Ledge.app so the host cannot outlive the shell (see above).
+      exitOnEOF = true;
     } else if (!socketPath && arg && !arg.startsWith("--")) {
       socketPath = arg;
     }
   }
-  void runHost({ socketPath, appsRoot });
+  void runHost({ socketPath, appsRoot }).then((host) => {
+    if (exitOnEOF) void exitOnStdinEOF(host.stop);
+  });
 }

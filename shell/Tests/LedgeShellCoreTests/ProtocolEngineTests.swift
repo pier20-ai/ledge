@@ -265,6 +265,20 @@ struct ProtocolEngineTests {
         #expect(delegate.chromeRequests[3].wing == nil)
     }
 
+    @Test("A peek carries its dwell; other requests carry none (§3.3 extension)")
+    func peekCarriesDwell() throws {
+        let (engine, delegate, _) = makeEngine()
+        engine.receive(try envelope("chrome-peek.json"))
+        engine.receive(try envelope("chrome-expand.json"))
+
+        #expect(delegate.chromeRequests[0].request == "peek")
+        #expect(delegate.chromeRequests[0].ms == 4000)
+        // `ms` belongs to `peek` alone — each extra field on the chrome payload
+        // is read by the one verb that names it (§3.3).
+        #expect(delegate.chromeRequests[0].wing == nil)
+        #expect(delegate.chromeRequests[1].ms == nil)
+    }
+
     @Test("A wing carrying nothing at all is a release, not an empty wing")
     func emptyWingIsRelease() {
         let (engine, delegate, _) = makeEngine()

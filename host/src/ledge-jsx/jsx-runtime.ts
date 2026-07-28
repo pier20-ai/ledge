@@ -207,6 +207,28 @@ export interface PillProps {
  * one control that is supposed to always be there — so `"right"` is a §5
  * validation error, not a request the shell declines.
  */
+/**
+ * The **mini view** (spec §3.3 extension): what this app shows in the small
+ * surface below the notch when it peeks. One per app, mounted as a sibling of
+ * the panel's root — like `wing`, this is a zone rather than a child of the
+ * layout it appears beside.
+ *
+ * Declarative on purpose. The app keeps `<mini>` current as its state changes,
+ * and `ctx.peek(ms)` only decides *when* it is shown. That is what makes the
+ * surface instant: the shell already holds a live view of it, so a peek — or a
+ * hover promoting one to the full panel — needs no round trip to the worker.
+ * The alternative, a "which view am I in" prop the app re-renders against,
+ * costs a worker hop on every hover, which is precisely the gesture that has to
+ * feel immediate.
+ *
+ * Keep it to one line. The surface is sized to a glance — artwork, a title, a
+ * subtitle — and it clips rather than growing to fit.
+ */
+export interface MiniProps {
+  children?: ReactNode;
+  key?: string | number;
+}
+
 export interface WingProps {
   side: "left";
   children?: ReactNode;
@@ -239,6 +261,7 @@ export declare namespace JSX {
     slider: SliderProps;
     input: InputProps;
     canvas: CanvasProps;
+    mini: MiniProps;
     toggle: ToggleProps;
     segment: SegmentProps;
     stepper: StepperProps;

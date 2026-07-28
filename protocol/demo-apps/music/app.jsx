@@ -434,6 +434,22 @@ function publishWing() {
   console.log(text ? `wing -> ${text}` : "wing released");
 }
 
+/**
+ * The mini view (spec §3.3 extension): when the song changes, say so under the
+ * notch for a few seconds.
+ *
+ * Only on a genuine change of *track* — not on play/pause, not on a seek, and
+ * never on the first poll after a reload, which would peek at whatever happened
+ * to be playing when you saved a file. The wing already carries "what is on";
+ * this is for the moment it becomes something else.
+ */
+function peekIfTrackChanged(ctx, previousTrack) {
+  if (!current || !current.playing) return;
+  const key = trackKey(current);
+  if (!previousTrack || key === previousTrack) return;
+  ctx.peek(4000);
+}
+
 // ---------------------------------------------------------------- monitor
 
 /** One poll. Separated from `monitor` so a transport command — or a playback
@@ -444,6 +460,7 @@ async function tick(ctx) {
   if (polling) return;
   polling = true;
   try {
+    const previousTrack = current ? trackKey(current) : null;
     const state = await readPlayers(ctx);
     current = state;
     if (state) {
@@ -455,6 +472,7 @@ async function tick(ctx) {
     }
     publish();
     publishWing();
+    peekIfTrackChanged(ctx, previousTrack);
   } finally {
     polling = false;
   }
@@ -548,9 +566,12 @@ function clock(seconds) {
  * when we don't. Two different component kinds on purpose — the shell builds a
  * file-image view and an `sf:` symbol view from different classes, so swapping
  * `src` between them would not be a partial update anyway. */
-function Artwork({ artwork }) {
-  if (artwork) return <image src={artwork} w={46} h={46} radius={9} />;
-  return <stack fill="accentTint" stroke="hairline" radius={9} pad={23} />;
+/** `size` because the mini view shows the same sleeve smaller — one component,
+ * two surfaces, rather than a second near-copy that drifts. */
+function Artwork({ artwork, size = 46 }) {
+  const radius = size >= 40 ? 9 : 6;
+  if (artwork) return <image src={artwork} w={size} h={size} radius={radius} />;
+  return <stack fill="accentTint" stroke="hairline" radius={radius} pad={size / 2} />;
 }
 
 /** The quiet card: no player running, or running with nothing loaded. No
@@ -595,6 +616,18 @@ export default function Music({ track = null, artwork = null, onPlayPause, onNex
         <text content="●" size="xs" color={track.playing ? "green" : "secondary"} />
         <text content={track.label} size="s" weight="semibold" color="secondary" />
       </wing>
+
+      {/* The peek surface (§3.3 extension). Kept rendered and current at all
+          times — `ctx.peek` only decides *when* it is shown, so the shell
+          already holds a live view and a track change appears instantly. One
+          line: sleeve, title, artist. */}
+      <mini>
+        <stack axis="h" gap={10}>
+          <Artwork artwork={artwork} size={30} />
+          <text content={track.title} size="m" weight="semibold" truncate />
+          <text content={track.artist} size="s" color="secondary" truncate />
+        </stack>
+      </mini>
 
       <stack axis="h" gap={12}>
         <Artwork artwork={artwork} />

@@ -393,7 +393,7 @@ struct EnvelopeFixtureTests {
         let nested = ShadowTree()
         let misplaced = try decode("invalid-commit-nested-wing.json")
             .decodePayload(CommitPayload.self).mutations
-        expectFailure(nested.apply(misplaced), .misplacedWing(id: 3))
+        expectFailure(nested.apply(misplaced), .misplacedZone(id: 3, kind: .wing))
         #expect(nested.isEmpty)
     }
 

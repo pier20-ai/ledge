@@ -183,6 +183,41 @@ final class LedgeScrollStackView: NSView, LedgeContentHosting {
 /// constraint is required, which is what makes an over-long label lose its
 /// compression-resistance argument and ellipsize instead of running under the
 /// camera.
+/// The container for a `mini` node (spec §3.3 extension).
+///
+/// Deliberately NOT `LedgeWingView`, which was the first thing tried and is
+/// wrong here: a wing's stack is pinned `leading` + `centerY` with `trailing ≤`,
+/// because the wing bar hands it an exact frame. Nothing in that drives a width
+/// or a height, so its `fittingSize` is ~zero — and the peek surface *asks* its
+/// content how big it wants to be. The result was a correctly-shaped, entirely
+/// empty black box.
+///
+/// So the stack is pinned on all four edges: the view is exactly as big as its
+/// content, which is the one thing the peek surface needs from it.
+final class LedgeMiniView: FlippedView, LedgeContentHosting {
+    let stack: LedgeStackView
+
+    init() {
+        stack = LedgeStackView(axis: .horizontal, gap: LedgeMetrics.gap)
+        super.init(frame: .zero)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    var contentView: NSView { stack }
+}
+
 final class LedgeWingView: FlippedView, LedgeContentHosting {
     let stack: LedgeStackView
 

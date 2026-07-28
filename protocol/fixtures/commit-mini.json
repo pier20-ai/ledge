@@ -1,0 +1,14 @@
+{ "v": 1, "app": "music", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "mini", "props": {} },
+  { "op": "create", "id": 3, "kind": "stack", "props": { "axis": "h", "gap": 8 } },
+  { "op": "create", "id": 4, "kind": "text", "props": { "content": "Neon Rain", "weight": "semibold" } },
+  { "op": "create", "id": 5, "kind": "text", "props": { "content": "Hana Vale", "color": "secondary" } },
+  { "op": "create", "id": 6, "kind": "text", "props": { "content": "NOW PLAYING", "size": "xs", "weight": "semibold", "color": "secondary", "mono": true } },
+  { "op": "insert", "parent": 3, "id": 4, "before": null },
+  { "op": "insert", "parent": 3, "id": 5, "before": null },
+  { "op": "insert", "parent": 2, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

@@ -32,6 +32,12 @@ final class NotchPanelController {
 
     /// Chrome surfaces are rebuilt only when their app changes, so re-presenting
     /// one is a re-measure rather than a cross-fade.
+    /// The peek surface. One instance reused across apps — there is one notch,
+    /// so there is one mini, and the content is swapped rather than rebuilt.
+    private let miniSurface = MiniContentView()
+    /// Pending auto-dismiss for the mini currently on screen.
+    private var miniDismiss: DispatchWorkItem?
+
     private var chatSurface: (app: String, view: ChatContentView)?
     private var newAppSurface: NewAppContentView?
     private var placeholder: (phase: HostPlaceholderView.Phase, view: HostPlaceholderView)?
@@ -79,7 +85,8 @@ final class NotchPanelController {
         // decides the addressee, so the answer lives here rather than in the
         // surface — the surface only knows it is expanded.
         surface.canAcceptDrop = { [weak self] in
-            guard let self, let app = self.shellState.presentation.app else { return false }
+            guard let self, !self.shellState.presentation.isMini else { return false }
+            guard let app = self.shellState.presentation.app else { return false }
             return self.session.content(for: app) != nil
         }
         surface.onDropFiles = { [weak self] paths in
@@ -112,8 +119,8 @@ final class NotchPanelController {
             guard self.shellState.isExpanded else { return }
             self.refresh(animated: true)
         }
-        session.onChrome = { [weak self] app, request, wing in
-            self?.handleChrome(app: app, request: request, wing: wing)
+        session.onChrome = { [weak self] app, request, wing, ms in
+            self?.handleChrome(app: app, request: request, wing: wing, ms: ms)
         }
         session.onNotificationOpened = { [weak self] app in
             // Same refusal as chrome "expand": opening onto the placeholder
@@ -166,7 +173,11 @@ final class NotchPanelController {
         let presentation = shellState.presentation
         // Chat sits *below* the live preview (spec §8), so the app stays
         // selected while its chat is open; [+] and the pill select nothing.
-        session.setPresented(presentation.app)
+        //
+        // `reportedApp`, not `app`: a mini names its app but reports nothing,
+        // because reporting is what tells a worker its panel opened. See
+        // ShellPresentation.reportedApp.
+        session.setPresented(presentation.reportedApp)
 
         let content: NSView?
         let width: CGFloat
@@ -189,6 +200,20 @@ final class NotchPanelController {
                 width = PanelLimits.defaultWidth
                 height = HostPlaceholderView.panelHeight + surface.panelWingRowHeight
             }
+        case .mini(let app):
+            // Borrow the app's live `<mini>` node. Nothing is rebuilt and the
+            // worker is never asked anything, which is what makes a peek — and
+            // a hover promoting one — instant.
+            miniSurface.adopt(session.miniView(for: app))
+            content = miniSurface
+            let size = miniSurface.preferredSize(
+                cutoutWidth: surface.metrics.closedWidth,
+                maxWidth: surface.limits.maxWidth
+            )
+            width = size.width
+            // Plus the cutout row: the surface hangs from the top of the screen,
+            // so its first row is behind the camera like any other.
+            height = size.height + surface.panelWingRowHeight
         case .chat(let app):
             content = chatView(for: app)
             width = PanelLimits.defaultWidth
@@ -204,10 +229,12 @@ final class NotchPanelController {
 
         // Before `present`, so the first layout of a newly-shown surface already
         // has the right zone content instead of flashing the previous app's.
+        // The peek surface carries no chrome — no app name, no Edit (see
+        // `PanelWingBarView`); its row is reserved but empty.
         surface.setPanelWing(
-            name: presentation.app.map { session.name(for: $0) },
-            content: session.panelWing(for: presentation.app),
-            canEdit: presentation.app != nil
+            name: presentation.isMini ? nil : presentation.app.map { session.name(for: $0) },
+            content: presentation.isMini ? nil : session.panelWing(for: presentation.app),
+            canEdit: !presentation.isMini && presentation.app != nil
         )
         surface.present(
             presentation,
@@ -243,9 +270,18 @@ final class NotchPanelController {
         panel.makeFirstResponder(canvas)
     }
 
-    /// Hover or click on the collapsed notch: reopen the last app.
+    /// Hover or click on the collapsed notch: reopen the last app — or, if a
+    /// mini is on screen, open *that* app. Reaching for a peek means "tell me
+    /// more about this", not "reopen whatever I had before".
     private func openFromCollapsed() {
         guard !shellState.isExpanded else { return }
+        if shellState.presentation.isMini {
+            miniDismiss?.cancel()
+            miniDismiss = nil
+            shellState.promoteMini()
+            refresh(animated: true)
+            return
+        }
         toggleExpansion()
     }
 
@@ -253,8 +289,10 @@ final class NotchPanelController {
 
     /// An app asked for something of the shell. Denials are silent, per §3.3 —
     /// an app cannot tell whether it was refused, so it cannot build on it.
-    private func handleChrome(app: String, request: String, wing: WingSpec?) {
+    private func handleChrome(app: String, request: String, wing: WingSpec?, ms: Double?) {
         switch request {
+        case "peek":
+            peek(app: app, ms: ms)
         case "expand":
             // The one genuine reason to refuse: there is nothing to show. An app
             // whose worker has not committed a tree (or crashed into an error
@@ -277,6 +315,58 @@ final class NotchPanelController {
         default:
             break                                   // unknown request → ignored
         }
+    }
+
+    /// Default dwell when an app peeks without naming one. Matches the host's
+    /// `DEFAULT_PEEK_MS`; duplicated rather than shared because the host clamps
+    /// (policy about apps) and the shell defaults (policy about the surface).
+    private static let defaultPeekSeconds: TimeInterval = 4
+
+    /// `ctx.peek` (spec §3.3 extension): show the app's mini view for a moment.
+    ///
+    /// Refused, silently and in this order, when there is nothing to show, when
+    /// the panel is already open, or when the app is not the one on screen.
+    /// The second two matter most: a peek interrupting a panel the user is
+    /// actively reading — or worse, replacing another app's panel — is a
+    /// background app taking the screen, which is the thing the notch must never
+    /// do. A peek is only ever an *escalation from collapsed*.
+    private func peek(app: String, ms: Double?) {
+        guard session.miniView(for: app) != nil else { return }
+        switch shellState.presentation {
+        case .collapsed:
+            break
+        case .mini:
+            // Latest asker wins, exactly as with wings — the newest thing that
+            // happened is the one worth showing.
+            break
+        case .expanded, .chat, .newApp:
+            return
+        }
+
+        shellState.present(.mini(app: app))
+        refresh(animated: true)
+
+        let seconds = ms.map { $0 / 1000 } ?? Self.defaultPeekSeconds
+        scheduleMiniDismiss(app: app, after: seconds)
+    }
+
+    /// Put the mini away when its dwell elapses — unless the user reached for it
+    /// first, or another app took the surface (both checked in `dismissMini`).
+    private func scheduleMiniDismiss(app: String, after seconds: TimeInterval) {
+        miniDismiss?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Hovering holds it open: the user is looking at it, and pulling it
+            // out from under them to then reopen on hover would flicker.
+            guard !self.surface.isHovered else {
+                self.scheduleMiniDismiss(app: app, after: 1)
+                return
+            }
+            self.shellState.dismissMini(app: app)
+            self.refresh(animated: true)
+        }
+        miniDismiss = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     /// Wing arbitration (spec §3.3 extension). There is one collapsed notch, so

@@ -60,7 +60,7 @@ final class HostSession {
     var onContentChanged: ((String) -> Void)?
     /// An app-level chrome request (spec §3.3): `expand`/`collapse`/`attention`,
     /// or a `wing` with its spec (nil spec = release the notch).
-    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?) -> Void)?
+    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?, _ ms: Double?) -> Void)?
     /// The user clicked a notification's body (§6): open the notch at the app.
     var onNotificationOpened: ((_ app: String) -> Void)?
 
@@ -102,8 +102,8 @@ final class HostSession {
             )
             self.onCatalog?(payload.apps)
         }
-        renderer.onChrome = { [weak self] app, request, wing in
-            self?.onChrome?(app, request, wing)
+        renderer.onChrome = { [weak self] app, request, wing, ms in
+            self?.onChrome?(app, request, wing, ms)
         }
 
         // Shell-executed capabilities (spec §6). The engine answers `apple` /
@@ -288,6 +288,12 @@ final class HostSession {
 
     /// The app's panel-wing content (spec §5 `wing`), or nil for the shell's own
     /// default. Asked on every refresh — see `ProtocolRenderer.wingView`.
+    /// The app's `<mini>` content, or nil when it mounted none — in which case a
+    /// `peek` has nothing to show and is refused (spec §3.3: silently).
+    func miniView(for app: String) -> NSView? {
+        renderer.miniView(for: app)
+    }
+
     func panelWing(for app: String?) -> NSView? {
         app.flatMap { renderer.wingView(for: $0) }
     }

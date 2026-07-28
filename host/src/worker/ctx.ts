@@ -212,6 +212,19 @@ export interface Ctx {
    * wing is released for it on stop, crash, and reload. */
   wing(spec: WingSpec | null): void;
   /** Ask the shell to present this app (spec §3.3). May be denied silently. */
+  /**
+   * Show this app's `<mini>` subtree below the notch for `ms`, then let it go
+   * (spec §3.3 extension). The middle rung between a wing and the panel: enough
+   * room for "[art] Title — Artist", gone before it becomes clutter.
+   *
+   * What is shown is declarative — whatever `<mini>` currently renders — so a
+   * peek never round-trips to ask the app what to draw, and a hover during one
+   * promotes to the full panel instantly. This call only says *when*.
+   *
+   * Latest asker wins, as with wings. Denied silently if the app has no
+   * `<mini>` in its tree.
+   */
+  peek(ms?: number): void;
   expand(): void;
   /** Ask the shell to put this app away (spec §3.3). Ignored unless this app is
    * the one currently presented. */
@@ -296,6 +309,20 @@ function sanitizeActions(actions: NotifyAction[] | undefined): NotifyAction[] {
  * Settings-only `ctx.platform` (spec §8) — omit it for ordinary apps so the
  * surface stays exactly the four documented bridges.
  */
+/** Default dwell for `ctx.peek()` — long enough to read a title and an artist,
+ * short enough that a missed one costs nothing. */
+export const DEFAULT_PEEK_MS = 4_000;
+const MIN_PEEK_MS = 500;
+const MAX_PEEK_MS = 20_000;
+
+/** Clamp a requested peek to something that stays a *glance*. A peek is not a
+ * way to open the panel; `ctx.expand()` is, and it is the one the user can
+ * dismiss. */
+export function clampPeek(ms: number | undefined): number {
+  if (ms === undefined || !Number.isFinite(ms)) return DEFAULT_PEEK_MS;
+  return Math.min(Math.max(Math.round(ms), MIN_PEEK_MS), MAX_PEEK_MS);
+}
+
 export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): CtxHandle {
   // Request ids are per-session and monotonic; they only need to be unique
   // among this worker's in-flight bridge calls (the host keys replies by id).
@@ -436,6 +463,10 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       io.post({ type: "draw", id, ops });
     },
     wing: (spec) => io.post({ type: "wing", wing: sanitizeWing(spec) }),
+    // Clamped here rather than shell-side so an app cannot pin the notch open
+    // with a peek measured in minutes — that is the panel's job, and the app has
+    // ctx.expand() for it.
+    peek: (ms) => io.post({ type: "chrome", request: "peek", ms: clampPeek(ms) }),
     expand: () => io.post({ type: "chrome", request: "expand" }),
     collapse: () => io.post({ type: "chrome", request: "collapse" }),
     platform,

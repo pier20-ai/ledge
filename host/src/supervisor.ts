@@ -76,7 +76,8 @@ export interface SupervisorSink {
   /** ctx.wing — the collapsed-notch surface this app wants, or null (§3.3). */
   wing(app: string, wing: WingSpec | null): void;
   /** ctx.expand/ctx.collapse — a presentation request (spec §3.3). */
-  chrome(app: string, request: ChromeRequest): void;
+  /** `ms` is the peek dwell; absent for every other request. */
+  chrome(app: string, request: ChromeRequest, ms?: number): void;
   /** ctx.notify (spec §6): a shell-posted notification + optional glow. */
   notify(app: string, notification: NotifyRequest): void;
   /** ctx.attention (spec §6, chrome §3.3): notch glow, no notification. */
@@ -99,6 +100,11 @@ export interface AppSupervisorOptions {
   appId: string;
   /** The app's folder (contains app.jsx + crash.log). */
   appDir: string;
+  /** Where the worker resolves `react` from — normally the apps root, so the
+   * reconciler walks up to the very same node_modules the app does (one React
+   * instance, or hooks break; see render/runtime.ts). Defaults to the app's own
+   * folder, which resolves identically for a repo checkout. */
+  modulesRoot?: string;
   /** Grants ctx.platform — Settings only (spec §8). */
   privileged?: boolean;
   sink: SupervisorSink;
@@ -120,6 +126,7 @@ export class AppSupervisor {
   private readonly appId: string;
   private readonly appDir: string;
   private readonly modulePath: string;
+  private readonly modulesRoot: string;
   private readonly privileged: boolean;
   private readonly sink: SupervisorSink;
   private readonly factory: WorkerFactory;
@@ -140,6 +147,7 @@ export class AppSupervisor {
     this.appId = options.appId;
     this.appDir = options.appDir;
     this.modulePath = join(options.appDir, "app.jsx");
+    this.modulesRoot = options.modulesRoot ?? options.appDir;
     this.privileged = options.privileged ?? false;
     this.sink = options.sink;
     this.factory = options.factory ?? realWorkerFactory;
@@ -210,6 +218,7 @@ export class AppSupervisor {
 
     const boot = {
       modulePath: pathToFileURL(this.modulePath).href,
+      modulesRoot: this.modulesRoot,
       privileged: this.privileged,
     };
     const handle = this.factory(boot, {
@@ -257,7 +266,7 @@ export class AppSupervisor {
         this.sink.wing(this.appId, msg.wing);
         break;
       case "chrome":
-        this.sink.chrome(this.appId, msg.request);
+        this.sink.chrome(this.appId, msg.request, msg.ms);
         break;
       case "notify": {
         const { type: _type, ...notification } = msg;

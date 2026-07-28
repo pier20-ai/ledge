@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { InMemorySink, type Mutation } from "../src/render/mutations";
-import { createAppSession } from "../src/render/session";
+import { mountApp } from "./helpers/react-runtime";
 
 // The Settings reference app (spec §8) rendered in-process against InMemorySink,
 // with no worker/host — proof that the §5 component vocabulary and props-driven
@@ -17,10 +17,10 @@ type Create = Extract<Mutation, { op: "create" }>;
 describe("settings reference app", () => {
   test("renders app rows + general toggles using only §5 kinds", async () => {
     const mod = await import(settingsUrl);
-    const Settings = mod.default as Parameters<typeof createAppSession>[0];
+    const Settings = mod.default as Parameters<typeof mountApp>[0];
 
     const sink = new InMemorySink();
-    const session = createAppSession(Settings, sink);
+    const session = mountApp(Settings, sink);
     session.update({
       apps: [
         { id: "stocks", name: "Stocks", icon: "sf:chart.line.uptrend.xyaxis", enabled: true },

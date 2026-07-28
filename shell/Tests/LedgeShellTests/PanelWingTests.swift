@@ -271,7 +271,7 @@ struct PanelWingTests {
             Issue.record("a nested wing must not validate")
             return
         }
-        #expect(failure == .misplacedWing(id: 3))
+        #expect(failure == .misplacedZone(id: 3, kind: .wing))
         #expect(tree.isEmpty)
     }
 }

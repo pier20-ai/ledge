@@ -623,6 +623,9 @@ final class ShellSurfaceView: FlippedView {
     private static let appBarHeight: CGFloat = 42
     private static let expandedBottomRadius: CGFloat = 26
     private static let collapsedBottomRadius: CGFloat = 12
+    /// Between the two, because the mini surface is between the two: the panel's
+    /// 26 on a ~60 pt card reads as a lozenge, the pill's 12 as a cut-off panel.
+    private static let miniBottomRadius: CGFloat = 18
 
     var metrics: NotchMetrics = .fallback {
         didSet {
@@ -646,6 +649,19 @@ final class ShellSurfaceView: FlippedView {
     /// Expanded panel width — 440 unless the presented app declared another one
     /// in `meta.panel.width` (already clamped by `PanelLimits`).
     private(set) var expandedWidth: CGFloat = PanelLimits.defaultWidth
+
+    /// The mini surface's measured size, kept separately from the panel's so
+    /// that a peek and a later expand each morph from their own last shape
+    /// rather than inheriting the other's.
+    private(set) var miniSize = CGSize(width: 260, height: 64)
+
+    /// Whether the cutout exclusion row is reserved. True for the panel *and*
+    /// the mini surface: both hang from the top of the screen, so both would
+    /// otherwise draw their first row underneath the camera. False for the pill,
+    /// which *is* the cutout and has nothing to exclude.
+    private var reservesCutoutRow: Bool {
+        presentation.isExpanded || presentation.isMini
+    }
 
     /// The wing an app currently owns, or nil for the idle pill (spec §3.3
     /// extension). Arbitration between apps happens in the panel controller;
@@ -680,6 +696,10 @@ final class ShellSurfaceView: FlippedView {
     private(set) var presentation: ShellPresentation = .collapsed
     private var hoverBump = false
     private var hoverInside = false
+    /// Whether the cursor is currently within the hover region. Read by the
+    /// panel controller so a peek's dwell does not expire out from under a user
+    /// who is looking straight at it.
+    var isHovered: Bool { hoverInside }
     private var morphGraceUntil: CFTimeInterval = 0
     private var openWork: DispatchWorkItem?
     private var closeWork: DispatchWorkItem?
@@ -864,6 +884,16 @@ final class ShellSurfaceView: FlippedView {
     /// beside it (an alarm's countdown; the maximally asymmetric case) then draws
     /// half of itself under the camera housing, where no pixel is ever seen.
     private var shapeRect: CGRect {
+        // The mini surface is centred on the cutout like the panel, not anchored
+        // beside it like the pill — it is a small panel, not a wide wing.
+        if presentation.isMini {
+            return CGRect(
+                x: (bounds.width - miniSize.width) / 2,
+                y: 0,
+                width: miniSize.width,
+                height: miniSize.height
+            )
+        }
         let bumped = hoverBump && !presentation.isExpanded
         let size = shapeSize(
             expanded: presentation.isExpanded,
@@ -900,7 +930,10 @@ final class ShellSurfaceView: FlippedView {
     /// pointer left. Also the interactive (hit-testable) region.
     private var hoverRegion: CGRect {
         let shape = shapeRect
-        if presentation.isExpanded {
+        // A mini gets the open-panel slop rather than the pill's: it is bigger
+        // than the pill and the user is reaching *for* it, so the region has to
+        // cover the shape they can actually see.
+        if presentation.isExpanded || presentation.isMini {
             let slop = hoverPolicy.openSlop
             return CGRect(
                 x: shape.minX - slop,
@@ -953,6 +986,7 @@ final class ShellSurfaceView: FlippedView {
         presentation = newPresentation
         expandedHeight = newPresentation.isExpanded ? height : expandedHeight
         expandedWidth = newPresentation.isExpanded ? width : expandedWidth
+        if newPresentation.isMini { miniSize = CGSize(width: width, height: height) }
         hoverBump = false
         openWork?.cancel()
         if newPresentation.isExpanded {
@@ -1073,9 +1107,13 @@ final class ShellSurfaceView: FlippedView {
 
         let shape = shapeRect
         let body = bodyRect
-        let bottomRadius = presentation.isExpanded
-            ? Self.expandedBottomRadius
-            : Self.collapsedBottomRadius
+        let bottomRadius: CGFloat = if presentation.isExpanded {
+            Self.expandedBottomRadius
+        } else if presentation.isMini {
+            Self.miniBottomRadius
+        } else {
+            Self.collapsedBottomRadius
+        }
         let path = notchPath(in: shape, topRadius: Self.fillet, bottomRadius: bottomRadius)
         let barHeight = presentation.isExpanded ? Self.appBarHeight : 0
 
@@ -1101,9 +1139,11 @@ final class ShellSurfaceView: FlippedView {
             width: body.width,
             height: shape.height - barHeight
         )
-        // Wings only exist on the collapsed pill; expanded, the app owns the box.
-        wingBar.isHidden = presentation.isExpanded || wing == nil
-        wingBar.extents = presentation.isExpanded ? (0, 0) : wingExtents
+        // Wings only exist on the collapsed pill; expanded — or peeking — the
+        // surface is the app's own, and a wing drawn across it would be the same
+        // app talking over itself.
+        wingBar.isHidden = reservesCutoutRow || wing == nil
+        wingBar.extents = reservesCutoutRow ? (0, 0) : wingExtents
         wingBar.notchWidth = metrics.closedWidth
         wingBar.notchHeight = metrics.closedHeight
         wingBar.frame = contentContainer.bounds
@@ -1112,7 +1152,10 @@ final class ShellSurfaceView: FlippedView {
         // The cutout exclusion row (panel wings): reserved while expanded, gone
         // while collapsed — the pill *is* the cutout, so there is nothing there
         // to exclude.
-        let exclusion = presentation.isExpanded ? panelWingRowHeight : 0
+        let exclusion = reservesCutoutRow ? panelWingRowHeight : 0
+        // The row is *reserved* while peeking but stays empty: the app's name and
+        // the Edit affordance belong to the panel. A peek is a glance, and a
+        // glance with chrome on it is a panel that forgot to open.
         panelWingBar.isHidden = !presentation.isExpanded
         panelWingBar.cutoutWidth = metrics.closedWidth
         panelWingBar.rowHeight = panelWingRowHeight
@@ -1264,6 +1307,7 @@ final class ShellSurfaceView: FlippedView {
     private static func describe(_ presentation: ShellPresentation) -> String {
         switch presentation {
         case .collapsed: "idle"
+        case .mini(let app): "\(app) peek"
         case .expanded(let app): app ?? "no host"
         case .chat(let app): "\(app) chat"
         case .newApp: "new app"

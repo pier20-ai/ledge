@@ -2,9 +2,10 @@
 // an in-memory props object and schedules a re-render of the default export.
 // This is the sole monitor → UI bridge; persistence is the app's own business.
 
-import { createElement, type ComponentType } from "react";
+import type { ComponentType } from "react";
 import type { MutationSink } from "./mutations";
 import { createLedgeRenderer, type LedgeRenderer } from "./reconciler";
+import type { ReactRuntime } from "./runtime";
 
 export interface AppSession {
   /** Shallow-merge and re-render. */
@@ -18,11 +19,12 @@ export interface AppSession {
 export function createAppSession(
   App: ComponentType<Record<string, unknown>>,
   sink: MutationSink,
+  runtime: ReactRuntime,
 ): AppSession {
-  const renderer = createLedgeRenderer(sink);
+  const renderer = createLedgeRenderer(sink, runtime);
   let props: Record<string, unknown> = {};
 
-  const render = () => renderer.render(createElement(App, props));
+  const render = () => renderer.render(runtime.createElement(App, props));
   render();
 
   return {

@@ -144,16 +144,22 @@ public struct WingSpec: Codable, Sendable, Equatable {
     public var isEmpty: Bool { text == nil && width == nil && canvas == nil }
 }
 
-/// `chrome` (spec §3.3): `expand`/`collapse`/`attention`, plus the `wing`
-/// request this phase adds. `wing` is present only for `request == "wing"`, and
-/// a null/absent `wing` there means "release the notch".
+/// `chrome` (spec §3.3): `expand`/`collapse`/`attention`, plus the `wing` and
+/// `peek` requests this phase adds. Each extra field belongs to exactly one
+/// request — `wing` to `"wing"` (null/absent there means "release the notch"),
+/// `ms` to `"peek"` — so the shell reads the field its verb names and ignores
+/// the rest, and a new request stays a new *value* rather than a new envelope.
 public struct ChromePayload: Codable, Sendable, Equatable {
     public var request: String
     public var wing: WingSpec?
+    /// Peek dwell in milliseconds. Absent means the shell's own default; the
+    /// host has already clamped anything an app asked for.
+    public var ms: Double?
 
-    public init(request: String, wing: WingSpec? = nil) {
+    public init(request: String, wing: WingSpec? = nil, ms: Double? = nil) {
         self.request = request
         self.wing = wing
+        self.ms = ms
     }
 }
 

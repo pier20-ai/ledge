@@ -217,6 +217,92 @@ private final class ChatInputView: RoundedBoxView {
     }
 }
 
+/// Hosts an app's `<mini>` node in the peek surface (spec §3.3 extension).
+///
+/// The app supplies content and nothing else — no width, no dwell, no chrome —
+/// so this centres it, pads it, and lets the controller size the surface from
+/// `fits(in:)`. Deliberately dumb: everything about *when* a mini is on screen
+/// lives in the panel controller, and everything about what it says lives in the
+/// app's tree.
+final class MiniContentView: FlippedView {
+    /// Padding around the app's content. Generous horizontally because the
+    /// surface's corners are rounded and text tucked into them reads as clipped.
+    static let padX: CGFloat = 14
+    static let padY: CGFloat = 6
+    /// How far past the hardware cutout a mini always extends, per side.
+    ///
+    /// Derived from the notch, never a constant: a constant gets this *visibly*
+    /// wrong. 180 pt is narrower than a 189 pt cutout, so a short mini rendered
+    /// NARROWER than the notch it hangs from — the notch appearing to pinch in
+    /// sideways while growing downwards, which is the one thing this surface
+    /// must never look like.
+    ///
+    /// 22 pt a side, tuned against the real notch: enough that the surface
+    /// reads as *the notch itself widening*, not so much that it becomes a panel
+    /// that happens to start at the top of the screen. The panel is the other
+    /// rung. Paired with a short content row — a peek is wide and shallow,
+    /// because one line of text is what it is for.
+    static let notchOvershoot: CGFloat = 22
+
+    /// Absolute floor, used only when no cutout measurement is available
+    /// (snapshots, headless tests).
+    static let minWidth: CGFloat = 180
+    static let minHeight: CGFloat = 34
+    static let maxHeight: CGFloat = 80
+
+    private var content: NSView?
+
+    /// Adopt (or release) the app's mini node. The view belongs to the app's
+    /// tree, so it is only ever borrowed — never removed from that tree, and
+    /// handed back unmodified when the peek ends.
+    func adopt(_ view: NSView?) {
+        guard view !== content else { return }
+        content?.removeFromSuperview()
+        content = view
+        guard let view else { return }
+        // The renderer builds every node for Auto Layout; this surface frames
+        // its content by hand, exactly as the panel wing zone does.
+        view.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(view)
+        needsLayout = true
+    }
+
+    /// The surface size this content wants, already clamped.
+    /// The adopted content's own fitting size — the number `preferredSize` is
+    /// built from. Exposed so tests can assert the surface is *derived from* its
+    /// content rather than landing on a floor, which is how an empty mini once
+    /// passed every placement test while rendering nothing at all.
+    var fittingSizeOfContent: CGSize { content?.fittingSize ?? .zero }
+
+    /// `cutoutWidth` is the hardware notch: the surface is never narrower than
+    /// that plus `notchOvershoot` a side, so a peek always reads as the notch
+    /// widening rather than pinching in. Pass 0 where there is no measurement
+    /// (snapshots, headless tests).
+    func preferredSize(cutoutWidth: CGFloat, maxWidth: CGFloat) -> CGSize {
+        let fitting = content?.fittingSize ?? .zero
+        let floor = max(Self.minWidth, cutoutWidth + Self.notchOvershoot * 2)
+        let width = min(max(fitting.width + Self.padX * 2, floor), maxWidth)
+        let height = min(max(fitting.height + Self.padY * 2, Self.minHeight), Self.maxHeight)
+        return CGSize(width: width, height: height)
+    }
+
+    override func layout() {
+        super.layout()
+        guard let content else { return }
+        let available = bounds.insetBy(dx: Self.padX, dy: Self.padY)
+        let fitting = content.fittingSize
+        // Centred both ways: a mini is one line about one thing, and left-
+        // aligning it in a surface sized to fit leaves a gap that reads as a
+        // layout bug rather than a choice.
+        content.frame = CGRect(
+            x: available.minX + max(0, (available.width - fitting.width) / 2),
+            y: available.minY + max(0, (available.height - fitting.height) / 2),
+            width: min(fitting.width, available.width),
+            height: min(fitting.height, available.height)
+        )
+    }
+}
+
 /// An app's chat surface (spec §8). Shell chrome, not an app: it renders
 /// `builder` events, and until the agent adapters land it shows the mockup
 /// transcript inert. Its height is fixed here because nothing measures it —

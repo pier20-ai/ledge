@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { InMemorySink, type Mutation } from "../src/render/mutations";
-import { createAppSession } from "../src/render/session";
+import { mountApp } from "./helpers/react-runtime";
 import { createCtx, type PrivilegedCtx } from "../src/worker/ctx";
 import type { WorkerToHost } from "../src/worker/messages";
 
@@ -384,7 +384,7 @@ describe("ctx bridges", () => {
 describe("ctx.update", () => {
   test("a fake monitor's updates shallow-merge and re-render", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ price = "—", label = "AAPL" }) => (
         <stack axis="v">
           <text content={String(label)} />
@@ -405,5 +405,26 @@ describe("ctx.update", () => {
     const last = sink.commits.at(-1)!;
     expect(last.map((m) => m.op)).toEqual(["update"]);
     expect((last[0] as Extract<Mutation, { op: "update" }>).props).toEqual({ content: "AAPL Inc" });
+  });
+
+  // `ctx.peek` (spec §3.3 extension). The dwell is clamped HERE, in the host,
+  // rather than shell-side: an app that could ask for a five-minute peek could
+  // pin the notch open without ever calling expand — which is the one thing the
+  // surface is not allowed to let it do.
+  test("peek posts a chrome request with a clamped dwell", () => {
+    const { posts, post } = recorder();
+    const { ctx } = createCtx({ post, update: () => {} });
+
+    ctx.peek();          // default
+    ctx.peek(1500);      // honoured as-is
+    ctx.peek(50);        // below the floor
+    ctx.peek(10 * 60_000); // a peek that wanted to be a panel
+    ctx.peek(Number.NaN);  // nonsense
+
+    const peeks = posts.filter(
+      (msg): msg is Extract<WorkerToHost, { type: "chrome" }> =>
+        msg.type === "chrome" && msg.request === "peek",
+    );
+    expect(peeks.map((msg) => msg.ms)).toEqual([4000, 1500, 500, 20_000, 4000]);
   });
 });

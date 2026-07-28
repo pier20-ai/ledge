@@ -209,4 +209,45 @@ describe("Router end-to-end (real workers)", () => {
       () => session.envelopesFor("crasher", "app").filter((e) => e.payload.state === "started").length > startsBefore,
     );
   }, 30000);
+
+  // The registry used to be read once, at bindSession, so an app created after
+  // the host started was invisible until it restarted. That blocks the whole
+  // builder flow: the agent scaffolds a folder and then has nothing to show.
+  test("an app folder created after bind is scanned, published, and started", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    // Real watcher here (watch: true) — the rescan is triggered by fs events,
+    // so a fake would test everything except the part that was missing.
+    const router = new Router({ appsRoot: root, scheduler: new FakeScheduler(), watch: true });
+    openRouter = router;
+
+    await router.bindSession(session);
+    await waitFor(() => session.envelopesFor("counter", "commit").length >= 1);
+    // (More than one catalog by now is normal: the worker's `meta` re-publishes
+    // the full snapshot, spec §3.6. What matters is that nothing names the app
+    // that does not exist yet.)
+    expect(
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "flights")),
+    ).toBe(false);
+
+    // What `ledge new` / an agent scaffolding an app does on disk.
+    await mkdir(join(root, "flights"), { recursive: true });
+    await writeFile(join(root, "flights", "app.jsx"), COUNTER(41));
+
+    // A fresh catalog naming the new app…
+    await waitFor(() =>
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "flights")),
+    );
+    // …and a worker that actually mounted it.
+    await waitFor(() => session.envelopesFor("flights", "commit").length >= 1);
+    const mount = session.envelopesFor("flights", "commit")[0]!.payload.mutations as Mutation[];
+    expect(createOfKind(mount, "text")!.props.content).toBe("count 41");
+
+    // The pre-existing app is untouched — a rescan must not restart the world.
+    expect(session.envelopesFor("counter", "app").filter((e) => e.payload.state === "started").length).toBe(1);
+  }, 30000);
 });

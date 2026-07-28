@@ -3,11 +3,16 @@
 // real view system. Runs in the app worker; tests run it against an
 // in-memory sink with no socket or AppKit anywhere.
 
-import ReactReconciler from "react-reconciler";
-import { DefaultEventPriority } from "react-reconciler/constants";
 import type { ReactNode } from "react";
 import type { Mutation, MutationSink, Props } from "./mutations";
 import { HandlerRegistry, diffProps, serializeProps } from "./props";
+import type { ReactRuntime } from "./runtime";
+
+// Type-only: `typeof import(…)` is erased at emit, so react-reconciler's types
+// are available here without a runtime import the bundler would embed (see
+// ./runtime.ts for why nothing in the render path may import React statically).
+// (@types/react-reconciler uses `export =`, so the module type IS the function.)
+type ReconcilerFactory = typeof import("react-reconciler");
 
 export interface Instance {
   id: number;
@@ -31,7 +36,7 @@ export interface LedgeRenderer {
   dispatchEvent(id: number, name: string, data?: Record<string, unknown>): boolean;
 }
 
-export function createLedgeRenderer(sink: MutationSink): LedgeRenderer {
+export function createLedgeRenderer(sink: MutationSink, runtime: ReactRuntime): LedgeRenderer {
   const registry = new HandlerRegistry();
   // Ids are allocated per renderer session and never reused (spec §3.1).
   let nextId = 1;
@@ -40,7 +45,7 @@ export function createLedgeRenderer(sink: MutationSink): LedgeRenderer {
   // prepareForCommit..resetAfterCommit holds together.
   let batch: Mutation[] = [];
 
-  const reconciler = ReactReconciler<
+  const reconciler = (runtime.createReconciler as ReconcilerFactory)<
     string, // Type
     Props, // Props
     Container,
@@ -136,7 +141,7 @@ export function createLedgeRenderer(sink: MutationSink): LedgeRenderer {
     preparePortalMount: () => {},
     detachDeletedInstance: () => {},
 
-    getCurrentEventPriority: () => DefaultEventPriority,
+    getCurrentEventPriority: () => runtime.defaultEventPriority,
     getInstanceFromNode: () => null,
     getInstanceFromScope: () => null,
     beforeActiveInstanceBlur: () => {},

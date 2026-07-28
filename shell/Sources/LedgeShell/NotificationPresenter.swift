@@ -76,7 +76,9 @@ final class NotificationPresenter: NSObject {
 
         let identifier = UUID().uuidString
         posted[identifier] = (app, notification.id)
-        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+        // @Sendable for the same reason as the authorization callback above:
+        // MainActor inheritance + a UN-owned callback queue = SIGTRAP.
+        center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { @Sendable error in
             if let error {
                 NSLog("[ledge] notification failed: %@", error.localizedDescription)
             }
@@ -88,7 +90,14 @@ final class NotificationPresenter: NSObject {
         authorizationRequested = true
         // macOS shows this prompt once per bundle; a denial is the user's
         // answer and we never ask again in this process.
-        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+        // `@Sendable` is load-bearing, not decoration. This class is @MainActor,
+        // so an un-annotated closure INHERITS that isolation — and UN calls back
+        // on one of its own queues, which trips the executor assertion and kills
+        // the process with SIGTRAP. It only ever fires in a bundled build,
+        // because unbundled the UN path is skipped entirely, so it cannot be
+        // caught by any dev run. Marking the closure @Sendable makes it
+        // non-isolated, which is correct here: the body only logs.
+        center.requestAuthorization(options: [.alert, .sound]) { @Sendable granted, error in
             if let error {
                 NSLog("[ledge] notification authorization failed: %@", error.localizedDescription)
             } else if !granted {

@@ -19,6 +19,10 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         /// The app's panel-wing node, if it mounted one (spec §5 `wing`). Its
         /// view lives in the shell's zone, not in this tree's content stack.
         var wingID: Int?
+        /// The app's mini-view node, if it mounted one (spec §5 `mini`). Like
+        /// the wing, its view lives in a shell surface rather than this tree's
+        /// content stack — which is what lets a peek be instant.
+        var miniID: Int?
         /// Set while an error card replaces the app tree.
         var errorCard: NSView?
     }
@@ -29,7 +33,7 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
     var onContentChanged: ((_ app: String) -> Void)?
     var onCatalog: ((CatalogPayload) -> Void)?
     var onBuilder: ((BuilderPayload) -> Void)?
-    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?) -> Void)?
+    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?, _ ms: Double?) -> Void)?
     var onLifecycle: ((_ app: String, _ state: String) -> Void)?
 
     private var trees: [String: AppTree] = [:]
@@ -74,6 +78,15 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
     /// separate notification.
     func wingView(for app: String) -> NSView? {
         guard let tree = trees[app], let id = tree.wingID else { return nil }
+        return tree.views[id]
+    }
+
+    /// The app's mini-view content, or nil when it mounted none — in which case
+    /// a `peek` has nothing to show and the shell declines it (spec §3.3:
+    /// denials are silent). Asked for on demand, exactly like `wingView`, so an
+    /// app whose mini changes between peeks needs no notification.
+    func miniView(for app: String) -> NSView? {
+        guard let tree = trees[app], let id = tree.miniID else { return nil }
         return tree.views[id]
     }
 
@@ -156,8 +169,8 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         onLifecycle?(app, state)
     }
 
-    func chromeRequest(app: String, request: String, wing: WingSpec?) {
-        onChrome?(app, request, wing)
+    func chromeRequest(app: String, request: String, wing: WingSpec?, ms: Double?) {
+        onChrome?(app, request, wing, ms)
     }
 
     func drawCanvas(app: String, id: Int, ops: [JSONValue]) {
@@ -203,9 +216,22 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // belongs in the zone beside the camera, not in the root's stack.
             // Adding it here would put the app's status line back exactly where
             // this whole feature exists to remove it from.
-            guard tree.kinds[id] != .wing else {
+            // Zone kinds (`wing`, `mini`) are the app's content for shell
+            // chrome: the shadow tree has already established each is a direct
+            // child of the root, and their views belong in the surfaces the
+            // shell owns, not in the root's stack. Inserting them here would put
+            // the app's status line back exactly where this whole feature exists
+            // to remove it from — and would render the mini view inline, in the
+            // panel, which is not a place it means anything.
+            switch tree.kinds[id] {
+            case .wing:
                 tree.wingID = id
                 return
+            case .mini:
+                tree.miniID = id
+                return
+            default:
+                break
             }
             insert(childView, into: parentView, before: mutation.before, tree: tree)
 
@@ -401,6 +427,14 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // and a wing that could ask for a width could ask for one wider than
             // the gap between the panel edge and the camera.
             return LedgeWingView()
+
+        case .mini:
+            // The surface sizes itself to this view's fitting size and clamps
+            // (see `MiniContentView`), so the app never names a width — a mini
+            // that could would eventually ask to be the panel, and the panel
+            // already exists. `LedgeMiniView`, not `LedgeWingView`: only the
+            // former reports a real fitting size (see its doc comment).
+            return LedgeMiniView()
 
         case .spinner:
             let spinner = LedgeSpinner()
@@ -652,6 +686,12 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // `side` is the only prop, it is validated on the wire (§3.1), and
             // `left` is the only value an app may send — so there is nothing
             // left for the renderer to decide.
+            break
+
+        case .mini:
+            // No props at all: what a mini shows is its children, and *when* it
+            // shows is `ctx.peek` — deliberately not a prop, so the app cannot
+            // pin the surface open by never re-rendering.
             break
 
         case .spinner:

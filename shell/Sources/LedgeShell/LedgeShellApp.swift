@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var statusItem: NSStatusItem?
     private var hostSession: HostSession?
+    private var hostProcess: HostProcess?
     /// Socket path override; `nil` means `~/.ledge/ledge.sock` (spec §1).
     var socketPath: String?
 
@@ -30,6 +31,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             fputs("Could not bind the Ledge socket: \(error)\n", stderr)
         }
 
+        // Seed ~/.ledge, then start the host — in that order, because the host
+        // scans the apps root at startup and an unseeded root is an empty
+        // catalog. Both are no-ops in a dev build (see HostProcess.start).
+        LedgeInstall.seedIfNeeded()
+        let host = HostProcess(
+            socketPath: socketPath ?? SocketTransport.defaultPath,
+            appsRoot: LedgeInstall.appsRoot.path,
+            logURL: LedgeInstall.logURL
+        )
+        hostProcess = host
+        host.start()
+
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(screenConfigurationChanged),
@@ -40,6 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         NotificationCenter.default.removeObserver(self)
+        // The host first: it should stop talking before the socket goes away.
+        // This is the graceful path only — a SIGKILL never reaches here, which
+        // is why the host also exits on stdin EOF (see HostProcess).
+        hostProcess?.stop()
         hostSession?.stop()
     }
 
@@ -113,6 +130,12 @@ enum LedgeShellApp {
         }
 
         let delegate = AppDelegate()
+        // `--ledge-root <path>` relocates the whole install (seed target, apps
+        // root, host log) — how a bundle gets smoke-tested without touching the
+        // user's real ~/.ledge.
+        if let index = arguments.firstIndex(of: "--ledge-root") {
+            LedgeInstall.rootOverride = value(after: index, in: arguments)
+        }
         // `--socket <path>` overrides the default `~/.ledge/ledge.sock`; the
         // smoke test uses it so a run never touches the real one.
         if let index = arguments.firstIndex(of: "--socket") {

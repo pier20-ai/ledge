@@ -13,15 +13,47 @@ import Foundation
 ///   renders its built-in placeholder card.
 /// - `chat(app:)` — the app's chat surface (spec §8). Shell chrome, not an app.
 /// - `newApp` — the **[+]** surface (spec §8). Shell chrome over a fresh folder.
+/// - `mini(app:)` — the app's `<mini>` subtree, in a small surface below the
+///   notch. The middle rung between a wing and the panel: shown by `ctx.peek`,
+///   dismissed on a timer, and promoted to `.expanded` the moment the user
+///   hovers it. It is *not* an expansion — the panel is not open, the app strip
+///   is not drawn, and nothing about it takes focus.
 public enum ShellPresentation: Equatable, Sendable {
     case collapsed
+    case mini(app: String)
     case expanded(app: String?)
     case chat(app: String)
     case newApp
 
+    /// Whether the full panel is up. A mini is deliberately NOT an expansion:
+    /// it draws no app strip, reserves no cutout row, takes no focus, and the
+    /// hover machinery must treat it as "still closed" so that hovering it opens
+    /// the panel rather than reading as an already-open panel.
     public var isExpanded: Bool {
-        if case .collapsed = self { return false }
-        return true
+        switch self {
+        case .collapsed, .mini: false
+        case .expanded, .chat, .newApp: true
+        }
+    }
+
+    /// True while the small surface is up.
+    public var isMini: Bool {
+        if case .mini = self { return true }
+        return false
+    }
+
+    /// The app to report to the host as *presented* (spec §4.3 `selection`, and
+    /// the `expanded`/`collapsed` lifecycle that rides with it).
+    ///
+    /// Not the same question as `app`. A mini names its app — the icon logic and
+    /// the dwell timer both need it — but must report **nothing**, because
+    /// reporting is what tells a worker its panel opened. Apps use
+    /// `onLifecycle("expanded")` to start animating and polling harder; a peek
+    /// that reported itself would spin up every app that flashes a track change
+    /// and then immediately tell it to collapse again, for a panel that never
+    /// opened.
+    public var reportedApp: String? {
+        isMini ? nil : app
     }
 
     /// The app whose icon is lit in the strip — an app's tree or its chat.
@@ -30,6 +62,7 @@ public enum ShellPresentation: Equatable, Sendable {
         switch self {
         case .expanded(let app): app
         case .chat(let app): app
+        case .mini(let app): app
         case .collapsed, .newApp: nil
         }
     }
@@ -62,9 +95,29 @@ public struct ShellState: Equatable, Sendable {
 
     public mutating func present(_ presentation: ShellPresentation) {
         self.presentation = presentation
-        if let app = presentation.app {
+        // A peek is an interruption, not a visit: it must NOT become the app
+        // that hovering the pill reopens. Otherwise a track change while you
+        // were using Chess would quietly rewrite "the app you were last in",
+        // and your next hover would open Music.
+        if let app = presentation.app, !presentation.isMini {
             lastPresentedApp = app
         }
+    }
+
+    /// The user reached for a mini that was on screen — hovered or clicked it.
+    /// That IS a choice, so the app becomes the remembered one and the panel
+    /// opens. A no-op unless a mini is actually up.
+    public mutating func promoteMini() {
+        guard case .mini(let app) = presentation else { return }
+        present(.expanded(app: app))
+    }
+
+    /// The peek's dwell elapsed. Only closes if that same mini is still up —
+    /// the user may already have promoted it, or another app may have taken the
+    /// surface, and a late timer must not close either of those.
+    public mutating func dismissMini(app: String) {
+        guard case .mini(let current) = presentation, current == app else { return }
+        present(.collapsed)
     }
 
     public mutating func collapse() {
@@ -99,7 +152,7 @@ public struct ShellState: Equatable, Sendable {
             present(.chat(app: app))
         case .chat(let app):
             present(.expanded(app: app))
-        case .collapsed, .newApp:
+        case .collapsed, .mini, .newApp:
             break
         }
     }
