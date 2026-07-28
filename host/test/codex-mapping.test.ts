@@ -54,10 +54,57 @@ describe("Codex notification → builder event", () => {
     });
   });
 
-  test("the turn ending is the only 'done'", () => {
-    expect(toBuilderEvent("turn/completed", { threadId: "x", turn: {} })).toEqual({ event: "done" });
+  // A turn that FAILED still arrives as turn/completed — TurnStatus is
+  // "completed" | "interrupted" | "failed" | "inProgress". Emitting a bare
+  // `done` for all of them renders a failed build as a success, which is the
+  // worst possible lie for a surface whose job is telling you whether your app
+  // changed.
+  test("done carries how the turn ended, not just that it ended", () => {
+    expect(toBuilderEvent("turn/completed", { turn: { status: "completed" } }))
+      .toEqual({ event: "done", status: "completed" });
+    expect(toBuilderEvent("turn/completed", { turn: { status: "failed" } }))
+      .toEqual({ event: "done", status: "failed" });
+    expect(toBuilderEvent("turn/completed", { turn: { status: "interrupted" } }))
+      .toEqual({ event: "done", status: "interrupted" });
+    // An absent or unexpected status must not read as a failure.
+    expect(toBuilderEvent("turn/completed", { turn: {} }))
+      .toEqual({ event: "done", status: "completed" });
+
     // turn/started is bookkeeping — the shell already knows it asked.
     expect(toBuilderEvent("turn/started", { threadId: "x", turn: {} })).toBeNull();
+  });
+
+  // The real shape is `{ error: TurnError, willRetry, threadId, turnId }`.
+  // Reading `params.message` type-checks and yields "unknown error" for every
+  // real failure — including the one that matters most, not being logged in.
+  test("an error reports what actually went wrong", () => {
+    expect(
+      toBuilderEvent("error", {
+        error: { message: "stream disconnected before completion", additionalDetails: null },
+        willRetry: false,
+        threadId: "x",
+        turnId: "y",
+      }),
+    ).toEqual({ event: "error", message: "stream disconnected before completion" });
+
+    // additionalDetails is where the useful half usually is.
+    expect(
+      toBuilderEvent("error", {
+        error: { message: "request failed", additionalDetails: "401 Unauthorized" },
+        willRetry: false,
+      }),
+    ).toEqual({ event: "error", message: "request failed\n401 Unauthorized" });
+  });
+
+  test("a retryable error is weather, not an outcome", () => {
+    // Codex retries on its own; a red banner for something that resolves itself
+    // a second later trains the user to ignore the banner.
+    expect(
+      toBuilderEvent("error", {
+        error: { message: "rate limited" },
+        willRetry: true,
+      }),
+    ).toEqual({ event: "status", text: "rate limited — retrying" });
   });
 
   test("the noisy majority is ignored", () => {
@@ -74,6 +121,21 @@ describe("Codex notification → builder event", () => {
     for (const [method, params] of ignored) {
       expect(toBuilderEvent(method, params)).toBeNull();
     }
+  });
+
+  // A real turn produced a commandExecution whose command was a shell heredoc
+  // containing a 500-word essay. The detail is for display, it crosses a socket
+  // to get there, and it lands on a chip one line tall.
+  test("a huge tool detail is truncated to one readable line", () => {
+    const command = `/bin/zsh -lc "wc -w <<'EOF'\n${"word ".repeat(2000)}\nEOF"`;
+    const event = toBuilderEvent("item/started", {
+      item: { type: "commandExecution", id: "exec-1", command },
+    });
+    const detail = (event as { detail: string }).detail;
+    expect(detail.length).toBeLessThanOrEqual(200);
+    expect(detail.endsWith("…")).toBe(true);
+    // Newlines collapse: a chip is one line, not a transcript.
+    expect(detail).not.toContain("\n");
   });
 
   test("an unknown notification is ignored, not crashed on", () => {

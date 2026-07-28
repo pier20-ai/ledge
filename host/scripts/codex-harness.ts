@@ -112,7 +112,15 @@ export class CodexClient {
       return;
     }
 
-    if (method) this.onNotification(method, (message.params ?? {}) as Json);
+    if (method) {
+      // Track the active turn wherever it is first seen: `turn/started` can
+      // arrive before the `turn/start` reply does.
+      if (method === "turn/started") {
+        const turn = ((message.params ?? {}) as Json).turn as { id?: string } | undefined;
+        if (turn?.id) this.activeTurnId = turn.id;
+      }
+      this.onNotification(method, (message.params ?? {}) as Json);
+    }
   }
 
   private write(message: Json): void {
@@ -171,17 +179,34 @@ export class CodexClient {
     return thread?.id ?? threadId;
   }
 
-  startTurn(threadId: string, text: string): Promise<Json> {
-    return this.request("turn/start", {
+  /** The turn currently running, so it can be interrupted. */
+  private activeTurnId: string | null = null;
+
+  async startTurn(threadId: string, text: string): Promise<string> {
+    const result = await this.request("turn/start", {
       threadId,
       // `text_elements` is required even when empty — omitting it is a decode
       // error on the far side, with no useful message.
       input: [{ type: "text", text, text_elements: [] }],
     });
+    const turn = result.turn as { id?: string } | undefined;
+    this.activeTurnId = turn?.id ?? null;
+    return this.activeTurnId ?? "";
   }
 
-  interrupt(threadId: string): void {
-    this.notify("turn/interrupt", { threadId });
+  /**
+   * Stop the running turn.
+   *
+   * A **request**, not a notification, and it needs the **turnId** as well as
+   * the thread. Both were wrong in the first version, and the symptom was the
+   * worst kind: `turn/interrupt` sent as a notification is accepted by the
+   * transport, answered by nothing, and the turn simply keeps going. A Stop
+   * button wired that way does nothing at all, silently — which is precisely
+   * why this was worth finding here rather than behind a WebView.
+   */
+  async interrupt(threadId: string): Promise<void> {
+    if (!this.activeTurnId) return;
+    await this.request("turn/interrupt", { threadId, turnId: this.activeTurnId });
   }
 
   async stderr(): Promise<string> {
@@ -200,8 +225,12 @@ export type BuilderEvent =
   | { event: "text"; delta: string }
   | { event: "tool"; name: string; detail: string; state: "started" | "completed" }
   | { event: "status"; text: string }
-  | { event: "done" }
+  /** The turn ended — `status` says how. Not always a success. */
+  | { event: "done"; status: TurnStatus }
   | { event: "error"; message: string };
+
+/** Codex's own turn outcomes. A turn that failed still *completes*. */
+export type TurnStatus = "completed" | "interrupted" | "failed";
 
 /**
  * Map one Codex notification to a builder event, or null to ignore it.
@@ -211,6 +240,21 @@ export type BuilderEvent =
  * all of it would be a debug log wearing a chat's clothes. Ledge shows what the
  * agent *said* and what it *did*.
  */
+/**
+ * Longest tool detail worth sending.
+ *
+ * Not a guess: a real turn produced a `commandExecution` whose command was a
+ * shell heredoc containing a 500-word essay — several kilobytes, on a chip that
+ * is one line tall. The detail is for *display*, it crosses a socket to get
+ * there, and nobody reads past the first eighty characters of a command.
+ */
+const MAX_DETAIL = 200;
+
+function truncate(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > MAX_DETAIL ? `${oneLine.slice(0, MAX_DETAIL - 1)}…` : oneLine;
+}
+
 export function toBuilderEvent(method: string, params: Json): BuilderEvent | null {
   switch (method) {
     case "item/agentMessage/delta":
@@ -224,14 +268,14 @@ export function toBuilderEvent(method: string, params: Json): BuilderEvent | nul
       if (!item) return null;
       const state = method === "item/started" ? "started" : "completed";
       if (item.type === "commandExecution") {
-        return { event: "tool", name: "run", detail: String(item.command ?? ""), state };
+        return { event: "tool", name: "run", detail: truncate(String(item.command ?? "")), state };
       }
       if (item.type === "fileChange") {
         // `changes: [{ path, kind }]`, NOT `path` — measured against a real
         // turn, where assuming `item.path` produced a tool chip with no file
         // name on it and nothing to say it was wrong.
         const paths = (item.changes ?? []).map((change) => change.path).filter(Boolean);
-        return { event: "tool", name: "edit", detail: paths.join(", "), state };
+        return { event: "tool", name: "edit", detail: truncate(paths.join(", ")), state };
       }
       // Ignored on purpose: `userMessage` (we sent it), and `reasoning`, which
       // Codex emits around every step. Forwarding those would make the builder
@@ -239,11 +283,36 @@ export function toBuilderEvent(method: string, params: Json): BuilderEvent | nul
       return null;
     }
 
-    case "turn/completed":
-      return { event: "done" };
+    case "turn/completed": {
+      // A turn that FAILED still arrives here — `TurnStatus` is
+      // "completed" | "interrupted" | "failed" | "inProgress". Emitting a bare
+      // `done` for all of them would render a failed build as a success, which
+      // is the worst possible lie for a surface whose whole job is telling you
+      // whether your app changed.
+      const turn = params.turn as { status?: string } | undefined;
+      const status = turn?.status;
+      return {
+        event: "done",
+        status: status === "failed" || status === "interrupted" ? status : "completed",
+      };
+    }
 
-    case "error":
-      return { event: "error", message: String(params.message ?? "unknown error") };
+    case "error": {
+      // `{ error: TurnError, willRetry, threadId, turnId }` — NOT `{ message }`.
+      // Reading params.message gave "unknown error" for every real failure.
+      const error = params.error as { message?: string; additionalDetails?: string } | undefined;
+      const message = error?.message ?? "unknown error";
+      // A retryable error is not an outcome, it is weather. Showing it as an
+      // error would put a red banner in front of the user for something that
+      // resolves itself a second later.
+      if (params.willRetry === true) {
+        return { event: "status", text: `${message} — retrying` };
+      }
+      return {
+        event: "error",
+        message: error?.additionalDetails ? `${message}\n${error.additionalDetails}` : message,
+      };
+    }
 
     default:
       return null;
@@ -281,13 +350,17 @@ async function main(): Promise<number> {
     return { decision: "approved" };
   };
 
+  let outcome: TurnStatus = "completed";
   client.onNotification = (method, params) => {
     if (raw) console.error(`[raw] ${method} ${JSON.stringify(params).slice(0, 300)}`);
     const event = toBuilderEvent(method, params);
     if (!event) return;
     if (event.event === "text") process.stdout.write(event.delta);
     else console.log(`\n[${event.event}] ${JSON.stringify(event)}`);
-    if (event.event === "done") finished = true;
+    if (event.event === "done") {
+      outcome = event.status;
+      finished = true;
+    }
   };
 
   const info = await client.initialize();
@@ -299,10 +372,20 @@ async function main(): Promise<number> {
   console.error(`[harness] thread ${threadId} in ${cwd}`);
   console.error(`[harness] resume with: --resume ${threadId}\n`);
 
+  // Interrupt, then WAIT for the turn to actually end. Exiting straight away
+  // would leave the outcome unobserved — and the outcome is the point: an
+  // interrupted turn still arrives as `turn/completed`, with status
+  // "interrupted". The Stop button in the editor needs exactly this, so the
+  // harness has to prove it rather than assume it.
   process.on("SIGINT", () => {
     console.error("\n[harness] interrupting…");
-    client.interrupt(threadId);
-    setTimeout(() => process.exit(130), 500);
+    void client.interrupt(threadId);
+    setTimeout(() => {
+      if (!finished) {
+        console.error("[harness] no turn/completed after interrupt");
+        process.exit(130);
+      }
+    }, 10_000);
   });
 
   await client.startTurn(threadId, prompt);
@@ -312,8 +395,11 @@ async function main(): Promise<number> {
   const deadline = Date.now() + 10 * 60_000;
   while (!finished && Date.now() < deadline) await Bun.sleep(50);
   console.log();
+  if (!finished) console.error("[harness] timed out waiting for turn/completed");
+  else console.error(`[harness] turn ${outcome}`);
   client.kill();
-  return finished ? 0 : 1;
+  // Nonzero for a turn that did not succeed, so this composes in a shell.
+  return finished && outcome === "completed" ? 0 : 1;
 }
 
 if (import.meta.main) process.exit(await main());
