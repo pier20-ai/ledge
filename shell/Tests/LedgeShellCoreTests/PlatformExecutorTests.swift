@@ -351,8 +351,18 @@ struct PlatformExecutorTests {
         executor.run(.location, completion: results.completion)
         #expect(results.count == 0)
 
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
         #expect(results.error?.contains("timed out") == true)
     }
 
@@ -366,8 +376,18 @@ struct PlatformExecutorTests {
         )
         let results = PlatformResults()
         executor.run(.location, completion: results.completion)
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
 
         // Settling a Promise twice is worse than settling it late.
         provider.result = .success(LocationFix(latitude: 1, longitude: 2, accuracyMeters: 3, timestamp: epoch))
@@ -415,8 +435,18 @@ struct PlatformExecutorTests {
         let executor = PlatformExecutor(spotlight: FakeSpotlight(), spotlightTimeout: 0.05)
         let results = PlatformResults()
         executor.run(.spotlight(query: "kMDItemFSName == \"x\"", scopes: ["/tmp"]), completion: results.completion)
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
         #expect(results.error?.contains("timed out") == true)
     }
 
