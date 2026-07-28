@@ -63,6 +63,14 @@ final class HostSession {
     var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?, _ ms: Double?) -> Void)?
     /// The user clicked a notification's body (§6): open the notch at the app.
     var onNotificationOpened: ((_ app: String) -> Void)?
+    /// One event of an app's builder stream (spec §3.6), on its way to the
+    /// editor surface. Not filtered here: which transcript an event belongs to
+    /// is presentation, and presentation is the panel controller's half.
+    var onBuilder: ((BuilderPayload) -> Void)?
+    /// An app lifecycle transition (spec §3.2: `started`/`reloaded`/`crashed`/
+    /// `stopped`). The crash card is already drawn by the renderer; this is the
+    /// same signal read as *build status* for the editor's toggle.
+    var onAppState: ((_ app: String, _ state: String) -> Void)?
 
     init() {
         // Send the shell's real geometry in `hello` (spec §4.3), not the mockup
@@ -105,6 +113,8 @@ final class HostSession {
         renderer.onChrome = { [weak self] app, request, wing, ms in
             self?.onChrome?(app, request, wing, ms)
         }
+        renderer.onBuilder = { [weak self] payload in self?.onBuilder?(payload) }
+        renderer.onLifecycle = { [weak self] app, state in self?.onAppState?(app, state) }
 
         // Shell-executed capabilities (spec §6). The engine answers `apple` /
         // `notify` / `capture` through this object and puts its results back on
@@ -135,6 +145,21 @@ final class HostSession {
     func sendAppEvent(name: String, data: JSONValue) -> Bool {
         guard let app = shownApp else { return false }
         engine.emitAppEvent(app: app, name: name, data: data)
+        return true
+    }
+
+    /// The user typed into the presented app's editor, or asked to interrupt the
+    /// running turn (spec §4.3 `builderInput`). Mirrors `sendAppEvent`: the
+    /// surface reports a gesture, this object decides who it is addressed to and
+    /// owns the envelope — the editor never names an app itself, so it cannot
+    /// send a turn to an app that is no longer on screen.
+    ///
+    /// Returns false when nothing is presented, which is the case the editor
+    /// needs in order to stay silent rather than guess.
+    @discardableResult
+    func sendBuilderInput(text: String?, cancel: Bool = false) -> Bool {
+        guard let app = shownApp else { return false }
+        engine.sendBuilderInput(app: app, text: text, cancel: cancel)
         return true
     }
 

@@ -435,7 +435,13 @@ final class PanelWingBarView: FlippedView {
     /// wholesale (an app that names itself twice is an app wasting the zone).
     /// `canEdit` hides the affordance for surfaces that have no app behind them
     /// — the placeholder card and **[+]** have nothing to edit.
-    func apply(name: String?, content: NSView?, canEdit: Bool) {
+    ///
+    /// `showingEditor` flips it from a door into a toggle: **Edit** while the
+    /// app's tree is on screen, **Preview** while the editor is. One control for
+    /// two full-panel surfaces (the editor is not a split — see
+    /// `EditorSurfaceView`), so the label must always name where the press
+    /// *goes*, never where you are.
+    func apply(name: String?, content: NSView?, canEdit: Bool, showingEditor: Bool = false) {
         if content !== appContent {
             appContent?.removeFromSuperview()
             appContent = content
@@ -449,8 +455,33 @@ final class PanelWingBarView: FlippedView {
         nameLabel.stringValue = name ?? ""
         nameLabel.isHidden = appContent != nil || (name ?? "").isEmpty
         editButton.isHidden = !canEdit
+        if showingEditor != isShowingEditor {
+            isShowingEditor = showingEditor
+            editButton.apply(
+                label: showingEditor ? "Preview" : "Edit",
+                symbol: showingEditor ? "eye" : "wand.and.stars"
+            )
+            editButton.setAccessibilityLabel(showingEditor ? "Show the app" : "Edit with AI")
+        }
         needsLayout = true
     }
+
+    /// The toggle's build status (spec §3.2 `app` states, read through the
+    /// editor): neutral glass normally, green when the app reloaded cleanly,
+    /// red when it crashed. The colour lives on this control rather than in the
+    /// transcript because it is the answer to "did that work" — and the eye is
+    /// already on this corner when the user goes to look back at the app.
+    func setBuildStatus(_ status: EditorBuildStatus) {
+        buildStatus = status
+        editButton.tint = switch status {
+        case .neutral: nil
+        case .reloaded: LedgeTheme.green
+        case .crashed: LedgeTheme.red
+        }
+    }
+
+    private(set) var buildStatus: EditorBuildStatus = .neutral
+    private var isShowingEditor = false
 
     /// Release the app's content without destroying it — called when the panel
     /// switches apps, so the outgoing app's wing view goes back to being an
@@ -1048,8 +1079,13 @@ final class ShellSurfaceView: FlippedView {
     /// Called on every refresh rather than diffed here: the renderer answers
     /// "what is this app's wing" from its live tree, so appearing, changing and
     /// disappearing are all just a different answer to the same question.
-    func setPanelWing(name: String?, content: NSView?, canEdit: Bool) {
-        panelWingBar.apply(name: name, content: content, canEdit: canEdit)
+    func setPanelWing(name: String?, content: NSView?, canEdit: Bool, showingEditor: Bool = false) {
+        panelWingBar.apply(
+            name: name,
+            content: content,
+            canEdit: canEdit,
+            showingEditor: showingEditor
+        )
     }
 
     /// Put a wing up on the collapsed notch, or take it down with `nil` (spec
@@ -1092,9 +1128,38 @@ final class ShellSurfaceView: FlippedView {
     /// short and additive — it does not touch the shape, the hover state, or any
     /// of the feel tunables.
     func flashAttention() {
+        flashGlow(color: LedgeTheme.accent, values: [0, 0.9, 0, 0.7, 0], keyTimes: [0, 0.15, 0.45, 0.6, 1])
+    }
+
+    /// Build status on the Edit/Preview toggle (spec §3.2 states, surfaced in
+    /// §8's chrome). Sets the toggle's colour and — only on a genuine change —
+    /// pulses the panel once in the same hue.
+    ///
+    /// One pulse, not the attention keyframe's two: `attention` is an app asking
+    /// to be noticed, this is an answer to something the user just did, and an
+    /// answer that insists twice reads as an alarm.
+    func setBuildStatus(_ status: EditorBuildStatus) {
+        let changed = status != panelWingBar.buildStatus
+        panelWingBar.setBuildStatus(status)
+        guard changed, status != .neutral else { return }
+        flashGlow(
+            color: status == .crashed ? LedgeTheme.red : LedgeTheme.green,
+            values: [0, 0.85, 0],
+            keyTimes: [0, 0.2, 1]
+        )
+    }
+
+    /// Test seam: how many pulses have been run. The animation itself is not
+    /// observable in a headless layout pass, and "does it pulse twice on a
+    /// re-present" is exactly the question worth asserting.
+    private(set) var attentionPulseCount = 0
+
+    private func flashGlow(color: NSColor, values: [Double], keyTimes: [NSNumber]) {
+        attentionPulseCount += 1
+        glowLayer.strokeColor = color.cgColor
         let pulse = CAKeyframeAnimation(keyPath: "opacity")
-        pulse.values = [0, 0.9, 0, 0.7, 0]
-        pulse.keyTimes = [0, 0.15, 0.45, 0.6, 1]
+        pulse.values = values
+        pulse.keyTimes = keyTimes
         pulse.duration = 1.1
         pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         glowLayer.add(pulse, forKey: "attention")

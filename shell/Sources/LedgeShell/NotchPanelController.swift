@@ -38,7 +38,17 @@ final class NotchPanelController {
     /// Pending auto-dismiss for the mini currently on screen.
     private var miniDismiss: DispatchWorkItem?
 
-    private var chatSurface: (app: String, view: ChatContentView)?
+    /// The editor (spec §8). **One instance, reused across apps** — there is one
+    /// panel, so there is one editor, and a web view per app would mean a web
+    /// content process per app for surfaces the user is not looking at.
+    /// Switching apps is a message on the bridge (`EditorSurfaceView.present`).
+    /// Created lazily: a shell that is never asked for the editor never pays for
+    /// WebKit.
+    private var editorSurface: EditorSurfaceView?
+    /// Whether the panel is holding key focus for the editor. Tracked because
+    /// taking it steals the user's insertion point, so releasing it has to be
+    /// exactly as deliberate as taking it was.
+    private var holdsEditorFocus = false
     private var newAppSurface: NewAppContentView?
     private var placeholder: (phase: HostPlaceholderView.Phase, view: HostPlaceholderView)?
 
@@ -121,6 +131,24 @@ final class NotchPanelController {
         }
         session.onChrome = { [weak self] app, request, wing, ms in
             self?.handleChrome(app: app, request: request, wing: wing, ms: ms)
+        }
+        // The builder stream (spec §3.6) has exactly one destination: the editor
+        // surface for the app it names. Events for any other app are dropped by
+        // the bridge, not queued — a transcript is per app, and a turn the user
+        // cannot see is one the host is still recording anyway.
+        session.onBuilder = { [weak self] payload in
+            self?.editorSurface?.bridge.deliver(payload)
+        }
+        // The honest answer to "did that edit work" is the worker's, not the
+        // agent's: an agent can finish a turn cleanly and leave an app that no
+        // longer runs. Only the presented app's states colour the toggle.
+        session.onAppState = { [weak self] app, state in
+            guard let self, self.shellState.presentation.app == app else { return }
+            switch state {
+            case "started", "reloaded": self.surface.setBuildStatus(.reloaded)
+            case "crashed": self.surface.setBuildStatus(.crashed)
+            default: break              // `stopped` is not a build outcome
+            }
         }
         session.onNotificationOpened = { [weak self] app in
             // Same refusal as chrome "expand": opening onto the placeholder
@@ -215,12 +243,12 @@ final class NotchPanelController {
             // so its first row is behind the camera like any other.
             height = size.height + surface.panelWingRowHeight
         case .chat(let app):
-            content = chatView(for: app)
+            content = editorView(for: app)
             width = PanelLimits.defaultWidth
             // Chrome surfaces are laid out at a fixed height, so the exclusion
             // row is added on rather than measured — every surface starts below
             // the camera, not only the ones with an app behind them.
-            height = ChatContentView.panelHeight + surface.panelWingRowHeight
+            height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
         case .newApp:
             content = newAppView()
             width = PanelLimits.defaultWidth
@@ -234,7 +262,8 @@ final class NotchPanelController {
         surface.setPanelWing(
             name: presentation.isMini ? nil : presentation.app.map { session.name(for: $0) },
             content: presentation.isMini ? nil : session.panelWing(for: presentation.app),
-            canEdit: !presentation.isMini && presentation.app != nil
+            canEdit: !presentation.isMini && presentation.app != nil,
+            showingEditor: presentation.isChat
         )
         surface.present(
             presentation,
@@ -248,6 +277,32 @@ final class NotchPanelController {
             panel.orderFrontRegardless()
             focusCanvasIfNeeded(for: presentation.app)
         }
+        setEditorFocus(presentation.isChat)
+    }
+
+    /// Hold — or give back — key focus for the editor's text box.
+    ///
+    /// The panel is a borderless non-activating `NSPanel`, which is what lets it
+    /// sit over everything without taking the user out of their work. Typing
+    /// needs the opposite, so the editor is the second place in the shell that
+    /// takes key (the first is a focusable canvas, above). Both must be
+    /// reversible: taking key moves the insertion point out of whatever the user
+    /// was writing in, and a notch that keeps it after the editor closes is a
+    /// notch that ate their next sentence.
+    private func setEditorFocus(_ wanted: Bool) {
+        guard wanted != holdsEditorFocus else { return }
+        holdsEditorFocus = wanted
+        if wanted {
+            panel.makeKeyAndOrderFront(nil)
+            if let editorSurface { panel.makeFirstResponder(editorSurface.keyboardResponder) }
+            return
+        }
+        // Dropping first responder is not enough — the panel would still be the
+        // key window with nothing in it to type into. Deactivating hands key
+        // back to the app the user was in; harmless when Ledge (an accessory
+        // app) was never active to begin with.
+        panel.makeFirstResponder(nil)
+        NSApp.deactivate()
     }
 
     /// Hand first responder to the presented app's focusable canvas (spec §5
@@ -395,22 +450,24 @@ final class NotchPanelController {
 
     // MARK: - Chrome surfaces
 
-    private func chatView(for app: String) -> ChatContentView {
-        if let chatSurface, chatSurface.app == app { return chatSurface.view }
-        let view = ChatContentView(
-            title: session.name(for: app),
-            callbacks: ShellCallbacks(
-                selectApp: { _ in },
-                selectNewApp: {},
-                selectSettings: {},
-                toggleChat: { [weak self] in
-                    guard let self else { return }
-                    self.shellState.toggleChat()
-                    self.refresh(animated: true)
-                }
-            )
-        )
-        chatSurface = (app, view)
+    private func editorView(for app: String) -> EditorSurfaceView {
+        let view: EditorSurfaceView
+        if let editorSurface {
+            view = editorSurface
+        } else {
+            view = EditorSurfaceView()
+            view.bridge.onInput = { [weak self] _, text, cancel in
+                // The bridge names the app it is focused on; the session names
+                // the app that is *presented*. Only the session's answer becomes
+                // an envelope — see `HostSession.sendBuilderInput`.
+                self?.session.sendBuilderInput(text: text, cancel: cancel)
+            }
+            // A new turn makes the last one's outcome stale: the toggle goes
+            // back to neutral glass until the worker reloads or crashes again.
+            view.onActivity = { [weak self] in self?.surface.setBuildStatus(.neutral) }
+            editorSurface = view
+        }
+        view.present(app: app)
         return view
     }
 

@@ -505,9 +505,30 @@ public struct PlatformResultPayload: Codable, Sendable, Equatable {
     }
 }
 
+/// One event of an app's builder stream (spec §3.6). Every field past `event` is
+/// optional because the shape is per-event, not per-payload: a `text` carries a
+/// `delta`, a `tool` a `name`/`detail`/`state`, a `done` a `status`.
+///
+/// Two generations of field names coexist deliberately. The spec's first draft
+/// wrote status as `{ state, ms }` and completion as `{ ok }`; the adapters now
+/// emit `{ text }` and `{ status }` (interrupted is neither ok nor an error, and
+/// `ok: false` could not say so). Both decode, and `EditorBridge` normalises to
+/// the newer shape before the page ever sees an event — so a host mid-rewrite
+/// never blanks the editor, and the page has exactly one shape to render.
 public struct BuilderPayload: Codable, Sendable, Equatable {
-    public var app: String
-    public var turn: Int
+    /// The app this belongs to.
+    ///
+    /// Filled from the **envelope**, not the payload. Spec §2 puts `app` on every
+    /// envelope, and §3.6's examples show whole frames rather than payloads — so
+    /// the host quite correctly sends only `{turn, …event}` here. Requiring it in
+    /// the payload made every real builder event fail to decode, and the decode
+    /// site is a `guard … else { return }`: the entire stream vanished with no
+    /// error anywhere. Defaulted rather than optional so nothing downstream has
+    /// to unwrap a value the engine always sets.
+    public var app: String = ""
+    /// Which exchange this belongs to, so the editor can group a turn. Defaulted
+    /// for the same reason: a missing field must never cost the whole event.
+    public var turn: Int = 0
     public var event: String
     public var delta: String?
     public var name: String?
@@ -515,6 +536,60 @@ public struct BuilderPayload: Codable, Sendable, Equatable {
     public var state: String?
     public var ms: Int?
     public var ok: Bool?
+    /// `status` events: the line to show, already phrased by the adapter.
+    public var text: String?
+    /// `done` events: `completed` | `interrupted` | `failed`.
+    public var status: String?
+    /// `error` events: the agent's own failure text, passed through verbatim.
+    public var message: String?
+
+    /// Every field is decode-if-present. The builder stream is the one place a
+    /// third party (the agent adapter) shapes a payload, so a field we did not
+    /// expect must cost that field and nothing more — never the event, and never
+    /// the rest of the turn behind it.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        app = try container.decodeIfPresent(String.self, forKey: .app) ?? ""
+        turn = try container.decodeIfPresent(Int.self, forKey: .turn) ?? 0
+        event = try container.decodeIfPresent(String.self, forKey: .event) ?? ""
+        delta = try container.decodeIfPresent(String.self, forKey: .delta)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+        state = try container.decodeIfPresent(String.self, forKey: .state)
+        ms = try container.decodeIfPresent(Int.self, forKey: .ms)
+        ok = try container.decodeIfPresent(Bool.self, forKey: .ok)
+        text = try container.decodeIfPresent(String.self, forKey: .text)
+        status = try container.decodeIfPresent(String.self, forKey: .status)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+    }
+
+    public init(
+        app: String = "",
+        turn: Int = 0,
+        event: String,
+        delta: String? = nil,
+        name: String? = nil,
+        detail: String? = nil,
+        state: String? = nil,
+        ms: Int? = nil,
+        ok: Bool? = nil,
+        text: String? = nil,
+        status: String? = nil,
+        message: String? = nil
+    ) {
+        self.app = app
+        self.turn = turn
+        self.event = event
+        self.delta = delta
+        self.name = name
+        self.detail = detail
+        self.state = state
+        self.ms = ms
+        self.ok = ok
+        self.text = text
+        self.status = status
+        self.message = message
+    }
 }
 
 // MARK: - Envelope typed decoding

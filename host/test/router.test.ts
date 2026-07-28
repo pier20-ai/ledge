@@ -291,10 +291,13 @@ describe("Router end-to-end (real workers)", () => {
 
     await waitFor(() => fake.requests.some((r) => r.method === "turn/start"));
     fake.emitTurn("thread-1", "on it");
-    await waitFor(() => session.envelopesFor("stocks", "builder").length >= 2);
+    // Control-plane framing (spec §3.6): the envelope's app is EMPTY and the
+    // payload names the app. Sending it per-app instead decodes on neither
+    // side — the shell drops it silently and the editor shows nothing.
+    await waitFor(() => session.envelopesFor("", "builder").length >= 2);
 
-    const events = session.envelopesFor("stocks", "builder").map((e) => e.payload);
-    expect(events[0]).toEqual({ turn: 1, event: "text", delta: "on it" });
-    expect(events[1]).toEqual({ turn: 1, event: "done", status: "completed" });
+    const events = session.envelopesFor("", "builder").map((e) => e.payload);
+    expect(events[0]).toEqual({ app: "stocks", turn: 1, event: "text", delta: "on it" });
+    expect(events[1]).toEqual({ app: "stocks", turn: 1, event: "done", status: "completed" });
   }, 30000);
 });

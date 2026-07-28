@@ -256,6 +256,13 @@ public final class ProtocolEngine {
                 message: payload.error?.message ?? "The app crashed.",
                 stack: payload.error?.stack
             )
+            // The error card is what the *panel* shows; the transition itself
+            // still has to be announced, because the shell reads §3.2 states as
+            // build status for the editor's Edit/Preview toggle (§8) and a crash
+            // is the one outcome that most needs saying. Every other branch here
+            // already announces — omitting this one made `appLifecycle` mean
+            // "every transition except the interesting one".
+            delegate?.appLifecycle(app: app, state: payload.state)
         case "started", "reloaded":
             // A freshly spawned or hot-reloaded worker restarts its node ids at 1
             // (spec §3.1) — so the full mount commit that follows this envelope
@@ -314,6 +321,9 @@ public final class ProtocolEngine {
 
     private func handleBuilder(_ envelope: Envelope) {
         guard let payload = try? envelope.decodePayload(BuilderPayload.self) else { return }
+        // `app` comes from the PAYLOAD, not the envelope: `builder` is a control
+        // plane frame (spec §3.6, "shell-level, `app: \"\"`"), so the envelope's
+        // app is empty and the payload names the app the events belong to.
         delegate?.builderEvent(payload)
     }
 

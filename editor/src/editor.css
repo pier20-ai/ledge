@@ -1,0 +1,186 @@
+/*
+  Placeholder styling. The one rule here that is NOT cosmetic is the transparent
+  background: the panel is black glass, and a page that paints its own
+  background does not tint that glass, it replaces it — the notch stops looking
+  like hardware. Swift also turns off `drawsBackground`; both halves are needed.
+*/
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.94);
+  font: 12.5px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* The panel owns every gesture that moves it; a rubber-band scroll of the
+     document would slide the whole surface off its own shape. */
+  overscroll-behavior: none;
+}
+
+#root,
+.editor {
+  height: 100%;
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 14px 12px;
+  box-sizing: border-box;
+  gap: 8px;
+}
+
+.transcript {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: none;
+}
+
+.transcript::-webkit-scrollbar {
+  display: none;
+}
+
+.empty {
+  color: rgba(255, 255, 255, 0.32);
+  font-size: 12px;
+  padding-top: 4px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prompt {
+  align-self: flex-end;
+  max-width: 78%;
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 13px;
+  padding: 7px 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.text {
+  color: rgba(255, 255, 255, 0.9);
+  word-break: break-word;
+}
+
+.text p {
+  margin: 0 0 6px;
+}
+
+.text p:last-child {
+  margin-bottom: 0;
+}
+
+.text code,
+.tool-detail {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.text pre {
+  margin: 0 0 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.tool {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  max-width: 100%;
+}
+
+.tool.started {
+  opacity: 0.62;
+}
+
+.tool-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.tool-detail {
+  color: rgba(255, 255, 255, 0.78);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10.5px;
+  color: rgba(48, 209, 88, 1);
+}
+
+.error,
+.done.failed {
+  font-size: 11.5px;
+  color: rgba(255, 69, 58, 1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.done.interrupted {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.composer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 13px;
+  padding: 8px 10px;
+}
+
+.composer textarea {
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  max-height: 84px;
+  caret-color: rgba(255, 180, 84, 1);
+}
+
+.composer textarea::placeholder {
+  color: rgba(255, 255, 255, 0.32);
+}
+
+.stop {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.055);
+  color: inherit;
+  border-radius: 999px;
+  font: 600 11.5px/1 -apple-system, sans-serif;
+  padding: 7px 12px;
+}

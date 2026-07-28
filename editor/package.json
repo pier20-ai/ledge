@@ -1,0 +1,13 @@
+{
+  "name": "ledge-editor",
+  "private": true,
+  "version": "0.4.0",
+  "description": "The builder/chat surface rendered inside the notch panel's WKWebView (spec §8).",
+  "scripts": {
+    "build": "../scripts/build-editor.sh"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  }
+}

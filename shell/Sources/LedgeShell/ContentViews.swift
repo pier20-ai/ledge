@@ -145,57 +145,6 @@ private final class ChatBubbleView: RoundedBoxView {
     }
 }
 
-private final class DiffView: RoundedBoxView {
-    init() {
-        super.init(fill: NSColor.black.withAlphaComponent(0.35), stroke: LedgeTheme.hairline, radius: 11)
-
-        let header = FlippedView(frame: CGRect(x: 0, y: 0, width: 334, height: 26))
-        header.wantsLayer = true
-        header.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.05).cgColor
-        let filename = makeLabel(
-            "stocks.jsx",
-            font: LedgeTheme.monoFont(10, weight: .semibold),
-            color: LedgeTheme.secondary
-        )
-        filename.frame = CGRect(x: 10, y: 6, width: 160, height: 15)
-        header.addSubview(filename)
-        let counts = makeLabel(
-            "+2  −1",
-            font: LedgeTheme.monoFont(10, weight: .semibold),
-            color: LedgeTheme.green,
-            alignment: .right
-        )
-        counts.frame = CGRect(x: 240, y: 6, width: 84, height: 15)
-        header.addSubview(counts)
-        addSubview(header)
-
-        let deleted = makeLabel(
-            "<text size=\"xl\" weight=\"bold\">",
-            font: LedgeTheme.monoFont(10.5),
-            color: NSColor(srgbRed: 1, green: 0.54, blue: 0.50, alpha: 1)
-        )
-        deleted.frame = CGRect(x: 10, y: 31, width: 314, height: 16)
-        deleted.wantsLayer = true
-        deleted.layer?.backgroundColor = LedgeTheme.red.withAlpha(0.07).cgColor
-        addSubview(deleted)
-
-        let added = makeLabel(
-            "<text size=\"xl\" weight=\"bold\"",
-            font: LedgeTheme.monoFont(10.5),
-            color: NSColor(srgbRed: 0.49, green: 0.91, blue: 0.64, alpha: 1)
-        )
-        added.frame = CGRect(x: 10, y: 49, width: 314, height: 16)
-        added.wantsLayer = true
-        added.layer?.backgroundColor = LedgeTheme.green.withAlpha(0.08).cgColor
-        addSubview(added)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
 private final class ChatInputView: RoundedBoxView {
     init(placeholder: String) {
         super.init(fill: NSColor.white.withAlphaComponent(0.07), stroke: LedgeTheme.hairline, radius: 12)
@@ -300,79 +249,6 @@ final class MiniContentView: FlippedView {
             width: min(fitting.width, available.width),
             height: min(fitting.height, available.height)
         )
-    }
-}
-
-/// An app's chat surface (spec §8). Shell chrome, not an app: it renders
-/// `builder` events, and until the agent adapters land it shows the mockup
-/// transcript inert. Its height is fixed here because nothing measures it —
-/// there is no host tree behind this surface.
-final class ChatContentView: FlippedView {
-    /// Total panel height (content + the 42 pt app strip).
-    static let panelHeight: CGFloat = 384
-
-    init(title: String = "Stocks", callbacks: ShellCallbacks) {
-        super.init(frame: .zero)
-        let header = AppHeaderView(
-            title: title,
-            status: "stocks.jsx",
-            showsLiveDot: true,
-            chatActive: true,
-            onChat: callbacks.toggleChat
-        )
-        header.frame = CGRect(x: 0, y: 0, width: 440, height: 34)
-        addSubview(header)
-
-        let ticker = makeLabel(
-            "AAPL",
-            font: LedgeTheme.systemFont(13, weight: .bold),
-            color: LedgeTheme.secondary
-        )
-        ticker.frame = CGRect(x: 16, y: 43, width: 48, height: 20)
-        addSubview(ticker)
-        let price = makeLabel(
-            "$214.62",
-            font: LedgeTheme.numericFont(22, weight: .bold),
-            color: LedgeTheme.green
-        )
-        price.frame = CGRect(x: 68, y: 37, width: 112, height: 30)
-        addSubview(price)
-        let delta = makeLabel(
-            "▲ 1.24%",
-            font: LedgeTheme.numericFont(12, weight: .semibold),
-            color: LedgeTheme.green
-        )
-        delta.frame = CGRect(x: 187, y: 44, width: 82, height: 18)
-        addSubview(delta)
-
-        let divider = DividerLabelView(title: "Transcript")
-        divider.frame = CGRect(x: 16, y: 68, width: 408, height: 22)
-        addSubview(divider)
-
-        let user = ChatBubbleView(text: "make the price green when it's up", isUser: true)
-        user.frame = CGRect(x: 195, y: 94, width: 229, height: 40)
-        addSubview(user)
-
-        let diff = DiffView()
-        diff.frame = CGRect(x: 16, y: 138, width: 334, height: 72)
-        addSubview(diff)
-
-        let status = makeLabel(
-            "✓ Worker reloaded · 1.2s — live above",
-            font: LedgeTheme.monoFont(10.5, weight: .medium),
-            color: LedgeTheme.green
-        )
-        status.frame = CGRect(x: 16, y: 217, width: 330, height: 18)
-        addSubview(status)
-
-        let input = ChatInputView(placeholder: "Ask for a change…")
-        input.frame = CGRect(x: 12, y: 286, width: 416, height: 44)
-        addSubview(input)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
     }
 }
 

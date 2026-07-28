@@ -96,18 +96,12 @@ enum SnapshotRenderer {
         }
 
         // Shell chrome surfaces (spec §8): inert, no host tree behind them.
-        let chatApp = dumps.first?.app ?? "stocks"
-        try write(
-            surface(
-                catalog: catalog,
-                presentation: .chat(app: chatApp),
-                content: ChatContentView(title: session.name(for: chatApp), callbacks: .inert),
-                name: session.name(for: chatApp),
-                height: ChatContentView.panelHeight + NotchMetrics.fallback.closedHeight
-            ),
-            named: "chat",
-            to: directory
-        )
+        // No `chat` snapshot any more: that surface is a `WKWebView` now
+        // (`EditorSurfaceView`), and a web view has nothing to draw until its
+        // content process has loaded and painted — which never happens inside a
+        // synchronous headless render. A PNG of it would be a black rectangle
+        // asserting nothing. The editor is verified through `EditorBridge`
+        // (unit) and by launching the built app (visually) instead.
         try write(
             surface(
                 catalog: catalog,

@@ -422,7 +422,13 @@ export class Router implements SupervisorSink {
     if (event.event !== "text") {
       this.hostLog(`[ledge-host] builder -> ${app} ${event.event}`);
     }
-    this.session?.send(app, "builder", { turn, ...event });
+    // A CONTROL PLANE frame: `builder` lives in spec §3.6, whose envelopes carry
+    // `app: ""` and name the app inside the payload. Sending it as a per-app
+    // envelope instead type-checks on both sides and decodes on neither — the
+    // shell's `guard … else { return }` drops it, so the whole stream vanishes
+    // with no error anywhere. Found by decoding a real host frame in a Swift
+    // test rather than by reading either implementation.
+    this.session?.send("", "builder", { app, turn, ...event });
   }
 
   chrome(app: string, request: ChromeRequest, ms?: number): void {

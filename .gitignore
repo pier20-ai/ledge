@@ -1,5 +1,6 @@
 shell/.build/
 host/node_modules/
+editor/node_modules/
 .DS_Store
 
 # Demo-app runtime artifacts (spec §6): the apps root's installed dependencies

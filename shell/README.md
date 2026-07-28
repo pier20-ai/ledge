@@ -24,10 +24,33 @@ app's tree.
 ## What the shell draws, and what apps draw
 
 - **Shell chrome:** the notch shape and its fillets, the 42 pt app strip (spec
-  §8), the **cutout exclusion row** and its two panel-wing zones, the chat
+  §8), the **cutout exclusion row** and its two panel-wing zones, the editor
   surface, the **[+]** surface, the crash card (§7), and the waiting-for-host
   card. Chrome surfaces always draw at the shell's own default width, even when
   the app behind them asked for another one.
+
+### The editor surface (§8)
+
+`.chat(app:)` is a `WKWebView` filling the **whole panel** — not the mockups'
+chat-under-a-live-preview split, which was two half-height surfaces where the
+user wanted one of each. The wing-bar toggle switches back to the app's tree.
+
+- The page is built from `editor/` at the repo root by `scripts/build-editor.sh`
+  into `Sources/LedgeShell/Resources/editor/` and loaded with `loadFileURL` +
+  a read-access directory. Strict CSP, no network at runtime.
+- **One web view, reused across apps.** There is one panel, so there is one
+  editor; switching apps is a `thread` message on the bridge, not a new instance.
+- The bridge (`EditorBridge.swift`) is a separate type from the view because
+  everything worth asserting about it — normalisation, queueing, app filtering —
+  cannot be tested through a live `WKWebView` in `swift test`. See
+  `Tests/LedgeShellTests/EditorBridgeTests.swift` and `editor/README.md`.
+- **The editor is the second place the shell takes key focus** (the first is a
+  focusable canvas). Typing needs it; the panel is a non-activating `NSPanel`, so
+  taking key steals the user's insertion point. `NotchPanelController` gives it
+  back on close — deliberately, and reversibly.
+- There is **no `chat` snapshot** in `--snapshots` any more: a web view has
+  nothing to draw until its content process has painted, which never happens in a
+  synchronous headless render.
 - **App content:** everything else. The mockups' headers are app-specific
   (`Now Playing` / `Spotify`, `Deal Watch` / `3 tracked`) and nothing on the wire
   carries them, so they are part of the app's tree — but they no longer live at
@@ -42,9 +65,13 @@ app's tree.
   `<wing side="left">` node (spec §5 — see protocol/README.md, "panel wings",
   and keep it separate from the §3.3 collapsed wings, which are a different
   surface with a different owner).
-- **The ✦ chat toggle** lives in that right zone now, as *Edit*. It is also
-  still a gesture: **clicking the presented app's icon in the strip toggles its
-  chat**, and the icon stays lit while the chat is open (§8).
+- **The ✦ chat toggle** lives in that right zone now, as a real toggle: *Edit*
+  (wand) while the app's tree is on screen, *Preview* (eye) while the editor is.
+  Its colour carries build status — neutral glass, green when the app reloaded
+  cleanly, red when it crashed — driven from `app` lifecycle envelopes (§3.2),
+  because the honest answer to "did that edit work" is the worker's, not the
+  agent's. It is also still a gesture: **clicking the presented app's icon in the
+  strip toggles its chat**, and the icon stays lit while the chat is open (§8).
 - **The app strip scrolls.** Ten demo apps already overrun a 440 pt panel, and
   the first two controls an overflowing row pushes off the end are exactly the
   two you want when a strip has overflowed — **[+]** (how you add app eleven) and

@@ -68,6 +68,12 @@ log "signing as: $IDENTITY"
 
 # --- Build ------------------------------------------------------------------
 
+# Before the shell: the editor surface (spec §8) is a SwiftPM *resource* of the
+# shell target, so it has to exist on disk before `swift build` stages it — a
+# shell built without it ships a panel that says the bundle is missing.
+log "building the editor surface…"
+"$REPO_ROOT/scripts/build-editor.sh" >/dev/null || fail "editor build failed"
+
 log "building the shell ($CONFIGURATION)…"
 ( cd "$SHELL_DIR" && swift build -c "$CONFIGURATION" ) >/dev/null \
   || fail "swift build failed"
@@ -108,6 +114,14 @@ rm -rf "$APP"
 mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources/host/src"
 
 cp "$SHELL_BIN" "$CONTENTS/MacOS/LedgeShell"
+# SwiftPM emits target resources as a sibling bundle of the binary, and
+# `Bundle.module` finds it by looking in `Bundle.main.resourceURL` first — which
+# inside an .app is Contents/Resources. So the whole bundle goes there, name
+# intact: rename it and the generated accessor traps at first use.
+SHELL_RESOURCES="$SHELL_DIR/.build/$CONFIGURATION/LedgeShell_LedgeShell.bundle"
+[ -d "$SHELL_RESOURCES" ] || fail "no shell resource bundle at $SHELL_RESOURCES"
+[ -f "$SHELL_RESOURCES/editor/index.html" ] || fail "the resource bundle carries no editor"
+rsync -a "$SHELL_RESOURCES" "$CONTENTS/Resources/"
 # The Bun runtime, named for its job rather than its implementation: this
 # process IS the Ledge host, and "ledge-host" in Activity Monitor (or in a
 # pkill) is both clearer to the user and impossible to confuse with a `bun` the

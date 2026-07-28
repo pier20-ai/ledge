@@ -448,6 +448,17 @@ final class LedgeButton: NSControl {
     var contentAlpha: CGFloat { label.alphaValue }
     var currentSize: LedgeMetrics.Size { size }
     var isDisabled: Bool { disabled }
+    /// A status hue for a `glass` button: the fill and the hairline take the
+    /// colour, the content stays ink. Added for the Edit/Preview toggle, which
+    /// has to carry "the app reloaded" / "the app crashed" without becoming a
+    /// fourth variant — the shape, size and behaviour are unchanged, only the
+    /// wash is. nil restores the ordinary glass treatment.
+    var tint: NSColor? {
+        didSet {
+            guard tint != oldValue else { return }
+            refreshAppearance()
+        }
+    }
     /// An empty label earns no width and no gap (law L2), which is exactly what
     /// makes this button a square — and, with the capsule rule, a circle.
     var isIconOnly: Bool { label.stringValue.isEmpty }
@@ -684,8 +695,17 @@ final class LedgeButton: NSControl {
         case .plain:
             layer?.backgroundColor = hovering ? LedgeTheme.raisedHover.cgColor : NSColor.clear.cgColor
         case .glass:
-            layer?.backgroundColor = (hovering ? LedgeTheme.raisedHover2 : LedgeTheme.raised).cgColor
-            layer?.borderColor = (hovering ? LedgeTheme.hairlineHover : LedgeTheme.hairline).cgColor
+            if let tint {
+                // Same alphas the semantic container tokens use (D6): a tint is
+                // a wash over the glass, never a filled chip — the toggle must
+                // read as the same control in a different state, not as a
+                // different control.
+                layer?.backgroundColor = tint.withAlphaComponent(hovering ? 0.26 : 0.18).cgColor
+                layer?.borderColor = tint.withAlphaComponent(hovering ? 0.55 : 0.40).cgColor
+            } else {
+                layer?.backgroundColor = (hovering ? LedgeTheme.raisedHover2 : LedgeTheme.raised).cgColor
+                layer?.borderColor = (hovering ? LedgeTheme.hairlineHover : LedgeTheme.hairline).cgColor
+            }
         case .accent:
             layer?.backgroundColor = (
                 hovering ? LedgeTheme.accent.blended(withFraction: 0.12, of: .white) ?? LedgeTheme.accent : LedgeTheme.accent
