@@ -140,6 +140,24 @@ tar -czf "$CONTENTS/Resources/seed.tar.gz" -C "$SEED_STAGE" apps node_modules
 rm -rf "$SEED_STAGE"
 log "seed payload: $(du -h "$CONTENTS/Resources/seed.tar.gz" | cut -f1)"
 
+# `ledge` on the user's PATH, as a shim rather than a second binary: it runs the
+# bundled runtime against the bundled CLI source, so it can never drift from the
+# host it manages. Not installed automatically — writing to /usr/local/bin needs
+# a privilege the app does not have and should not ask for.
+#
+# In Resources/, NOT MacOS/. Signing the main executable treats everything in
+# MacOS/ as nested *code* that must itself be signed, and a shell script is not
+# Mach-O — putting it there fails the whole bundle with "code object is not
+# signed at all". As a resource it is sealed with the rest of the bundle.
+cat > "$CONTENTS/Resources/ledge" <<'SHIM'
+#!/bin/sh
+# Ledge CLI (spec §8). Symlink this somewhere on your PATH:
+#   ln -s "/Applications/Ledge.app/Contents/Resources/ledge" /usr/local/bin/ledge
+HERE="$(cd "$(dirname "$0")" && pwd)"
+exec "$HERE/../MacOS/ledge-host" "$HERE/host/src/cli.ts" "$@"
+SHIM
+chmod +x "$CONTENTS/Resources/ledge"
+
 # A placeholder icon until Manu's lands: rendered from an SF Symbol so the
 # bundle has *an* icon rather than the generic one. Replaced by dropping a real
 # AppIcon.icns in scripts/assets/.

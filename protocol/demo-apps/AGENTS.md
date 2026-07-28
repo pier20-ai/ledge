@@ -249,6 +249,20 @@ import { evaluate } from "./engine.js";
 
 Every source file in the folder is watched, so edits to any of them reload.
 
+## The `ledge` command
+
+```
+ledge new <id>       scaffold an app (refuses to overwrite an existing one)
+ledge list           installed apps
+ledge status         the same, as JSON
+ledge reload <id>    touch the entry point; the watcher reloads it
+ledge logs <id>      that app's last crash and recent console output
+```
+
+`ledge logs` is the fastest way to find out why something you wrote stopped
+working — it prints the same `crash.log` described below, without you having to
+guess the path.
+
 ## When something breaks
 
 1. `crash.log` in the app's folder — the stack from the last crash, plus recent
