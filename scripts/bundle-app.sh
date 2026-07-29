@@ -210,6 +210,12 @@ else
   log "icon: none yet (drop one at scripts/assets/AppIcon.icns)"
 fi
 
+# Backticks in here are ESCAPED. This heredoc is unquoted, because it has to
+# interpolate $BUNDLE_ID/$VERSION/$ICON_ENTRY — which means the shell also
+# performs command substitution inside it, and a comment mentioning
+# `ctx.platform.calendar` in the ordinary prose style of this repo silently RAN
+# it. The output landed inside an XML comment, so nothing broke; that is worse
+# than breaking, not better.
 cat > "$CONTENTS/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -226,9 +232,24 @@ cat > "$CONTENTS/Info.plist" <<EOF
   $ICON_ENTRY
   <!-- Menubar-only: no Dock tile, no menu bar of its own. -->
   <key>LSUIElement</key><true/>
+  <!-- The consent strings macOS shows in Ledge's own prompts. Every capability
+       an app reaches through the shell (spec §6) that has a usage-description
+       key needs one HERE, in this file, or the API does not fail politely — it
+       TERMINATES the process on the first call. That is not hypothetical: the
+       calendar and location keys were missing until the permission surface went
+       looking for them, so \`ctx.platform.calendar\` would have killed the shell
+       (and every app's panel with it) the first time an app asked for events.
+       \`shell/Sources/LedgeShellCore/Capabilities/PermissionCatalog.swift\` names
+       the same three keys, and a test asserts them — keep the two in step. -->
   <!-- ctx.apple (spec §6) drives other apps; macOS shows this in the prompt. -->
   <key>NSAppleEventsUsageDescription</key>
   <string>Ledge apps use AppleScript and Shortcuts to talk to your other apps.</string>
+  <!-- ctx.platform.calendar. Read-only: nothing in Ledge writes an event. -->
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Ledge apps show your upcoming events in the notch.</string>
+  <!-- ctx.platform.location, at reduced accuracy (see SystemLocation). -->
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Ledge apps use your rough location for things like local weather.</string>
 </dict>
 </plist>
 EOF
