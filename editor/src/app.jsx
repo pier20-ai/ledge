@@ -114,22 +114,40 @@ const isRunning = (turn) => turn !== undefined && turn.done === null;
 // ---------------------------------------------------------------- rendering
 
 /**
+ * What a tool call says, as one sentence.
+ *
+ * "Editing app.jsx", not "EDITING /Users/you/.ledge/apps/stocks/app.jsx". A
+ * shouted label beside a full path is two things to parse and neither of them
+ * is a phrase; the panel is narrow, this line is glanced at rather than read,
+ * and the interesting word is the filename.
+ */
+function describeTool(tool) {
+  const settled = tool.state === "completed";
+  if (tool.name === "edit") {
+    // Paths are absolute on the wire. Inside one app's folder the directory is
+    // the same for every file, so the basename is the only part that varies —
+    // and it is the part being asked about.
+    const names = tool.detail
+      .split(",")
+      .map((path) => path.trim().split("/").pop())
+      .filter(Boolean);
+    const what = names.length > 1 ? `${names.length} files` : names[0] || "a file";
+    return `${settled ? "Edited" : "Editing"} ${what}`;
+  }
+  return `${settled ? "Ran" : "Running"} ${tool.detail}`;
+}
+
+/**
  * The current tool call, as a marker: a labelled rule across the transcript
  * rather than a chip in the flow. A marker reads as "this is what is happening",
  * which is its whole job here — one line, replaced in place, never accumulating.
  */
 function ToolMarker({ tool }) {
-  // `run` and `edit` are the only two the adapter emits; naming them beats a
-  // generic "tool" — "edited app.jsx" is information, "tool" is not.
   const settled = tool.state === "completed";
-  const label = settled
-    ? tool.name === "edit" ? "edited" : "ran"
-    : tool.name === "edit" ? "editing" : "running";
   return (
     <div className={`marker ${settled ? "marker-done" : "marker-live"}`}>
-      <span className="marker-label">{label}</span>
-      <span className="marker-detail" title={tool.detail}>
-        {tool.detail}
+      <span className="marker-text" title={tool.detail}>
+        {describeTool(tool)}
       </span>
     </div>
   );

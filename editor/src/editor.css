@@ -216,31 +216,21 @@ body {
   background: var(--hairline);
 }
 
-.marker-label {
-  flex: none;
-  font-variant: small-caps;
-  letter-spacing: 0.04em;
-}
-
-/* One line, always. The adapter truncates the text, but a path with no spaces
-   can still be wider than the panel. */
-.marker-detail {
+/* One line, always. The adapter truncates the text, but a command with no
+   spaces can still be wider than the panel. */
+.marker-text {
   flex: 0 1 auto;
   min-width: 0;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  /* Full ink: this is a file path, and the whole reason the marker exists is so
-     you can read WHICH file without opening anything. */
-  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Full ink: reading WHICH file changed is the entire point of this line. */
   color: var(--ink);
 }
 
 /* Running pulses; finished simply stops. Movement is how you tell "still going"
    from "done" without reading anything. */
-.marker-live .marker-label {
-  color: var(--ink);
+.marker-live .marker-text {
   animation: pulse 1.6s ease-in-out infinite;
 }
 
@@ -252,18 +242,20 @@ body {
 
 /* --------------------------------------------------------------- reasoning */
 
-/* Present but secondary. This is the only thing on screen for the opening
-   stretch of a real turn, so hiding it behind a disclosure would restore
-   exactly the "is it working?" problem it exists to solve — but it is thinking,
-   not speech, so it must never read as the answer. */
+/* Same family as the tool marker — a quiet line about what is happening rather
+   than something the agent said — but with no rule beside it: a border made it
+   look like a quoted block, which is a claim about importance it should not be
+   making. Italic and grey carry the distinction on their own.
+   
+   Present, never hidden: this is the only thing on screen for the opening
+   stretch of a real turn, so a disclosure would restore exactly the "is it
+   working?" problem it exists to solve. Wraps, because unlike a tool call it is
+   prose and truncating it would leave half a thought. */
 .reasoning {
   width: 100%;
-  padding-left: 9px;
-  /* A brighter rule than a hairline: it is the only thing separating thinking
-     from speech, and at 0.16 alpha it disappeared against the glass. */
-  border-left: 2px solid rgba(255, 255, 255, 0.28);
   color: var(--ink-2);
   font-size: 11.5px;
+  font-style: italic;
   white-space: pre-wrap;
   user-select: text;
 }
