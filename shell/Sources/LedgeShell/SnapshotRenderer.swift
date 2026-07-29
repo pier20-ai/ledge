@@ -116,7 +116,7 @@ enum SnapshotRenderer {
             surface(
                 catalog: catalog,
                 presentation: .expanded(app: nil),
-                content: HostPlaceholderView(phase: .noHost),
+                content: HostPlaceholderView(phase: .noHost(detail: "cd host && bun run start")),
                 height: HostPlaceholderView.panelHeight + NotchMetrics.fallback.closedHeight
             ),
             named: "no-host",

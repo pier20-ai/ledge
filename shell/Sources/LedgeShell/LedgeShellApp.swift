@@ -41,6 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             logURL: LedgeInstall.logURL
         )
         hostProcess = host
+        // The panel says why there is no host, rather than offering everyone a
+        // developer's shell command (see HostStatus).
+        host.onStatus = { [weak self] status in
+            self?.panelController?.hostDetail = Self.hostDetail(for: status)
+        }
         host.start()
 
         NotificationCenter.default.addObserver(
@@ -49,6 +54,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.didChangeScreenParametersNotification,
             object: nil
         )
+    }
+
+    /// One line, addressed to whoever is actually looking at it.
+    static func hostDetail(for status: HostStatus) -> String {
+        switch status {
+        case .developerBuild:
+            // The only audience for this is someone with the repository open.
+            return "cd host && bun run start"
+        case .bundleIncomplete(let what):
+            // Almost always an old copy of Ledge.app that predates the bundled
+            // host — and no amount of waiting fixes it, so say what to do.
+            return "This copy has no host (\(what)). Replace it with a current build."
+        case .starting:
+            return "Starting…"
+        case .failed(let why):
+            return why
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

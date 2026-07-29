@@ -79,8 +79,10 @@ final class HostPlaceholderView: FlippedView {
 
     /// What is actually missing, most specific first.
     enum Phase: Equatable {
-        /// No host connection on the socket.
-        case noHost
+        /// No host connection on the socket. `detail` is why, in words the
+        /// reader can act on — the dev command in a dev build, the actual fault
+        /// in a shipped one (see `HostStatus`).
+        case noHost(detail: String)
         /// A host is connected but its catalog is empty.
         case noApps
         /// The app exists in the catalog but has not committed a tree yet.
@@ -95,11 +97,11 @@ final class HostPlaceholderView: FlippedView {
         let titleText: String
         let detailText: String
         switch phase {
-        case .noHost:
+        case .noHost(let detail):
             headerTitle = "Ledge"
             status = "no host"
             titleText = "Waiting for host…"
-            detailText = "cd host && bun run start"
+            detailText = detail
         case .noApps:
             headerTitle = "Ledge"
             status = "0 apps"

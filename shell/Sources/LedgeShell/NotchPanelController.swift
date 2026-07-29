@@ -212,6 +212,20 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
     }
 
+    /// Why there is no host, as the placeholder should say it. Set by the app
+    /// delegate from `HostProcess` — the shell cannot work it out for itself,
+    /// and the previous answer (a developer's shell command, in every build)
+    /// was wrong for everyone who had not built Ledge from source.
+    var hostDetail: String = "Starting…" {
+        didSet {
+            guard hostDetail != oldValue, !session.isConnected else { return }
+            // The card is rebuilt only when its phase changes, and the phase now
+            // carries this string — so changing it has to force a re-present.
+            placeholder = nil
+            refresh(animated: false)
+        }
+    }
+
     func present(_ presentation: ShellPresentation, animated: Bool = true) {
         shellState.present(presentation)
         refresh(animated: animated)
@@ -533,7 +547,7 @@ final class NotchPanelController {
         // Name the actual gap: a connected host with zero apps is not
         // "waiting for host", it's an empty registry.
         let phase: HostPlaceholderView.Phase = if !session.isConnected {
-            .noHost
+            .noHost(detail: hostDetail)
         } else if let app {
             .starting(app: session.name(for: app))
         } else {

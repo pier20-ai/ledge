@@ -9,6 +9,25 @@ import Foundation
 /// root, a rebuild every few seconds. Two hosts on one socket is a confusing
 /// failure, and the bundle check is the one signal that reliably distinguishes
 /// "shipped" from "someone is working on this".
+/// Why there is no host, in words a person can act on.
+///
+/// This exists because the panel's "waiting for host" card used to say
+/// `cd host && bun run start` in every build, including a shipped one. A user
+/// whose copy of Ledge could not start a host was handed a developer's command
+/// for a repository they do not have — and the actual cause (an old .app with
+/// no runtime inside it, left in ~/Applications) was written to NSLog, which
+/// nobody reads.
+enum HostStatus: Equatable {
+    /// Running outside a bundle: the dev loop starts its own host, on purpose.
+    case developerBuild
+    /// Inside a `.app` that has no host in it. Almost always an old build.
+    case bundleIncomplete(String)
+    /// Launched; waiting for it to connect.
+    case starting
+    /// It ran and stopped, or would not start at all.
+    case failed(String)
+}
+
 @MainActor
 final class HostProcess {
     /// The Bun runtime, shipped as a helper executable (rather than a resource)
@@ -37,6 +56,9 @@ final class HostProcess {
     /// Held open for the child's lifetime. Closing it — or dying, which closes
     /// it for us — is what tells the host to exit (`--exit-on-stdin-eof`).
     private var stdinPipe: Pipe?
+    /// Told whenever the answer to "why is there no host" changes, so the panel
+    /// can say it instead of guessing.
+    var onStatus: ((HostStatus) -> Void)?
     private var attempts = 0
     private var startedAt: Date?
     private var stopping = false
@@ -47,29 +69,57 @@ final class HostProcess {
         self.logURL = logURL
     }
 
-    /// The bundled runtime + host entry, or nil when running outside a `.app`
-    /// (dev) or when either half is missing from the bundle.
+    /// The bundled runtime + host entry, or nil when there is none. `locateHost`
+    /// is the same question with an answer you can show someone.
     static func bundledHost() -> (runtime: URL, entry: URL)? {
-        guard Bundle.main.bundlePath.hasSuffix(".app") else { return nil }
-        let root = Bundle.main.bundleURL
-        let runtime = root.appendingPathComponent("Contents/MacOS/\(executableName)")
-        let entry = root.appendingPathComponent(entryPath)
-        let manager = FileManager.default
-        guard manager.isExecutableFile(atPath: runtime.path) else { return nil }
-        guard manager.fileExists(atPath: entry.path) else {
-            NSLog("[ledge] bundle has no host sources at %@", entry.path)
-            return nil
-        }
-        return (runtime, entry)
+        if case .found(let runtime, let entry) = locateHost() { return (runtime, entry) }
+        return nil
     }
 
     func start() {
         guard !stopping else { return }
-        guard let bundled = Self.bundledHost() else {
+        switch Self.locateHost() {
+        case .found(let runtime, let entry):
+            launch(runtime: runtime, entry: entry)
+        case .developerBuild:
             NSLog("[ledge] no bundled host (dev build) — start one with `bun src/host.ts`")
-            return
+            report(.developerBuild)
+        case .incomplete(let what):
+            // The failure Manu hit: a Ledge.app built before the host was
+            // bundled, still sitting in ~/Applications, launched by Spotlight in
+            // preference to the new one. It can never work, and no amount of
+            // waiting will change that — so the card says so.
+            NSLog("[ledge] this bundle has no host: %@", what)
+            report(.bundleIncomplete(what))
         }
-        launch(runtime: bundled.runtime, entry: bundled.entry)
+    }
+
+    private func report(_ status: HostStatus) {
+        onStatus?(status)
+    }
+
+    /// What we found when we went looking for a host to run.
+    enum Located: Equatable {
+        case found(runtime: URL, entry: URL)
+        /// Not in a bundle at all.
+        case developerBuild
+        /// In a bundle, but the host is not in it — with the part that is missing.
+        case incomplete(String)
+    }
+
+    static func locateHost(bundle: Bundle = .main) -> Located {
+        guard bundle.bundlePath.hasSuffix(".app") else { return .developerBuild }
+        let root = bundle.bundleURL
+        let runtime = root.appendingPathComponent("Contents/MacOS/\(executableName)")
+        let entry = root.appendingPathComponent(entryPath)
+        let manager = FileManager.default
+        guard manager.isExecutableFile(atPath: runtime.path) else {
+            return .incomplete("no \(executableName) in \(root.lastPathComponent)")
+        }
+        guard manager.fileExists(atPath: entry.path) else {
+            return .incomplete("no host sources in \(root.lastPathComponent)")
+        }
+        return .found(runtime: runtime, entry: entry)
     }
 
     private func launch(runtime: URL, entry: URL) {
@@ -109,9 +159,11 @@ final class HostProcess {
             self.process = process
             self.stdinPipe = stdin
             self.startedAt = Date()
+            report(.starting)
             NSLog("[ledge] host started (pid %d), logging to %@", process.processIdentifier, logURL.path)
         } catch {
             NSLog("[ledge] could not start the host: %@", String(describing: error))
+            report(.failed("could not start it: \(error.localizedDescription)"))
             scheduleRestart()
         }
     }
@@ -133,6 +185,9 @@ final class HostProcess {
     private func scheduleRestart() {
         guard attempts < Self.maxAttempts else {
             NSLog("[ledge] host failed %d times — not restarting", attempts)
+            // The end of the line. Saying so beats a card that waits forever for
+            // something nobody is going to try again.
+            report(.failed("it stopped \(attempts) times — see ~/.ledge/host.log"))
             return
         }
         let delay = Self.backoff[min(attempts, Self.backoff.count - 1)]
