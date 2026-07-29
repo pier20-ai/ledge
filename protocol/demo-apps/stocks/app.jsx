@@ -27,7 +27,7 @@ export const meta = { name: "Stocks", icon: "sf:chart.line.uptrend.xyaxis" };
 // ---------------------------------------------------------------- the watchlist
 
 const SYMBOLS = [
-  { symbol: "AAPL", label: "AAPL" },
+  { symbol: "ENPH", label: "ENPH" },
   { symbol: "NVDA", label: "NVDA" },
   { symbol: "GOOG", label: "GOOG" },
   { symbol: "MSFT", label: "MSFT" },
@@ -120,7 +120,7 @@ async function fetchQuote(symbol) {
 
 // ---------------------------------------------------------------- presentation
 
-/** Prices span $2 500 (ETH) to $63 000 (BTC) to $210 (AAPL) in one grid; two
+/** Prices span $2 500 (ETH) to $63 000 (BTC) to typical equity prices in one grid; two
  * decimals below $1 000 and none above keeps every card the same visual weight. */
 function formatPrice(price) {
   if (typeof price !== "number" || !Number.isFinite(price)) return "—";

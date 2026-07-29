@@ -462,6 +462,7 @@ final class PanelWingBarView: FlippedView {
                 symbol: showingEditor ? "eye" : "wand.and.stars"
             )
             editButton.setAccessibilityLabel(showingEditor ? "Show the app" : "Edit with AI")
+            applyToggleAppearance()
         }
         needsLayout = true
     }
@@ -473,7 +474,24 @@ final class PanelWingBarView: FlippedView {
     /// already on this corner when the user goes to look back at the app.
     func setBuildStatus(_ status: EditorBuildStatus) {
         buildStatus = status
-        editButton.tint = switch status {
+        applyToggleAppearance()
+    }
+
+    /// Two things share this control, so they are resolved in one place.
+    ///
+    /// While the editor is open the button is the way BACK to your app, and it
+    /// has to be findable at a glance in a panel that is otherwise a wall of
+    /// transcript — so it fills, in yellow, with white ink. Build status is a
+    /// wash on the same control when the app's tree is showing.
+    private func applyToggleAppearance() {
+        if isShowingEditor {
+            // The shell's accent already IS the amber this asks for (Theme.swift).
+            editButton.filledTint = LedgeTheme.accent
+            editButton.tint = nil
+            return
+        }
+        editButton.filledTint = nil
+        editButton.tint = switch buildStatus {
         case .neutral: nil
         case .reloaded: LedgeTheme.green
         case .crashed: LedgeTheme.red

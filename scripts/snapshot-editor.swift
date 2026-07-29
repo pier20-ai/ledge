@@ -57,24 +57,20 @@ let typeAndSend = """
 """
 
 let script = """
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "reasoning",
+  delta: "Looking at app.jsx to find where the price is rendered, then " });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "reasoning",
+  delta: "deciding whether the colour belongs on the text node or the row." });
 window.__ledgeDeliver({ app: "stocks", turn: 1, event: "tool", name: "run", state: "started",
   detail: "/bin/zsh -lc \\"sed -n '1,120p' app.jsx\\"" });
 window.__ledgeDeliver({ app: "stocks", turn: 1, event: "tool", name: "run", state: "completed",
   detail: "/bin/zsh -lc \\"sed -n '1,120p' app.jsx\\"" });
 window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
-  delta: "I'll make the change colour-coded. The **price** row now tracks the delta:\\n\\n" });
+  delta: "The **price** row now tracks the delta:\\n\\n" });
 window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
   delta: "```\\n<text content={price} color={up ? \\"green\\" : \\"red\\"} />\\n```\\n\\n" });
-window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
-  delta: "Reloaded and rendering." });
-window.__ledgeDeliver({ app: "stocks", turn: 1, event: "tool", name: "edit", state: "completed",
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "tool", name: "edit", state: "started",
   detail: "/Users/you/.ledge/apps/stocks/app.jsx" });
-window.__ledgeDeliver({ app: "stocks", turn: 1, event: "done", status: "completed" });
-window.__ledgeDeliver({ app: "stocks", turn: 2, event: "text",
-  delta: "Now adding a sparkline…" });
-window.__ledgeDeliver({ app: "stocks", turn: 2, event: "tool", name: "edit", state: "started",
-  detail: "app.jsx" });
-window.__ledgeDeliver({ app: "stocks", turn: 2, event: "status", text: "rate limited — retrying" });
 """
 
 final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler {

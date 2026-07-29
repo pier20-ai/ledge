@@ -6,6 +6,35 @@ import QuartzCore
 final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Standard editing shortcuts, by hand.
+    ///
+    /// `LSUIElement` + a borderless non-activating panel means there is **no
+    /// menu bar**, and on macOS the menu bar is what turns ⌘A / ⌘C / ⌘V / ⌘Z
+    /// into actions — a text field does not implement them, it receives them.
+    /// So in the editor's composer ⌘A did nothing at all, which reads as a
+    /// broken text box rather than as a missing menu.
+    ///
+    /// Routed through the responder chain by selector, so the web view's text
+    /// field, an `input` node in an app's tree, and anything else that edits
+    /// text all get them for free.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
+            return super.performKeyEquivalent(with: event)
+        }
+        let selector: Selector? = switch event.charactersIgnoringModifiers {
+        case "a": #selector(NSText.selectAll(_:))
+        case "c": #selector(NSText.copy(_:))
+        case "v": #selector(NSText.paste(_:))
+        case "x": #selector(NSText.cut(_:))
+        case "z": Selector(("undo:"))
+        default: nil
+        }
+        if let selector, NSApp.sendAction(selector, to: nil, from: self) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 }
 
 /// Owns the shell's presentation state and turns it into a panel. Content comes
@@ -49,7 +78,6 @@ final class NotchPanelController {
     /// taking it steals the user's insertion point, so releasing it has to be
     /// exactly as deliberate as taking it was.
     private var holdsEditorFocus = false
-    private var newAppSurface: NewAppContentView?
     private var placeholder: (phase: HostPlaceholderView.Phase, view: HostPlaceholderView)?
 
     init(session: HostSession) {
@@ -250,9 +278,14 @@ final class NotchPanelController {
             // the camera, not only the ones with an app behind them.
             height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
         case .newApp:
-            content = newAppView()
+            // The SAME editor, with no app behind it yet (spec §8: "`app` may
+            // name a not-yet-existing id when coming from the [+] surface").
+            // Two chat surfaces for one job would drift apart immediately, and
+            // the old hand-drawn one had an inert composer and a preview box
+            // that never previewed anything.
+            content = editorView(for: "")
             width = PanelLimits.defaultWidth
-            height = NewAppContentView.panelHeight + surface.panelWingRowHeight
+            height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
         }
 
         // Before `present`, so the first layout of a newly-shown surface already
@@ -262,7 +295,13 @@ final class NotchPanelController {
         surface.setPanelWing(
             name: presentation.isMini ? nil : presentation.app.map { session.name(for: $0) },
             content: presentation.isMini ? nil : session.panelWing(for: presentation.app),
-            canEdit: !presentation.isMini && presentation.app != nil,
+            // Settings is the shell's own surface wearing an app's clothes — it
+            // is in the catalog so the strip can show it, but there is no app
+            // folder for an agent to edit. Offering Edit there promises
+            // something that cannot work.
+            canEdit: !presentation.isMini
+                && presentation.app != nil
+                && presentation.app != AppBarView.settingsAppID,
             showingEditor: presentation.isChat
         )
         surface.present(
@@ -471,12 +510,6 @@ final class NotchPanelController {
         return view
     }
 
-    private func newAppView() -> NewAppContentView {
-        if let newAppSurface { return newAppSurface }
-        let view = NewAppContentView(callbacks: .inert)
-        newAppSurface = view
-        return view
-    }
 
     private func placeholderView(for app: String?) -> HostPlaceholderView {
         // Name the actual gap: a connected host with zero apps is not

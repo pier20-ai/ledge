@@ -20,6 +20,9 @@ export type TurnStatus = "completed" | "interrupted" | "failed";
 /** The spec §3.6 builder event stream, as the shell receives it. */
 export type BuilderEvent =
   | { event: "text"; delta: string }
+  /** The agent's own thinking, streamed. Secondary to `text`, but the only
+   * thing on screen during the long opening stretch of a turn. */
+  | { event: "reasoning"; delta: string }
   | { event: "tool"; name: string; detail: string; state: "started" | "completed" }
   | { event: "status"; text: string }
   /** The turn ended — `status` says how. Not always a success. */
@@ -53,6 +56,16 @@ export function toBuilderEvent(method: string, params: Json): BuilderEvent | nul
   switch (method) {
     case "item/agentMessage/delta":
       return { event: "text", delta: String(params.delta ?? "") };
+
+    // Reasoning was originally dropped as noise. That was wrong, and it showed
+    // up as the worst possible failure: a real turn spent 60 s emitting nothing
+    // but reasoning, so the panel showed three animated dots and the user could
+    // not tell a working build from a hung one. Reasoning is frequently the ONLY
+    // thing a turn produces for its first minute — it is not noise, it is the
+    // evidence that anything is happening at all.
+    case "item/reasoning/summaryTextDelta":
+    case "item/reasoning/textDelta":
+      return { event: "reasoning", delta: String(params.delta ?? "") };
 
     case "item/started":
     case "item/completed": {

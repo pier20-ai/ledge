@@ -17,13 +17,26 @@
  */
 
 :root {
-  --ink: rgba(255, 255, 255, 0.95);
-  --ink-2: rgba(255, 255, 255, 0.62);
-  --ink-3: rgba(255, 255, 255, 0.38);
-  --raised: rgba(255, 255, 255, 0.06);
-  --raised-hi: rgba(255, 255, 255, 0.1);
-  --hairline: rgba(255, 255, 255, 0.09);
-  --accent: #0a84ff;
+  /* Raised across the board after reading it on a real panel.
+   *
+   * White-on-black is not the same problem as black-on-white: the glass sits
+   * over whatever is behind the notch, the panel is small, and it is usually
+   * read at a glance rather than studied. The first pass used AppKit's own
+   * secondary/tertiary alphas (0.62 / 0.38), which are tuned for large opaque
+   * surfaces and come out genuinely hard to read here — the reasoning block and
+   * the marker label were the worst of it.
+   *
+   * Secondary text is now readable in its own right rather than merely present;
+   * only the true furniture (hairlines, disabled ink) stays quiet. */
+  --ink: rgba(255, 255, 255, 0.98);
+  --ink-2: rgba(255, 255, 255, 0.80);
+  --ink-3: rgba(255, 255, 255, 0.58);
+  --raised: rgba(255, 255, 255, 0.09);
+  --raised-hi: rgba(255, 255, 255, 0.15);
+  --hairline: rgba(255, 255, 255, 0.16);
+  /* The shell's own accent (Theme.swift): amber, not iOS blue. The send
+     button sits inches from AppKit controls using the same colour. */
+  --accent: #ffb454;
   --radius: 11px;
 }
 
@@ -99,6 +112,19 @@ body {
   font-size: 11.5px;
 }
 
+.empty code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--ink-2);
+}
+
+.composer textarea:disabled {
+  opacity: 0.5;
+}
+
 .turn {
   display: flex;
   flex-direction: column;
@@ -151,7 +177,10 @@ body {
   margin: 0 0 8px;
   padding: 8px 10px;
   border-radius: var(--radius);
-  background: rgba(0, 0, 0, 0.35);
+  /* Lifted OFF the glass rather than cut into it: a darker-than-black box on a
+     panel that is already black reads as a hole, and the code inside it loses
+     the little contrast the surface had. */
+  background: rgba(255, 255, 255, 0.07);
   border: 1px solid var(--hairline);
   /* Code is the one thing here that may exceed the panel's width, and wrapping
      it would misrepresent what the agent wrote. */
@@ -164,46 +193,79 @@ body {
   white-space: pre;
 }
 
-/* ------------------------------------------------------------- tool chips */
+/* ------------------------------------------------------------ tool marker */
 
-.chip {
+/* A labelled rule, not a chip: there is exactly one of these per turn and it is
+   replaced in place as the agent works. It reads as "this is what is happening"
+   rather than as an item in a list, which is the difference between a
+   transcript and a build log. */
+.marker {
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  max-width: 100%;
-  padding: 3px 8px;
-  border-radius: 7px;
-  background: var(--raised);
-  border: 1px solid var(--hairline);
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
   font-size: 11px;
   color: var(--ink-2);
 }
 
-.chip-label {
-  color: var(--ink-3);
+.marker::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--hairline);
+}
+
+.marker-label {
   flex: none;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
 }
 
 /* One line, always. The adapter truncates the text, but a path with no spaces
    can still be wider than the panel. */
-.chip-detail {
+.marker-detail {
+  flex: 0 1 auto;
+  min-width: 0;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 10.5px;
+  /* Full ink: this is a file path, and the whole reason the marker exists is so
+     you can read WHICH file without opening anything. */
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--ink);
 }
 
-/* A running tool pulses; a finished one simply stops. Movement is how you tell
-   "still going" from "done" without reading anything. */
-.chip-started {
+/* Running pulses; finished simply stops. Movement is how you tell "still going"
+   from "done" without reading anything. */
+.marker-live .marker-label {
+  color: var(--ink);
   animation: pulse 1.6s ease-in-out infinite;
 }
 
 @keyframes pulse {
   50% {
-    background: var(--raised-hi);
+    opacity: 0.45;
   }
+}
+
+/* --------------------------------------------------------------- reasoning */
+
+/* Present but secondary. This is the only thing on screen for the opening
+   stretch of a real turn, so hiding it behind a disclosure would restore
+   exactly the "is it working?" problem it exists to solve — but it is thinking,
+   not speech, so it must never read as the answer. */
+.reasoning {
+  width: 100%;
+  padding-left: 9px;
+  /* A brighter rule than a hairline: it is the only thing separating thinking
+     from speech, and at 0.16 alpha it disappeared against the glass. */
+  border-left: 2px solid rgba(255, 255, 255, 0.28);
+  color: var(--ink-2);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  user-select: text;
 }
 
 /* ------------------------------------------------------- status and outcome */
@@ -218,7 +280,7 @@ body {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: var(--ink-3);
+  background: var(--ink-2);
   animation: bounce 1.2s ease-in-out infinite;
 }
 
@@ -243,7 +305,7 @@ body {
 
 .status {
   font-size: 11.5px;
-  color: var(--ink-2);
+  color: var(--ink);
 }
 
 /* A status line is by definition about something still happening, so it moves.
@@ -278,7 +340,7 @@ body {
 
 .outcome {
   font-size: 11px;
-  color: var(--ink-3);
+  color: var(--ink-2);
 }
 
 .outcome-failed {
@@ -331,7 +393,7 @@ body {
 }
 
 .composer textarea:focus {
-  border-color: rgba(10, 132, 255, 0.55);
+  border-color: rgba(255, 180, 84, 0.5);
   background: var(--raised-hi);
 }
 
@@ -350,6 +412,8 @@ body {
 
 .composer .send {
   background: var(--accent);
+  /* White, matching the amber send button the shell already draws. */
+  color: #fff;
 }
 
 .composer .send:disabled {

@@ -459,6 +459,20 @@ final class LedgeButton: NSControl {
             refreshAppearance()
         }
     }
+    /// A tint that FILLS rather than washes, with white ink over it.
+    ///
+    /// `tint` is deliberately a wash — a state of the same control. This is for
+    /// the one case that is not a state but a mode: while the editor is open,
+    /// the toggle is the way back to your app, and it has to be findable at a
+    /// glance in a panel full of transcript. A filled chip is that; a tinted
+    /// glass button is not.
+    var filledTint: NSColor? {
+        didSet {
+            guard filledTint != oldValue else { return }
+            refreshInk()
+            refreshAppearance()
+        }
+    }
     /// An empty label earns no width and no gap (law L2), which is exactly what
     /// makes this button a square — and, with the capsule rule, a circle.
     var isIconOnly: Bool { label.stringValue.isEmpty }
@@ -532,9 +546,7 @@ final class LedgeButton: NSControl {
             // size and weight changed even though the symbol did not.
             rebuildIcon()
         }
-        let contentColor = variant == .accent ? LedgeTheme.glassSolid : LedgeTheme.primary
-        label.textColor = contentColor
-        iconView?.contentTintColor = contentColor
+        refreshInk()
         applyDisabledAlpha()
         refreshHugging()
         refreshAppearance()
@@ -690,7 +702,33 @@ final class LedgeButton: NSControl {
         }
     }
 
+    /// White over a filled tint, otherwise the variant's own ink.
+    ///
+    /// White rather than `glassSolid` (black): the amber send button in the
+    /// existing surfaces already carries a white glyph, so a black-inked amber
+    /// chip beside it would read as a different control family.
+    private func refreshInk() {
+        let contentColor: NSColor = if filledTint != nil {
+            .white
+        } else if variant == .accent {
+            LedgeTheme.glassSolid
+        } else {
+            LedgeTheme.primary
+        }
+        label.textColor = contentColor
+        iconView?.contentTintColor = contentColor
+    }
+
     private func refreshAppearance() {
+        if let filledTint {
+            layer?.backgroundColor = (
+                hovering
+                    ? filledTint.blended(withFraction: 0.12, of: .white) ?? filledTint
+                    : filledTint
+            ).cgColor
+            layer?.borderColor = NSColor.clear.cgColor
+            return
+        }
         switch variant {
         case .plain:
             layer?.backgroundColor = hovering ? LedgeTheme.raisedHover.cgColor : NSColor.clear.cgColor

@@ -47,37 +47,38 @@ function reduceEvent(turns, event) {
   next[index] = turn;
 
   switch (event.event) {
-    case "text": {
-      // Deltas merge into the trailing text block. A new block is only started
-      // when something else happened in between — which is what preserves the
-      // order the agent actually worked in.
+    case "text":
+    case "reasoning": {
+      // Deltas merge into the trailing block of the same kind. A new block is
+      // started only when something else happened in between — which is what
+      // preserves the order the agent actually worked in.
+      const kind = event.event;
       const last = turn.blocks[turn.blocks.length - 1];
-      if (last && last.kind === "text") {
+      if (last && last.kind === kind) {
         turn.blocks[turn.blocks.length - 1] = { ...last, text: last.text + (event.delta || "") };
       } else {
-        turn.blocks.push({ kind: "text", text: event.delta || "" });
+        turn.blocks.push({ kind, text: event.delta || "" });
       }
       break;
     }
 
     case "tool": {
-      // Blocks are an ORDERED list, not tools-then-text. A coding agent narrates
-      // as it works — says what it is about to do, does it, says what happened —
-      // and grouping the tools together rewrites that into something it never
-      // said. Caught by rendering a real turn and looking at it: an `edit` that
-      // happened last appeared first.
-      const open = turn.blocks.findIndex(
-        (block) =>
-          block.kind === "tool" &&
-          block.name === event.name &&
-          block.detail === event.detail &&
-          block.state === "started",
-      );
-      const chip = { kind: "tool", name: event.name, detail: event.detail, state: event.state };
-      // A `started` chip is replaced in place by its `completed` twin rather
-      // than appended, so a slow edit is one chip that settles instead of two.
-      if (open >= 0) turn.blocks[open] = chip;
-      else turn.blocks.push(chip);
+      // ONE tool marker per turn, always the latest, always at the position it
+      // most recently occurred. A turn can run twenty commands; listing them all
+      // turns the transcript into a build log and buries the prose explaining
+      // what is happening. What a user needs from a tool call is "what is it
+      // doing right now", and that is one line.
+      //
+      // Blocks stay an ORDERED list rather than tools-then-text: a coding agent
+      // narrates as it works, and grouping the tools rewrites that into
+      // something it never said.
+      turn.blocks = turn.blocks.filter((block) => block.kind !== "tool");
+      turn.blocks.push({
+        kind: "tool",
+        name: event.name,
+        detail: event.detail,
+        state: event.state,
+      });
       break;
     }
 
@@ -112,19 +113,38 @@ const isRunning = (turn) => turn !== undefined && turn.done === null;
 
 // ---------------------------------------------------------------- rendering
 
-function ToolChip({ tool }) {
-  // `run` and `edit` are the only two the adapter emits; naming them rather
-  // than showing a generic "tool" is the difference between "it did something"
-  // and "it edited app.jsx".
-  const label = tool.name === "edit" ? "edited" : "ran";
+/**
+ * The current tool call, as a marker: a labelled rule across the transcript
+ * rather than a chip in the flow. A marker reads as "this is what is happening",
+ * which is its whole job here — one line, replaced in place, never accumulating.
+ */
+function ToolMarker({ tool }) {
+  // `run` and `edit` are the only two the adapter emits; naming them beats a
+  // generic "tool" — "edited app.jsx" is information, "tool" is not.
+  const settled = tool.state === "completed";
+  const label = settled
+    ? tool.name === "edit" ? "edited" : "ran"
+    : tool.name === "edit" ? "editing" : "running";
   return (
-    <div className={`chip chip-${tool.state}`}>
-      <span className="chip-label">{label}</span>
-      <span className="chip-detail" title={tool.detail}>
+    <div className={`marker ${settled ? "marker-done" : "marker-live"}`}>
+      <span className="marker-label">{label}</span>
+      <span className="marker-detail" title={tool.detail}>
         {tool.detail}
       </span>
     </div>
   );
+}
+
+/**
+ * The agent's thinking.
+ *
+ * Shown, not hidden. For the first minute of a real turn this is frequently the
+ * ONLY output, and a panel showing three animated dots cannot be told apart from
+ * a hung one — which is exactly how the first real edit felt. Styled secondary
+ * so it never competes with what the agent actually says.
+ */
+function Reasoning({ text }) {
+  return <div className="reasoning">{text}</div>;
 }
 
 function Turn({ turn, anchorRef }) {
@@ -133,15 +153,15 @@ function Turn({ turn, anchorRef }) {
     <article className="turn" ref={anchorRef}>
       {turn.prompt ? <div className="prompt">{turn.prompt}</div> : null}
 
-      {turn.blocks.map((block, index) =>
-        block.kind === "tool" ? (
-          <ToolChip tool={block} key={`t:${block.name}:${block.detail}:${index}`} />
-        ) : (
+      {turn.blocks.map((block, index) => {
+        if (block.kind === "tool") return <ToolMarker tool={block} key={`t:${index}`} />;
+        if (block.kind === "reasoning") return <Reasoning text={block.text} key={`r:${index}`} />;
+        return (
           <div className="reply" key={`x:${index}`}>
             {renderMarkdown(block.text)}
           </div>
-        ),
-      )}
+        );
+      })}
 
       {/* Something is happening but there is nothing to show yet. Without this
           the panel looks frozen for the seconds before the first token. */}
@@ -232,7 +252,7 @@ export function App() {
 
   const submit = useCallback(() => {
     const text = draft.trim();
-    if (text === "" || running) return;
+    if (text === "" || running || !app) return;
     window.ledge.send(text);
     setDraft("");
     anchorPending.current = true;
@@ -283,7 +303,18 @@ export function App() {
                 <p className="hint">It edits the app's folder and reloads it.</p>
               </>
             ) : (
-              <p>No app selected.</p>
+              <>
+                {/* The [+] surface presents this editor with no app behind it.
+                    Creating an app from a prompt (spec §8: the host scaffolds
+                    first, then starts the session) is not wired up yet, and a
+                    composer that accepts text nothing will ever answer is worse
+                    than one that says so. */}
+                <p>No app selected.</p>
+                <p className="hint">
+                  Creating an app from here isn't wired up yet — run{" "}
+                  <code>ledge new &lt;name&gt;</code>, then edit it from its own panel.
+                </p>
+              </>
             )}
           </div>
         ) : (
@@ -308,7 +339,8 @@ export function App() {
           ref={composer}
           value={draft}
           rows={1}
-          placeholder={running ? "Working…" : "Ask for a change…"}
+          placeholder={app ? (running ? "Working…" : "Ask for a change…") : "No app selected"}
+          disabled={!app}
           spellCheck={false}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
@@ -329,7 +361,7 @@ export function App() {
             type="button"
             className="send"
             onClick={submit}
-            disabled={draft.trim() === ""}
+            disabled={draft.trim() === "" || !app}
             title="Send (Return)"
           >
             Send

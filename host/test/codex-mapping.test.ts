@@ -116,11 +116,23 @@ describe("Codex notification → builder event", () => {
       ["item/started", { item: { type: "userMessage", id: "u1" } }],
       ["turn/diff/updated", { threadId: "x", diff: "diff --git a/app.jsx" }],
       ["thread/tokenUsage/updated", { threadId: "x" }],
-      ["item/reasoning/summaryTextDelta", { delta: "thinking" }],
     ];
     for (const [method, params] of ignored) {
       expect(toBuilderEvent(method, params)).toBeNull();
     }
+  });
+
+  // Dropping reasoning was a real bug with a visible cost: a turn spent 60 s
+  // emitting only reasoning, so the panel showed three dots and nothing else,
+  // and there was no way to tell a working build from a hung one.
+  test("reasoning is shown, because often it is all there is", () => {
+    expect(toBuilderEvent("item/reasoning/summaryTextDelta", { delta: "Reading app.jsx" }))
+      .toEqual({ event: "reasoning", delta: "Reading app.jsx" });
+    expect(toBuilderEvent("item/reasoning/textDelta", { delta: "…then edit" }))
+      .toEqual({ event: "reasoning", delta: "…then edit" });
+    // The reasoning ITEM lifecycle stays ignored — the deltas carry the text,
+    // and the item boundaries would just be empty chips.
+    expect(toBuilderEvent("item/started", { item: { type: "reasoning", id: "r" } })).toBeNull();
   });
 
   // A real turn produced a commandExecution whose command was a shell heredoc
