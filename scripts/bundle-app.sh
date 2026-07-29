@@ -198,9 +198,6 @@ exec "$HERE/../MacOS/ledge-host" "$HERE/host/src/cli.ts" "$@"
 SHIM
 chmod +x "$CONTENTS/Resources/ledge"
 
-# A placeholder icon until Manu's lands: rendered from an SF Symbol so the
-# bundle has *an* icon rather than the generic one. Replaced by dropping a real
-# AppIcon.icns in scripts/assets/.
 if [ -f "$REPO_ROOT/scripts/assets/AppIcon.icns" ]; then
   cp "$REPO_ROOT/scripts/assets/AppIcon.icns" "$CONTENTS/Resources/AppIcon.icns"
   ICON_ENTRY='<key>CFBundleIconFile</key><string>AppIcon</string>'

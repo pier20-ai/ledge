@@ -53,7 +53,11 @@ final class CapabilityHost: NSObject, CapabilityDelegate {
             location: SystemLocation(),
             spotlight: SystemSpotlight(),
             audio: SystemAudioDevice.shared,
-            speech: SystemSpeech()
+            speech: SystemSpeech(),
+            // Wired here rather than in `AppDelegate` because there is nothing
+            // to configure: the shell either can end itself or is a headless
+            // replay with no NSApp, and this file is the one that knows which.
+            quit: SystemQuit()
         )
         super.init()
         notifications.onAction = { [weak self] app, id, action in

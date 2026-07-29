@@ -15,6 +15,7 @@ import type { Envelope } from "./protocol/envelope";
 import type { Mutation } from "./render/mutations";
 import { resolveReactPaths, type ReactPaths } from "./render/runtime";
 import { applyMeta, scanApps, type CatalogApp } from "./registry";
+import { SETTINGS_APP_ID, SettingsStore } from "./settings";
 import {
   AppSupervisor,
   realScheduler,
@@ -80,6 +81,10 @@ interface PendingBridge {
 }
 export interface RouterOptions {
   appsRoot: string;
+  /** The host's own settings file (src/settings.ts). Defaults to
+   * `SettingsStore.pathFor(appsRoot)` — `~/.ledge/settings.json` for a real
+   * install. Tests point it at a temp path; nothing in production overrides it. */
+  settingsPath?: string;
   factory?: WorkerFactory;
   scheduler?: RestartScheduler;
   transpile?: (modulePath: string) => Promise<TranspileError | null>;
@@ -121,6 +126,11 @@ export class Router implements SupervisorSink {
   private readonly watchEnabled: boolean;
   private readonly hostLog: (line: string) => void;
 
+  /** Which apps the user has turned off, and the file that remembers it. The
+   * host is its only writer (spec §8: enable/disable is Settings asking the
+   * host, never an app editing state itself). */
+  private readonly settings: SettingsStore;
+
   private readonly supervisors = new Map<string, AppSupervisor>();
   /** Last `meta` each app's worker posted (spec §6). Replaced wholesale, never
    * merged: an app that drops `meta.name` on reload must fall back to its
@@ -151,6 +161,7 @@ export class Router implements SupervisorSink {
     // render/runtime.ts). Normalising once, at the edge, means nothing
     // downstream — app dirs, crash.log paths, log lines — has to think about it.
     this.appsRoot = resolve(options.appsRoot);
+    this.settings = new SettingsStore(options.settingsPath ?? SettingsStore.pathFor(this.appsRoot));
     this.factory = options.factory;
     this.scheduler = options.scheduler ?? realScheduler;
     this.transpile = options.transpile ?? transpileCheck;
@@ -213,7 +224,11 @@ export class Router implements SupervisorSink {
     const reconnect = this.supervisors.size > 0;
     this.session = session;
 
-    const apps = await scanApps(this.appsRoot);
+    // Read who is turned off before the scan that reports it: an app disabled
+    // in a previous session must never spawn, not even for the instant between
+    // binding and the first rescan.
+    await this.settings.load();
+    const apps = await scanApps(this.appsRoot, this.settings.disabled);
     this.catalogApps = apps;
     this.sendCatalog();
 
@@ -295,7 +310,7 @@ export class Router implements SupervisorSink {
         const app = String(envelope.payload.app ?? "");
         if (app === "") {
           // Shell-level resync: re-send the catalog (spec §4.3).
-          void scanApps(this.appsRoot).then((apps) => {
+          void scanApps(this.appsRoot, this.settings.disabled).then((apps) => {
             this.catalogApps = apps;
             this.sendCatalog();
           });
@@ -560,7 +575,7 @@ export class Router implements SupervisorSink {
   /**
    * ctx.platform.* (spec §8, §6 extension).
    *
-   * Everything except the app-management four goes to the shell, for one
+   * Everything except the app-management calls goes to the shell, for one
    * reason repeated in six shapes: each of these is either a per-*process*
    * registration (the notification daemon, NSWorkspace, CoreAudio, the network
    * path monitor) or a TCC-gated framework whose consent prompt macOS attributes
@@ -568,11 +583,36 @@ export class Router implements SupervisorSink {
    * the process with the icon. Same reasoning as `ctx.apple`, and it is why the
    * host does not try to answer any of them itself.
    *
-   * The app-management four remain the Settings-only surface and are still
-   * unimplemented in this phase — answered locally rather than sent on, so the
-   * worker learns immediately instead of waiting out a deadline.
+   * The app-management calls go the other way and are answered HERE, by the
+   * host, for the mirror-image reason: enabling an app means starting a worker
+   * and re-publishing the catalog, and disabling one means killing a worker.
+   * Both are the host's own state; the shell has no part in either and could
+   * only forward the answer back. They are also refused for anyone but Settings
+   * — the ctx surface already hides them from ordinary apps (worker/ctx.ts), so
+   * this is the second lock on the same door rather than the only one.
    */
   platform(app: string, id: number, request: PlatformRequest): void {
+    // One gate for the whole Settings-only family, before the routing split:
+    // `quit` is executed by the shell and the other four by the host, but who
+    // may ask is the same question for all of them.
+    if (SETTINGS_ONLY_CALLS.has(request.kind) && app !== SETTINGS_APP_ID) {
+      this.supervisors.get(app)?.post({
+        type: "reply",
+        id,
+        ok: false,
+        error: `ctx.platform.${request.kind} is Settings-only`,
+      });
+      return;
+    }
+    switch (request.kind) {
+      case "enable":
+      case "disable":
+      case "stats":
+        this.appManagement(app, id, request);
+        return;
+      default:
+        break;
+    }
     const payload = platformWirePayload(id, request);
     if (payload) {
       this.sendBridge(app, id, "platform", "platform", payload, this.platformTimeout(request));
@@ -584,6 +624,82 @@ export class Router implements SupervisorSink {
       ok: false,
       error: "ctx.platform bridge is not implemented in this phase",
     });
+  }
+
+  /**
+   * The Settings-only half of `ctx.platform` (spec §8), answered host-side.
+   *
+   * `stats` hands back the same rows `catalog` carries, so the panel the user is
+   * looking at and the strip beneath it are two renderings of one snapshot — not
+   * two lists that agree until they don't.
+   */
+  private appManagement(
+    app: string,
+    id: number,
+    request: Extract<PlatformRequest, { kind: "enable" | "disable" | "stats" }>,
+  ): void {
+    const reply = (result: HostToWorker): void => {
+      // Re-fetch: the enable path awaits a worker spawn, and the app that asked
+      // may have been replaced in the meantime (spec §6 rule 3).
+      this.supervisors.get(app)?.post(result);
+    };
+    if (!this.supervisors.has(app)) return;
+    if (request.kind === "stats") {
+      reply({ type: "reply", id, ok: true, value: { apps: this.catalogSnapshot() } });
+      return;
+    }
+    const enabled = request.kind === "enable";
+    this.hostLog(`[ledge-host] ${request.kind} '${request.app}' <- settings`);
+    void this.setAppEnabled(request.app, enabled).then(
+      () => reply({ type: "reply", id, ok: true, value: undefined }),
+      // The message, not `String(error)`: the worker wraps whatever arrives in
+      // a fresh Error, so passing the stringified one through gives the app an
+      // "Error: Error: …" to print.
+      (error: unknown) =>
+        reply({
+          type: "reply",
+          id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
+  }
+
+  /**
+   * Turn an app on or off: persist it, then make the running system match.
+   *
+   * Persist FIRST, so a host that dies here comes back to what the user asked
+   * for rather than to what it managed to do. Then the worker, then the catalog:
+   * a disabled app's worker is gone before the shell is told it is gone, so the
+   * shell can never receive a commit for a row it has just dropped.
+   */
+  private async setAppEnabled(appId: string, enabled: boolean): Promise<void> {
+    const entry = this.catalogApps.find((candidate) => candidate.id === appId);
+    if (!entry) throw new Error(`no app named '${appId}' is installed`);
+    await this.settings.setEnabled(appId, enabled);
+    if (entry.enabled === enabled) return;
+    entry.enabled = enabled;
+
+    if (enabled) {
+      if (!this.supervisors.has(appId)) {
+        const supervisor = this.makeSupervisor(appId);
+        this.supervisors.set(appId, supervisor);
+        await supervisor.start();
+      }
+    } else {
+      const supervisor = this.supervisors.get(appId);
+      this.supervisors.delete(appId);
+      // `stop()` reports `stopped` (spec §3.2), which is what tells the shell to
+      // drop this app's shadow tree. The app's own `meta` is deliberately kept:
+      // a disabled row should still show the name and icon the app declared,
+      // and a stopped worker will never declare it again.
+      supervisor?.stop();
+    }
+
+    this.sendCatalog();
+    // The watcher only holds handles for enabled apps, so a re-enabled app has
+    // to be re-armed or it silently stops hot-reloading.
+    this.ensureWatcher(this.catalogApps.filter((candidate) => candidate.enabled).map((c) => c.id));
   }
 
   lifecycle(app: string, state: AppState, error?: TranspileError): void {
@@ -637,6 +753,12 @@ export class Router implements SupervisorSink {
       // Lazy and cached, because a host with no apps installed should not fail
       // to start over a react it never needed.
       reactPaths: this.reactPathsOnce(),
+      // The one special case in the whole host (spec §8): Settings gets the
+      // app-management half of ctx.platform, because it is the surface that
+      // turns other apps off. Keyed on the folder name, which IS the app id
+      // (§2, §6) — there is nothing else to key it on, and an app named
+      // `settings` in the apps root is Settings by definition.
+      privileged: appId === SETTINGS_APP_ID,
       sink: this,
       factory: this.factory,
       scheduler: this.scheduler,
@@ -717,14 +839,19 @@ export class Router implements SupervisorSink {
     this.session?.send(app, "chrome", { request: "wing", wing: null });
   }
 
-  /** Publish the full catalog snapshot (spec §3.6): the registry scan with each
-   * app's declared `meta` merged over it. Enabled apps are (about to be)
-   * running; reflect that in the snapshot. */
-  private sendCatalog(): void {
-    const catalog = this.catalogApps.map((app) => ({
+  /** The full catalog snapshot (spec §3.6): the registry scan with each app's
+   * declared `meta` merged over it. Enabled apps are (about to be) running;
+   * reflect that in the snapshot. */
+  private catalogSnapshot(): CatalogApp[] {
+    return this.catalogApps.map((app) => ({
       ...applyMeta(app, this.appMeta.get(app.id)),
       running: app.enabled,
     }));
+  }
+
+  /** Publish it. Full snapshots, no diffs — spec §3.6. */
+  private sendCatalog(): void {
+    const catalog = this.catalogSnapshot();
     this.hostLog(`[ledge-host] catalog -> ${catalog.length} apps`);
     this.session?.send("", "catalog", { apps: catalog });
   }
@@ -765,7 +892,7 @@ export class Router implements SupervisorSink {
 
     let apps: CatalogApp[];
     try {
-      apps = await scanApps(this.appsRoot);
+      apps = await scanApps(this.appsRoot, this.settings.disabled);
     } catch (error) {
       this.hostLog(`[ledge-host] rescan failed: ${String(error)}`);
       return;
@@ -807,6 +934,18 @@ export class Router implements SupervisorSink {
   }
 }
 
+/** The calls only Settings may make (spec §8). Four are answered by the host
+ * because they are its own state; `quit` goes to the shell because only the
+ * shell can end the process — but "who may ask" is one question, so it is asked
+ * in one place. */
+const SETTINGS_ONLY_CALLS: ReadonlySet<PlatformRequest["kind"]> = new Set([
+  "enable",
+  "disable",
+  "reorder",
+  "stats",
+  "quit",
+]);
+
 /** Capability requests are identified by (app, id): worker request ids restart
  * at 1 in every worker, so two apps routinely have a request 1 in flight. */
 function bridgeKey(app: string, id: number): string {
@@ -814,8 +953,10 @@ function bridgeKey(app: string, id: number): string {
 }
 
 /**
- * The `platform` envelope payload for one worker request, or null for the
- * Settings-only calls the shell has no business seeing.
+ * The `platform` envelope payload for one worker request, or null for the calls
+ * the shell has no business seeing — today just `reorder`, which is the last of
+ * the Settings-only four still unimplemented (the other three are answered on
+ * the host thread, above).
  *
  * `call` is the verb and `kind` is the *source* being watched — two axes, which
  * is why the worker's own discriminant (`request.kind`) is not what goes on the
@@ -841,6 +982,8 @@ function platformWirePayload(
     case "workspace":
     case "location":
     case "audio":
+    // `quit` takes no fields — the verb is the whole request.
+    case "quit":
       return { id, call: request.kind };
     case "spotlight":
       return {

@@ -206,7 +206,7 @@ struct MiniViewTests {
         #expect(size.height <= MiniContentView.maxHeight)
     }
 
-    /// The bug Manu caught on a real notch: the surface came out NARROWER than
+    /// The bug caught on a real notch: the surface came out NARROWER than
     /// the cutout (a 180 pt floor under a 189 pt notch), so a peek looked like
     /// the notch pinching in sideways while growing downwards. A peek is the
     /// notch expanding a little — never smaller than it, in either axis.

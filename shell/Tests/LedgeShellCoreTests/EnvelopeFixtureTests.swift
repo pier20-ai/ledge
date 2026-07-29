@@ -335,6 +335,16 @@ struct EnvelopeFixtureTests {
         #expect(spoke.data == nil)
         #expect(try decode("platform-speak-error.json")
             .decodePayload(PlatformResultPayload.self).error?.contains("500") == true)
+
+        // quit: the verb is the whole request, and it is answered before the
+        // process goes — which is why it has a result fixture at all.
+        #expect(try decode("platform-quit.json")
+            .decodePayload(PlatformPayload.self).invocation == .quit)
+        let quit = try decode("platform-quit-result.json").decodePayload(PlatformResultPayload.self)
+        #expect(quit == .success(id: 4))
+        #expect(quit.data == nil)
+        #expect(try decode("platform-quit-error.json")
+            .decodePayload(PlatformResultPayload.self).ok == false)
     }
 
     @Test("A malformed call is refused by decoding, before any executor sees it")

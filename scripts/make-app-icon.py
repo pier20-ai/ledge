@@ -4,7 +4,7 @@
 Usage:
     scripts/make-app-icon.py <source.png> [--out scripts/assets/AppIcon.icns]
 
-The source Manu generated is a 1024x1024 PNG with no alpha: a rounded-square
+The source is a 1024x1024 PNG with no alpha: a rounded-square
 tile floating on a flat orange BLEED that fills the rest of the canvas. The
 bleed is the same orange as the tile to within about five grey levels, so no
 trim-by-colour survives contact with it. Everything below is measured instead —

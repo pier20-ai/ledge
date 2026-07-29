@@ -615,3 +615,21 @@ extension SystemSpeech: AVSpeechSynthesizerDelegate {
         MainActor.assumeIsolated { finishCurrent(id) }
     }
 }
+
+// MARK: - Quit (NSApplication)
+
+/// `ctx.platform.quit()`, shipping implementation.
+///
+/// Asynchronous on purpose. `NSApp.terminate` runs the whole termination
+/// sequence — `applicationShouldTerminate`, `applicationWillTerminate`, and in
+/// our case `HostProcess`'s teardown — and doing that from inside the socket
+/// read that delivered the request would destroy the session that still has an
+/// `ok` reply to write. One hop through the main queue is the difference
+/// between an app whose `await ctx.platform.quit()` resolves and one whose
+/// Promise dies with the connection.
+@MainActor
+final class SystemQuit: ShellQuitting {
+    func requestQuit() {
+        DispatchQueue.main.async { NSApp.terminate(nil) }
+    }
+}

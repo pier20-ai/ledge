@@ -15,6 +15,7 @@ import { readFile, stat, utimes } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DEFAULT_ROOT, scanApps } from "./registry";
 import { scaffoldApp } from "./scaffold";
+import { SettingsStore } from "./settings";
 import { shootApp } from "./snapshot";
 
 const USAGE = `ledge — the notch app platform
@@ -107,7 +108,11 @@ export async function main(argv: string[], log = console.log, err = console.erro
 
     case "list":
     case "status": {
-      const apps = await scanApps(appsRoot);
+      // Same settings file the running host reads, so `ledge status` and the
+      // catalog on screen cannot disagree about what is turned off.
+      const settings = new SettingsStore(SettingsStore.pathFor(appsRoot));
+      await settings.load();
+      const apps = await scanApps(appsRoot, settings.disabled);
       if (command === "status") {
         log(JSON.stringify(apps, null, 2));
         return 0;

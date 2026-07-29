@@ -350,6 +350,9 @@ describe("platform fixtures (spec §6 extension)", () => {
       ["audio", "platform-audio"],
       ["setVolume", "platform-set-volume"],
       ["speak", "platform-speak"],
+      // Executed by the shell like the rest, but Settings-only: it ends the
+      // process, and the host is that process's child.
+      ["quit", "platform-quit"],
     ];
     for (const [call, stem] of calls) {
       const request = parseEnvelope(await Bun.file(join(FIXTURES, `${stem}.json`)).json());

@@ -244,14 +244,20 @@ export interface AudioInfo {
  *   are also for every app: each asks the shell one question the worker process
  *   structurally cannot answer, because the answer needs a TCC prompt attributed
  *   to the process with the UI, or a per-process framework registration.
- * - `enable`/`disable`/`reorder`/`stats` remain Settings-only (spec §8) — they
- *   change *other* apps.
+ * - `enable`/`disable`/`reorder`/`stats`/`quit` remain Settings-only (spec §8) —
+ *   they change *other* apps, or end everything.
+ *
+ * `quit` sits with the management calls by audience and with the shell calls by
+ * routing: only the shell process can end itself (the host is its child and a
+ * worker is a thread inside that child), so it is the one Settings-only call
+ * that goes out on the wire.
  */
 export type PlatformRequest =
   | { kind: "enable"; app: string }
   | { kind: "disable"; app: string }
   | { kind: "reorder"; order: string[] }
   | { kind: "stats" }
+  | { kind: "quit" }
   | { kind: "observe"; source: PlatformObserveSource; name: string }
   | { kind: "unobserve"; source: PlatformObserveSource; name: string }
   | { kind: "calendar"; from?: string; to?: string }

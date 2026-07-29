@@ -360,6 +360,9 @@ public enum PlatformCall: Sendable, Equatable {
     case audio
     case setVolume(Double)
     case speak(text: String, voice: String?, rate: Double?)
+    /// End the process. Settings only, and the only quit the user has: there is
+    /// no menu-bar item and no Dock icon (see `AppDelegate`).
+    case quit
 
     /// Registry verbs answer synchronously; everything else goes to the
     /// executor and settles later.
@@ -465,6 +468,10 @@ public struct PlatformPayload: Codable, Sendable, Equatable {
         case "speak":
             guard let text, !text.isEmpty else { return nil }
             return .speak(text: text, voice: voice, rate: rate)
+        case "quit":
+            // No fields: the envelope's own `app` is the only context there is,
+            // and quitting takes no argument.
+            return .quit
         default:
             return nil
         }

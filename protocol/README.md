@@ -112,10 +112,11 @@ One folder per app, `app.jsx` as the entry — the §6 layout, but in the repo
 rather than in `~/.ledge/apps`, so `scripts/e2e-smoke.sh` and
 `scripts/snapshot-demos.sh` can point a host at `--apps-root protocol/demo-apps`
 without touching the user's real installation. `stocks`, `deals` and `alarm` are
-live — real HTTP in a `monitor`, real state pushed through `ctx.update`; `music`,
-`play` and `settings` are inert recreations of the design mockups, which is what
-makes them useful as a rendering baseline. `settings` here is the *mockup* panel;
-the real Settings app is `host/reference/settings/app.jsx`.
+live — real HTTP in a `monitor`, real state pushed through `ctx.update`; `music`
+and `play` are inert recreations of the design mockups, which is what makes them
+useful as a rendering baseline. `settings` is the real thing (spec §8): the host
+boots it `privileged`, and its switches turn other apps off for good (see
+`host/README.md`, "Settings").
 
 - **`stocks`** — a 2×3 grid of live cards (AAPL / NVDA / GOOG / MSFT / BTC / ETH)
   off Yahoo Finance's keyless chart endpoint, refreshed once a minute, per-symbol

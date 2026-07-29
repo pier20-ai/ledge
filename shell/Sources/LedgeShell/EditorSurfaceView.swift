@@ -23,7 +23,7 @@ enum EditorBuildStatus: Equatable, Sendable {
 /// Why a web view at all, in a shell whose entire premise is native views: this
 /// is the one surface that is *not* an app. It renders a transcript — streamed
 /// markdown, diffs, tool chips — which is the thing AppKit is worst at and the
-/// web is best at, and it is the one surface Manu iterates on daily. The
+/// web is best at, and it is the one surface the user iterates on daily. The
 /// protocol vocabulary (§5) stays deliberately small precisely so it does not
 /// have to grow a rich-text engine for this.
 ///

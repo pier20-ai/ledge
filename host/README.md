@@ -75,8 +75,9 @@ nothing from `src/protocol` or `src/connection`.
   the process with the UI), and `ctx.agent` needs the host (it spawns a
   subprocess in the app's folder). `apple`/`capture`/`agent`/`platform` calls
   return Promises settled by a host `reply`. Settings (§8) additionally gets the
-  privileged half of `ctx.platform` (`enable`/`disable`/`reorder`/`stats`),
-  attached only when the worker is booted `privileged`; `observe`/`unobserve`
+  privileged half of `ctx.platform` (`enable`/`disable`/`stats` today,
+  `reorder` still unimplemented), attached only when the worker is booted
+  `privileged` and answered by the host itself; `observe`/`unobserve`
   are on every app's `ctx`, because "poll for truth, be woken for latency" is
   every monitor's problem and not a management operation on other apps.
 
@@ -138,16 +139,42 @@ resolves React's runtime regardless of this repo's `@ledge/jsx`-flavoured
 never see the `@ledge/jsx` JSX namespace. (Beware: Bun scans **all** comments for
 `@jsxImportSource`, so prose must not repeat that token verbatim.)
 
-## Settings reference app (`reference/settings/app.jsx`)
+## Settings (`../protocol/demo-apps/settings`, `src/settings.ts`)
 
-The Settings app (spec §8), written against the same worker + component API as
-user apps — the proof the vocabulary suffices. It renders app rows (icon, name,
-reorder + enable buttons) and general toggles from props supplied via
-`ctx.update`, using **only** §5 components (there is no `<toggle>`, so enable
-state is a `button` whose label/variant reflect it). Its `monitor` pulls the
-catalog over `ctx.platform.stats()` and republishes it plus action callbacks as
-props; the component itself never sees `ctx`. The host boots this worker
-`privileged`; the protocol needs no other special case for it.
+The Settings app (spec §8) is an ordinary app that ships in the seed payload —
+same worker, same §5 vocabulary, same monitor→props bridge. It differs in
+exactly two ways, and both live in the host:
+
+- **The router boots the worker whose folder is named `settings` `privileged`**,
+  which is what attaches the app-management half of `ctx.platform`
+  (`src/worker/ctx.ts`). An ordinary app cannot see those calls, and the router
+  refuses them a second time if one arrives anyway.
+- **It cannot be disabled** — it is the only way back from everything else on
+  that panel, so `SettingsStore` refuses it whether the request comes from the
+  app or from a hand-edited file.
+
+`src/settings.ts` owns `~/.ledge/settings.json` — beside the apps root, never
+inside an app's folder, because "may this app run" is the one fact about an app
+the app itself must not edit. It records **disabled** ids, so an app installed
+while Ledge is running starts without anybody having written its name down, and
+a file that has never existed means "everything runs". Writes are
+temp-then-rename. `scanApps` takes the set and reports `enabled` from it; the
+router skips disabled apps when starting workers, so a disabled app never
+spawns rather than starting and being stopped.
+
+`enable`/`disable` are answered **by the host**, not forwarded to the shell like
+the rest of `ctx.platform`: they mean starting or killing a worker and
+re-publishing the catalog (§3.6, full snapshot), which is host state end to end.
+`stats()` hands back that same snapshot, so the panel and the strip beneath it
+are two renderings of one list. `reorder` is still unimplemented.
+
+`quit()` is the exception that proves the split: it is Settings-only like the
+rest of the family, but it goes **to the shell**, because only the shell can end
+the process — the host is its child and a worker is a thread inside that child.
+The shell answers `ok` and terminates on the next run-loop turn, so the reply
+gets out before the socket does. With the status menu gone and `LSUIElement`
+meaning no Dock icon, that button is the only quit the user has; the app arms it
+on the first press and quits on the second.
 
 ## Supervision, routing & hot reload (`src/supervisor.ts`, `src/router.ts`, `src/watcher.ts`)
 
@@ -273,9 +300,6 @@ state, and the reconciler that renders an app runs inside the worker out of
 `dispatcher.useState of null` on the app's first `useState`, which is exactly
 what happened the first time the apps root pinned React by version. Install the
 host's dependencies before the apps root's.
-
-`protocol/demo-apps/settings` is the *mockup* Settings panel, static. The real
-Settings app is `reference/settings/app.jsx` above — untouched by it.
 
 `scripts/e2e-smoke.sh` builds the shell, runs `LedgeShell --socket <tmp sock>`
 (the shell binds `~/.ledge/ledge.sock` by default, so the override is what keeps

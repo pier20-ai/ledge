@@ -108,7 +108,11 @@ app id `settings` is pinned to the far right rather than shown among the others.
   Clicks outside the black shape pass through to whatever is beneath.
 - **The strip** switches apps — the panel morphs between heights *and widths* in
   one gesture — and re-clicking the current app opens its chat.
-- The menu-bar item has exactly two commands: toggle expansion, and quit.
+- **There is no menu-bar item.** Toggling expansion is what the notch itself is
+  for, and quitting is a row at the bottom of Settings (`ctx.platform.quit()`,
+  answered by this process). `LSUIElement` means no Dock icon either, so that
+  row is the only quit there is — it arms on the first press and quits on the
+  second.
 - **Keyboard** goes to a `canvas` that asked to be `focusable` (spec §5): when
   the presented app has one, the shell hands it first responder so §4.1 `key`
   events flow the moment the panel opens. That is the *only* case where the notch

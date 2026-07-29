@@ -148,6 +148,14 @@ final class FakeSpeech: SpeechSynthesizing {
     var isSpeaking: Bool { !pending.isEmpty }
 }
 
+/// The quit seam. The shipping one is `NSApp.terminate`, which would take the
+/// test runner with it — which is precisely why it is a seam.
+@MainActor
+final class FakeQuit: ShellQuitting {
+    private(set) var asked = 0
+    func requestQuit() { asked += 1 }
+}
+
 // MARK: - Tests
 
 /// The request/reply half of `ctx.platform` (spec §6 extension).
@@ -545,6 +553,35 @@ struct PlatformExecutorTests {
             completion: results.completion
         )
         #expect(speech.spoken.count == 1, "exactly at the limit is allowed")
+    }
+
+    // MARK: quit
+
+    @Test("Quit answers before it ends the process, so the reply gets out")
+    func quitAnswersFirst() {
+        let quit = FakeQuit()
+        let executor = PlatformExecutor(quit: quit)
+        let results = PlatformResults()
+        executor.run(.quit, completion: results.completion)
+
+        // Order is the whole point: the app is awaiting a Promise, and the
+        // socket that carries the reply dies with the process. The facade's
+        // contract is to terminate on a later run-loop turn; the executor's is
+        // to have answered by then.
+        #expect(results.count == 1)
+        #expect(results.settled.first?.isSuccess == true)
+        #expect(results.data == nil, "a call with no answer carries no data")
+        #expect(quit.asked == 1)
+    }
+
+    @Test("A shell that cannot quit says so instead of hanging")
+    func quitWithoutAFacade() {
+        // The snapshot replay runs a real engine with no NSApp behind it. An app
+        // awaiting `ctx.platform.quit()` there gets a sentence, not a timeout.
+        let executor = PlatformExecutor()
+        let results = PlatformResults()
+        executor.run(.quit, completion: results.completion)
+        #expect(results.error?.contains("cannot quit itself") == true)
     }
 
     // MARK: routing

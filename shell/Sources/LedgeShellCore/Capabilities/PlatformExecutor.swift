@@ -41,6 +41,7 @@ public final class PlatformExecutor {
     private let spotlight: SpotlightSearching?
     private let audio: AudioControlling?
     private let speech: SpeechSynthesizing?
+    private let quit: ShellQuitting?
 
     private let spotlightTimeout: TimeInterval
     private let locationTimeout: TimeInterval
@@ -64,6 +65,7 @@ public final class PlatformExecutor {
         spotlight: SpotlightSearching? = nil,
         audio: AudioControlling? = nil,
         speech: SpeechSynthesizing? = nil,
+        quit: ShellQuitting? = nil,
         spotlightTimeout: TimeInterval = 5,
         locationTimeout: TimeInterval = 8,
         locationCacheSeconds: TimeInterval = 60,
@@ -75,6 +77,7 @@ public final class PlatformExecutor {
         self.spotlight = spotlight
         self.audio = audio
         self.speech = speech
+        self.quit = quit
         self.spotlightTimeout = spotlightTimeout
         self.locationTimeout = locationTimeout
         self.locationCacheSeconds = locationCacheSeconds
@@ -101,6 +104,8 @@ public final class PlatformExecutor {
             runSetVolume(value, completion: completion)
         case let .speak(text, voice, rate):
             runSpeak(text: text, voice: voice, rate: rate, completion: completion)
+        case .quit:
+            runQuit(completion: completion)
         }
     }
 
@@ -308,6 +313,24 @@ public final class PlatformExecutor {
             case let .failure(error): completion(.failure(error))
             }
         }
+    }
+
+    // MARK: - quit
+
+    /// Answer FIRST, then end the process.
+    ///
+    /// The completion is what puts the `ok` on the socket, and the app on the
+    /// other end is awaiting it. Terminating inside this call would tear the
+    /// socket down with a reply still in a buffer, so the facade is required to
+    /// terminate on a later run-loop turn — which also makes "did the button
+    /// work" observable in a test that never actually quits.
+    private func runQuit(completion: @escaping PlatformCompletion) {
+        guard let quit else {
+            completion(.failure(CapabilityError("this shell cannot quit itself")))
+            return
+        }
+        completion(.success(nil))
+        quit.requestQuit()
     }
 
     // MARK: - One-shot settlement

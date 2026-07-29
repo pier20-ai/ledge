@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "app": "settings",
+  "seq": 32,
+  "type": "platformResult",
+  "payload": {
+    "id": 4,
+    "ok": true
+  }
+}

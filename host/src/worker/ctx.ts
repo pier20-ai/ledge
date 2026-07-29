@@ -176,6 +176,19 @@ export interface PrivilegedPlatformBridge extends PlatformBridge {
   disable(app: string): Promise<void>;
   reorder(order: string[]): Promise<void>;
   stats(): Promise<unknown>;
+  /**
+   * End Ledge — the shell, the host it parents, and every worker with it.
+   *
+   * Unlike the rest of this interface it is executed by the **shell**: it is the
+   * only process that can terminate itself, and the host is its child. It
+   * resolves just before the process goes, so an app can `await` it, but only
+   * because the shell answers first and terminates on the next turn — nothing
+   * after the await is guaranteed to run.
+   *
+   * Ledge is `LSUIElement`: no Dock icon, and no menu-bar item since the status
+   * menu was removed. This is the user's only quit.
+   */
+  quit(): Promise<void>;
 }
 
 export interface Ctx {
@@ -415,6 +428,8 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     reorder: (order) =>
       request((id) => ({ type: "platform", id, request: { kind: "reorder", order } })) as Promise<void>,
     stats: () => request((id) => ({ type: "platform", id, request: { kind: "stats" } })),
+    quit: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "quit" } })) as Promise<void>,
   };
 
   const ctx: Ctx = {

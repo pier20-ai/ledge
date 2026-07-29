@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "app": "settings",
+  "seq": 31,
+  "type": "platform",
+  "payload": {
+    "id": 4,
+    "call": "quit"
+  }
+}

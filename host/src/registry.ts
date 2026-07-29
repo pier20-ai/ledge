@@ -3,6 +3,7 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { NO_DISABLED_APPS } from "./settings";
 import { sanitizeAppMeta, type AppMeta, type PanelSpec } from "./worker/meta";
 
 /** One row of the `catalog` snapshot (spec §3.6). `panel` is the app's declared
@@ -83,8 +84,17 @@ export function parseCatalogApp(raw: unknown): CatalogApp {
  * produces the dirname fallback, and the router merges each worker's `meta`
  * message over it before the snapshot goes out (spec §3.6). Order is
  * alphabetical until Settings owns persistence.
+ *
+ * `disabled` is the host's settings file (src/settings.ts), passed in rather
+ * than read here: a scan is a filesystem question, and threading the answer
+ * through keeps "who may write this" in the one place that does write it.
+ * Absent means every app found is enabled, which is what a machine with no
+ * settings file yet is.
  */
-export async function scanApps(root: string = DEFAULT_ROOT): Promise<CatalogApp[]> {
+export async function scanApps(
+  root: string = DEFAULT_ROOT,
+  disabled: ReadonlySet<string> = NO_DISABLED_APPS,
+): Promise<CatalogApp[]> {
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -100,7 +110,7 @@ export async function scanApps(root: string = DEFAULT_ROOT): Promise<CatalogApp[
       id: entry.name,
       ...fallbackIdentity(entry.name),
       order: apps.length,
-      enabled: true,
+      enabled: !disabled.has(entry.name),
       running: false,
     });
   }

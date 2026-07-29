@@ -85,7 +85,7 @@ final class HostProcess {
             NSLog("[ledge] no bundled host (dev build) — start one with `bun src/host.ts`")
             report(.developerBuild)
         case .incomplete(let what):
-            // The failure Manu hit: a Ledge.app built before the host was
+            // The failure: a Ledge.app built before the host was
             // bundled, still sitting in ~/Applications, launched by Spotlight in
             // preference to the new one. It can never work, and no amount of
             // waiting will change that — so the card says so.
