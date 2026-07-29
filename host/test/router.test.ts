@@ -281,12 +281,18 @@ describe("Router end-to-end (real workers)", () => {
     });
 
     await router.bindSession(session);
+    // EXACTLY what the shell sends (ProtocolEngine.sendBuilderInput): a
+    // control-plane frame, app `""`, target in the payload. This test used to
+    // send it per-app — encoding the same mistake the router made — and so both
+    // halves agreed with each other and disagreed with the shell. The symptom
+    // was total: every message the user typed started a turn for the app named
+    // `""` and streamed back to an editor that was showing a different one.
     router.onEnvelope(session, {
       v: 1,
-      app: "stocks",
+      app: "",
       seq: 1,
       type: "builderInput",
-      payload: { text: "make it green" },
+      payload: { app: "stocks", text: "make it green" },
     });
 
     await waitFor(() => fake.requests.some((r) => r.method === "turn/start"));
@@ -299,5 +305,52 @@ describe("Router end-to-end (real workers)", () => {
     const events = session.envelopesFor("", "builder").map((e) => e.payload);
     expect(events[0]).toEqual({ app: "stocks", turn: 1, event: "text", delta: "on it" });
     expect(events[1]).toEqual({ app: "stocks", turn: 1, event: "done", status: "completed" });
+  }, 30000);
+
+  // The [+] surface, end to end through the router: an empty app id in, a
+  // scaffolded app and a catalog that knows about it out (spec §4.3, §8).
+  test("builderInput with no app scaffolds one and puts it in the catalog", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    const fake = new FakeCodex();
+
+    const router = new Router({
+      appsRoot: root,
+      scheduler: new FakeScheduler(),
+      watch: false,
+    });
+    openRouter = router;
+    const sink = (router as unknown as { sendBuilder: (a: string, t: number, e: unknown) => void });
+    (router as unknown as { builder: Builder }).builder = new Builder({
+      appsRoot: root,
+      sink: {
+        builder: (app, turn, event) => sink.sendBuilder(app, turn, event),
+        log: () => {},
+        created: () => void (router as unknown as { rescanApps(): Promise<void> }).rescanApps(),
+      },
+      client: { spawn: () => fake.process },
+    });
+
+    await router.bindSession(session);
+    router.onEnvelope(session, {
+      v: 1,
+      app: "",
+      seq: 1,
+      type: "builderInput",
+      payload: { app: "", text: "a pomodoro timer that dings" },
+    });
+
+    await waitFor(() => session.envelopesFor("", "builder").length >= 1);
+    const created = session.envelopesFor("", "builder")[0]!.payload;
+    expect(created).toEqual({ app: "pomodoro-timer", turn: 0, event: "created" });
+
+    // And the strip can name it: the shell moves its editor onto this id the
+    // moment it hears `created`, so a catalog that has never mentioned it would
+    // put a nameless, iconless entry on screen.
+    await waitFor(() =>
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "pomodoro-timer")),
+    );
   }, 30000);
 });

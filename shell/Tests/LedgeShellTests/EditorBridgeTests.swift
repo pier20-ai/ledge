@@ -376,4 +376,61 @@ struct EditorBridgeTests {
         #expect(states.map(\.1) == ["reloaded", "crashed"])
         #expect(states.allSatisfy { $0.0 == "stocks" })
     }
+
+    // MARK: - The [+] surface (spec §4.3, §8)
+
+    /// The panel presents this same editor with `app: ""` when there is nothing
+    /// behind it — the user is about to describe an app that does not exist. The
+    /// host scaffolds one and says what it called it; the bridge has to move
+    /// onto it *without* clearing, because the transcript already holds the
+    /// prompt that caused it and the reply is streaming into it.
+    @Test("`created` moves the [+] surface onto the app the host just made")
+    func createdAdoptsTheNewApp() {
+        let bridge = EditorBridge()
+        bridge.focus(app: "")
+        bridge.submit(.ready)
+        var announced: [String] = []
+        bridge.onCreated = { announced.append($0) }
+
+        #expect(bridge.deliver(event(app: "pomodoro-timer", turn: 0, event: "created")))
+        #expect(bridge.app == "pomodoro-timer")
+        #expect(announced == ["pomodoro-timer"])
+
+        // And the turn that follows it — which names the new app, not "" — now
+        // belongs to this transcript rather than being dropped as someone else's.
+        #expect(bridge.deliver(event(app: "pomodoro-timer", turn: 1, event: "text", delta: "on it")))
+    }
+
+    /// Adoption is for the [+] surface only. An app's own chat receiving a
+    /// `created` for a DIFFERENT app — the user pressed [+], typed, then went
+    /// back to stocks while the scaffold was in flight — must not hijack the
+    /// transcript the user is looking at.
+    @Test("`created` for another app leaves a focused editor where it is")
+    func createdDoesNotHijackAFocusedEditor() {
+        let bridge = readyBridge()
+        var announced: [String] = []
+        bridge.onCreated = { announced.append($0) }
+
+        #expect(bridge.deliver(event(app: "pomodoro-timer", turn: 0, event: "created")) == false)
+        #expect(bridge.app == "stocks")
+        #expect(announced.isEmpty)
+    }
+
+    /// What the user typed on the [+] surface still has to reach the host. The
+    /// bridge reports the app it is focused on — `""` — and the panel turns that
+    /// into the create envelope; a bridge that refused to forward it would make
+    /// the surface silently inert, which is what it was before this existed.
+    @Test("Input from the [+] surface is forwarded with an empty app")
+    func inputFromTheNewAppSurfaceIsForwarded() {
+        let bridge = EditorBridge()
+        bridge.focus(app: "")
+        bridge.submit(.ready)
+        var sent: [(String, String?, Bool)] = []
+        bridge.onInput = { app, text, cancel in sent.append((app, text, cancel)) }
+
+        bridge.submit(.input("a pomodoro timer"))
+        #expect(sent.count == 1)
+        #expect(sent[0].0 == "")
+        #expect(sent[0].1 == "a pomodoro timer")
+    }
 }

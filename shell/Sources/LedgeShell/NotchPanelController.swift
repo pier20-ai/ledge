@@ -495,11 +495,29 @@ final class NotchPanelController {
             view = editorSurface
         } else {
             view = EditorSurfaceView()
-            view.bridge.onInput = { [weak self] _, text, cancel in
-                // The bridge names the app it is focused on; the session names
-                // the app that is *presented*. Only the session's answer becomes
-                // an envelope — see `HostSession.sendBuilderInput`.
-                self?.session.sendBuilderInput(text: text, cancel: cancel)
+            view.bridge.onInput = { [weak self] bridgeApp, text, cancel in
+                guard let self else { return }
+                // The one case where the bridge's answer wins: on the [+]
+                // surface it is focused on `""`, which is not "no app" but "the
+                // app the host is about to make" (spec §4.3). Nothing is
+                // presented, so asking the session would give up the message.
+                if bridgeApp.isEmpty {
+                    // Cancelling a turn whose app does not exist yet has nothing
+                    // to address; the create request is one envelope and it has
+                    // already gone.
+                    if !cancel, let text { self.session.sendBuilderCreate(text: text) }
+                    return
+                }
+                // Otherwise the bridge names the app it is focused on; the
+                // session names the app that is *presented*. Only the session's
+                // answer becomes an envelope — see `HostSession.sendBuilderInput`.
+                self.session.sendBuilderInput(text: text, cancel: cancel)
+            }
+            view.bridge.onCreated = { [weak self] app in
+                // The [+] surface becomes that app's chat, mid-turn: same web
+                // view, same transcript, but now with something behind Preview
+                // and a strip entry to come back to.
+                self?.present(.chat(app: app))
             }
             // A new turn makes the last one's outcome stale: the toggle goes
             // back to neutral glass until the worker reloads or crashes again.

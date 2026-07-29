@@ -11,9 +11,10 @@
 // is deferred rather than guessed at: standing up an IPC surface for one verb
 // buys a new failure mode and nothing else.
 
-import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
+import { readFile, stat, utimes } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { DEFAULT_ROOT, scanApps } from "./registry";
+import { scaffoldApp } from "./scaffold";
 
 const USAGE = `ledge — the notch app platform
 
@@ -26,32 +27,6 @@ const USAGE = `ledge — the notch app platform
 Options:
   --apps-root <path>      default: ~/.ledge/apps
 `;
-
-/** An app's starting point. Small on purpose: the fastest way to learn this
- * platform is to change something that already renders. */
-function scaffold(id: string): string {
-  const name = id.charAt(0).toUpperCase() + id.slice(1);
-  return `/** @jsxImportSource react */
-// ${name} — see AGENTS.md at the apps root for the full platform contract.
-
-export const meta = { name: ${JSON.stringify(name)}, icon: "sf:square.dashed" };
-
-export default function App({ status = "ready" }) {
-  return (
-    <stack axis="v" pad={14} gap={8}>
-      <text content={${JSON.stringify(name)}} size="l" weight="bold" />
-      <text content={status} color="secondary" />
-    </stack>
-  );
-}
-
-// Background work. Called in a loop, awaited each time — pace it yourself.
-// export async function monitor(ctx) {
-//   ctx.update({ status: "…" });
-//   await Bun.sleep(60_000);
-// }
-`;
-}
 
 interface Options {
   appsRoot: string;
@@ -94,19 +69,14 @@ export async function main(argv: string[], log = console.log, err = console.erro
         return 1;
       }
       // The id IS the directory name (spec §6), so it has to survive being one.
-      if (!/^[a-z0-9][a-z0-9-]*$/.test(target)) {
-        err(`'${target}' is not a valid app id — use lowercase letters, digits and dashes`);
+      // Shared with the [+] surface, which derives an id instead of being told
+      // one — see scaffold.ts.
+      try {
+        log(await scaffoldApp(appsRoot, target));
+      } catch (error) {
+        err(error instanceof Error ? error.message : String(error));
         return 1;
       }
-      const dir = join(appsRoot, target);
-      const entry = join(dir, "app.jsx");
-      if (await exists(entry)) {
-        err(`'${target}' already exists at ${dir}`);
-        return 1;
-      }
-      await mkdir(dir, { recursive: true });
-      await writeFile(entry, scaffold(target));
-      log(entry);
       return 0;
     }
 

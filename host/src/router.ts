@@ -160,6 +160,12 @@ export class Router implements SupervisorSink {
         sink: {
           builder: (app, turn, event) => this.sendBuilder(app, turn, event),
           log: (line) => this.hostLog(line),
+          // A brand new app should be in the strip by the time its first turn
+          // starts talking, not whenever the watcher's debounce elapses: the
+          // shell switches its editor to the new id the moment it hears
+          // `created`, and an id the catalog has never mentioned would show up
+          // there with no name and no icon.
+          created: () => void this.rescanApps(),
         },
       });
     this.appleTimeoutMs = options.timeouts?.apple ?? APPLE_TIMEOUT_MS;
@@ -342,8 +348,19 @@ export class Router implements SupervisorSink {
       }
       case "builderInput": {
         // The user typed into an app's chat, or asked to stop (spec §4.3).
-        const payload = envelope.payload as { text?: string; cancel?: boolean };
-        void this.builder.handleInput(envelope.app, payload);
+        //
+        // A CONTROL-PLANE frame, like `selection` and `resyncRequest` above: the
+        // envelope's own `app` is `""` and the target is in the PAYLOAD. Reading
+        // `envelope.app` here (as this did) meant every message the user ever
+        // typed was addressed to the app named `""` — Codex was started in the
+        // apps root, and its events came back tagged with an app the editor was
+        // not showing, so the panel sat there doing nothing while a real turn
+        // ran somewhere else entirely. Nothing in the host could see it: both
+        // halves worked, they just disagreed about where the id lived.
+        const payload = envelope.payload as { app?: string; text?: string; cancel?: boolean };
+        // `""` is meaningful here, not missing: it is the [+] surface asking for
+        // an app that does not exist yet (spec §4.3, §8).
+        void this.builder.handleInput(String(payload.app ?? ""), payload);
         break;
       }
       default:

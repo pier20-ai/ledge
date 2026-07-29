@@ -150,6 +150,28 @@ mkdir -p "$SEED_STAGE/apps"
 rsync -a --exclude '.build' --exclude 'crash.log' --exclude 'node_modules' \
   "$DEMO_APPS/" "$SEED_STAGE/apps/"
 rsync -a "$DEMO_APPS/node_modules/" "$SEED_STAGE/node_modules/"
+
+# Stockfish ships every build it knows how to make — full and lite, threaded and
+# single, wasm and asm.js — and the NNUE nets inside the full ones are 100 MB
+# apiece. That was 239 MB of a 238 MB bundle for a demo chess app that loads
+# exactly one of them. Everything else is deleted from the STAGE, never from the
+# user's node_modules: `bun install` owns that directory.
+#
+# The variant is read out of the app rather than hardcoded, and its absence is
+# fatal: a chess app that silently loses its engine at bundle time and falls
+# back to the built-in one would look like a much subtler bug than it is.
+STOCKFISH_BIN="$SEED_STAGE/node_modules/stockfish/bin"
+if [ -d "$STOCKFISH_BIN" ]; then
+  VARIANT="$(sed -n 's|.*/bin/\(stockfish-[a-z0-9.-]*\)\.js.*|\1|p' "$DEMO_APPS/chess/app.jsx" | head -1)"
+  [ -n "$VARIANT" ] || fail "could not tell which stockfish build chess/app.jsx loads"
+  before="$(du -sk "$STOCKFISH_BIN" | cut -f1)"
+  find "$STOCKFISH_BIN" -type f ! -name "$VARIANT.*" -delete
+  for required in "$VARIANT.js" "$VARIANT.wasm"; do
+    [ -f "$STOCKFISH_BIN/$required" ] || fail "stockfish prune removed $required — chess would fall back to the built-in engine"
+  done
+  log "stockfish: kept $VARIANT ($(du -sh "$STOCKFISH_BIN" | cut -f1) of $((before / 1024)) MB)"
+fi
+
 tar -czf "$CONTENTS/Resources/seed.tar.gz" -C "$SEED_STAGE" apps node_modules
 rm -rf "$SEED_STAGE"
 log "seed payload: $(du -h "$CONTENTS/Resources/seed.tar.gz" | cut -f1)"

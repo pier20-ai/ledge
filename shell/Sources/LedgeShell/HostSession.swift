@@ -163,6 +163,17 @@ final class HostSession {
         return true
     }
 
+    /// Ask the host to make an app out of a sentence (spec §4.3: "`app` may name
+    /// a not-yet-existing id when coming from the [+] surface"; §8: the host
+    /// scaffolds first, then starts the session).
+    ///
+    /// Separate from `sendBuilderInput` because it is the one builder message
+    /// that is *not* addressed to a presented app — guarding it on `shownApp`,
+    /// as that one does, would silently drop every attempt to create anything.
+    func sendBuilderCreate(text: String) {
+        engine.sendBuilderInput(app: "", text: text)
+    }
+
     /// Whether there is an app on screen that could receive a drop right now.
     var hasPresentedApp: Bool { shownApp != nil }
 

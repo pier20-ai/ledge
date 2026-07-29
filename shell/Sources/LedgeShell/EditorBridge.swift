@@ -48,6 +48,10 @@ final class EditorBridge {
     /// The user typed, or asked to interrupt. Wired to `HostSession`, which owns
     /// envelope emission; `text` and `cancel` are the two shapes §4.3 allows.
     var onInput: ((_ app: String, _ text: String?, _ cancel: Bool) -> Void)?
+    /// The host scaffolded an app for a turn typed into the [+] surface. The
+    /// panel moves its presentation onto it, so Preview shows the thing being
+    /// built and the next message routes to it like any other app's.
+    var onCreated: ((String) -> Void)?
     /// Run JS in the page. Set by the surface to the web view's evaluator; nil
     /// in tests, where the emitted script is inspected instead.
     var evaluate: ((String) -> Void)?
@@ -84,6 +88,18 @@ final class EditorBridge {
     /// exists to prevent.
     @discardableResult
     func deliver(_ payload: BuilderPayload) -> Bool {
+        // The [+] surface: the editor is focused on `""` because the app did not
+        // exist when the user pressed return, and `created` is the host telling
+        // us what it called the one it just made (spec §4.3, §8). Adopting it
+        // here rather than clearing and re-focusing is deliberate — `focus`
+        // wipes the transcript, and the transcript at this moment contains the
+        // user's prompt and the first words of the reply to it.
+        if payload.event == "created", app == "", !payload.app.isEmpty {
+            app = payload.app
+            onCreated?(payload.app)
+            emit(Self.pageEvent(for: payload))
+            return true
+        }
         guard let app, payload.app == app else { return false }
         emit(Self.pageEvent(for: payload))
         return true

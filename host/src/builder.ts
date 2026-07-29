@@ -14,6 +14,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CodexClient, type CodexClientOptions } from "./codex/client";
 import { toBuilderEvent, type BuilderEvent, type Json } from "./codex/events";
+import { scaffoldFromPrompt } from "./scaffold";
 
 /** `.builder.json` — the session pointer (spec §6, §8). */
 interface BuilderPointer {
@@ -25,6 +26,11 @@ export interface BuilderSink {
   /** Emit one builder event for an app (spec §3.6). */
   builder(app: string, turn: number, event: BuilderEvent): void;
   log(line: string): void;
+  /** An app folder just appeared because the user asked for it in the [+]
+   * surface. Optional: the watcher notices it anyway, this only removes the
+   * lag between "the shell is now showing this app" and "the catalog has heard
+   * of it". */
+  created?(app: string): void;
 }
 
 export interface BuilderOptions {
@@ -58,11 +64,41 @@ export class Builder {
     this.clientOptions = options.client ?? {};
   }
 
-  /** The user typed into an app's chat, or asked to stop. */
-  async handleInput(app: string, input: { text?: string; cancel?: boolean }): Promise<void> {
-    if (input.cancel) return this.cancel(app);
+  /**
+   * The user typed into an app's chat, or asked to stop.
+   *
+   * `app` is `""` when the message came from the notch's [+] surface, which by
+   * definition has no app behind it (spec §4.3). That is not an error to reject:
+   * it is a request to make one. The host scaffolds first and *then* starts the
+   * session, so the agent opens onto a folder that already renders something —
+   * which is both the fastest way for it to learn the platform (AGENTS.md is
+   * next to it) and the difference between "your app appeared, now watch it
+   * change" and a minute of nothing.
+   */
+  async handleInput(appId: string, input: { text?: string; cancel?: boolean }): Promise<void> {
+    if (input.cancel) return this.cancel(appId);
     const text = input.text?.trim();
     if (!text) return;
+
+    let app = appId;
+    if (app === "") {
+      try {
+        app = await scaffoldFromPrompt(this.appsRoot, text);
+      } catch (error) {
+        // Reported against `""`, the only id the shell knows at this point —
+        // its editor is still on the [+] surface, and an error tagged with an
+        // app that was never created would be dropped by the bridge.
+        this.emit("", { event: "error", message: `could not create the app: ${describe(error)}` });
+        this.emit("", { event: "done", status: "failed" });
+        return;
+      }
+      this.sink.log(`[ledge-host] scaffolded '${app}' from the [+] surface`);
+      this.sink.created?.(app);
+      // Before the turn, so the shell has moved its editor onto the new app by
+      // the time the first `text` event arrives — the bridge drops events for
+      // apps it is not focused on, and the [+] surface is focused on `""`.
+      this.emit(app, { event: "created" });
+    }
 
     if (this.busy.has(app)) {
       // Refused, not queued: a queue here would spend the user's tokens on

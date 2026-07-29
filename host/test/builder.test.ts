@@ -233,4 +233,83 @@ describe("builder", () => {
     await settle();
     expect(fake.requests).toHaveLength(0);
   });
+
+  // The [+] surface (spec §4.3: "`app` may name a not-yet-existing id"; §8: the
+  // host scaffolds first, then starts the session).
+  describe("creating an app from the [+] surface", () => {
+    test("an empty app scaffolds one, announces it, and runs the turn there", async () => {
+      const root = await makeApp();
+      const fake = new FakeCodex();
+      const { builder, events } = harness(root, fake);
+
+      await builder.handleInput("", { text: "a pomodoro timer that dings" });
+      await settle();
+
+      // The folder exists BEFORE the agent is asked for anything: it opens onto
+      // something that already renders, next to AGENTS.md.
+      const source = await readFile(join(root, "pomodoro-timer", "app.jsx"), "utf8");
+      expect(source).toContain('"Pomodoro Timer"');
+
+      // `created` is the only way the shell learns the id it must switch to, so
+      // it has to come first — the bridge drops events for apps it is not
+      // focused on, and the [+] surface is focused on "".
+      expect(events[0]!.app).toBe("pomodoro-timer");
+      expect(events[0]!.event).toEqual({ event: "created" });
+
+      const start = fake.requests.find((r) => r.method === "thread/start");
+      expect(start?.params.cwd).toBe(join(root, "pomodoro-timer"));
+
+      fake.emitTurn("thread-1", "Building it now…");
+      await settle();
+      // Everything after `created` belongs to the new app, on turn 1.
+      const turn = events.slice(1);
+      expect(turn.every((e) => e.app === "pomodoro-timer" && e.turn === 1)).toBe(true);
+      expect(turn.map((e) => e.event.event)).toEqual(["text", "done"]);
+    });
+
+    test("the created app is a real app id, and a second one does not collide", async () => {
+      const root = await makeApp();
+      const fake = new FakeCodex();
+      const { builder, events } = harness(root, fake);
+
+      await builder.handleInput("", { text: "a pomodoro timer" });
+      await settle();
+      fake.emitTurn("thread-1", "done");
+      await settle();
+      await builder.handleInput("", { text: "a pomodoro timer" });
+      await settle();
+
+      const created = events.filter((e) => e.event.event === "created").map((e) => e.app);
+      expect(created).toEqual(["pomodoro-timer", "pomodoro-timer-2"]);
+    });
+
+    test("a failed scaffold is reported against the surface that asked, not a phantom app", async () => {
+      const root = await makeApp();
+      const fake = new FakeCodex();
+      // An apps root that cannot hold a directory (here: a path THROUGH a file;
+      // in the wild, a volume that went away or a permissions change). The error
+      // has to arrive tagged "" — the editor is still on the [+] surface, and an
+      // error for an app that was never created would be dropped by the bridge.
+      await writeFile(join(root, "blocked"), "not a directory\n");
+      const { builder, events } = harness(join(root, "blocked", "apps"), fake);
+      await builder.handleInput("", { text: "a pomodoro timer" });
+      await settle();
+
+      expect(events.map((e) => e.app)).toEqual(["", ""]);
+      expect((events[0]!.event as { message: string }).message).toContain("could not create the app");
+      expect(events[1]!.event).toEqual({ event: "done", status: "failed" });
+      // And nothing was asked of the agent.
+      expect(fake.requests).toHaveLength(0);
+    });
+
+    test("cancel from the [+] surface, before an app exists, does nothing", async () => {
+      const root = await makeApp();
+      const fake = new FakeCodex();
+      const { builder, events } = harness(root, fake);
+      await builder.handleInput("", { cancel: true });
+      await settle();
+      expect(events).toHaveLength(0);
+      expect(fake.requests).toHaveLength(0);
+    });
+  });
 });

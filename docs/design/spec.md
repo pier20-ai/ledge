@@ -125,7 +125,9 @@ For hot loops (games), the bundler extracts any function marked `"use native"` a
   { "app": "stocks", "turn": 3, "event": "tool",   "name": "edit", "detail": "app.jsx", "state": "completed" }
   { "app": "stocks", "turn": 3, "event": "status", "text": "rate limited — retrying" }
   { "app": "stocks", "turn": 3, "event": "done",   "status": "completed" }
+  { "app": "pomodoro-timer", "turn": 0, "event": "created" }
   ```
+  `created` is the one builder event the host originates rather than translates: the **[+]** surface sends a `builderInput` with no app (§4.3), the host scaffolds one named after the prompt, and this says what it called it. It carries no fields — the envelope's `app` *is* the answer — and it is emitted **before** the turn starts, because the shell moves its editor onto that id and would otherwise drop everything the turn says.
   `done.status` is `completed` | `interrupted` | `failed` — **not a boolean**. Agents report a cancelled or failed turn as a *completed* turn with an outcome, and collapsing that to `ok` renders a failed build as a success, which is the one thing this surface must never do. `tool.detail` is truncated for display (a real turn produced a shell command several kilobytes long).
   Swift renders these as chat bubbles, diff chips, and status lines — it never sees or speaks the underlying agent's wire format. `event: "error"` carries agent failures (not installed, auth expired, crash) verbatim so the user sees the real reason.
 

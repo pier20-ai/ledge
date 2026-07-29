@@ -224,6 +224,13 @@ export function App() {
   useEffect(
     () =>
       window.ledge.onEvent((event) => {
+        if (event.event === "created") {
+          // The [+] surface just became an app's chat. Adopt the id WITHOUT
+          // clearing anything: the transcript already holds the prompt that
+          // caused this app to exist, and the reply to it is streaming in.
+          setApp(event.app);
+          return;
+        }
         if (event.event === "thread") {
           // Switching apps is a message, not a reload: one web view serves every
           // app, so the page clears its own transcript.
@@ -270,12 +277,17 @@ export function App() {
 
   const submit = useCallback(() => {
     const text = draft.trim();
-    if (text === "" || running || !app) return;
+    // `app === ""` is the [+] surface, and it is a legitimate target: the host
+    // scaffolds an app for a turn that names none (spec §8). Only `null` — no
+    // surface has been focused at all — has nobody to talk to.
+    if (text === "" || running || app === null) return;
     window.ledge.send(text);
     setDraft("");
     anchorPending.current = true;
     setTurns((current) => current.concat([blankTurn(null, text)]));
-  }, [draft, running]);
+    // `app` belongs here: it was only ever right by accident, because `draft`
+    // changes on every keystroke and rebuilt the closure with it.
+  }, [draft, running, app]);
 
   const stop = useCallback(() => {
     // Optimistic only as far as the button: the turn is not over until `done`
@@ -320,17 +332,22 @@ export function App() {
                 <p>Ask for a change to <b>{app}</b>.</p>
                 <p className="hint">It edits the app's folder and reloads it.</p>
               </>
+            ) : app === "" ? (
+              <>
+                {/* The [+] surface: the same editor with nothing behind it yet.
+                    Say what to type, not what this screen is — "New app" would
+                    be a label on a box the user is already looking at. */}
+                <p>Describe an app and it gets built.</p>
+                <p className="hint">
+                  It lands in your apps folder, named after what you asked for, and
+                  appears in the strip below.
+                </p>
+              </>
             ) : (
               <>
-                {/* The [+] surface presents this editor with no app behind it.
-                    Creating an app from a prompt (spec §8: the host scaffolds
-                    first, then starts the session) is not wired up yet, and a
-                    composer that accepts text nothing will ever answer is worse
-                    than one that says so. */}
                 <p>No app selected.</p>
                 <p className="hint">
-                  Creating an app from here isn't wired up yet — run{" "}
-                  <code>ledge new &lt;name&gt;</code>, then edit it from its own panel.
+                  Pick one from the strip, or press <code>+</code> to make a new one.
                 </p>
               </>
             )}
@@ -357,8 +374,16 @@ export function App() {
           ref={composer}
           value={draft}
           rows={1}
-          placeholder={app ? (running ? "Working…" : "Ask for a change…") : "No app selected"}
-          disabled={!app}
+          placeholder={
+            running
+              ? "Working…"
+              : app
+                ? "Ask for a change…"
+                : app === ""
+                  ? "Describe the app you want…"
+                  : "No app selected"
+          }
+          disabled={app === null}
           spellCheck={false}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
@@ -379,7 +404,7 @@ export function App() {
             type="button"
             className="send"
             onClick={submit}
-            disabled={draft.trim() === "" || !app}
+            disabled={draft.trim() === "" || app === null}
             title="Send (Return)"
           >
             Send

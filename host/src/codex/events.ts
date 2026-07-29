@@ -19,6 +19,12 @@ export type TurnStatus = "completed" | "interrupted" | "failed";
 
 /** The spec §3.6 builder event stream, as the shell receives it. */
 export type BuilderEvent =
+  /** The host scaffolded an app for a turn that named none (spec §4.3: "`app`
+   * may name a not-yet-existing id when coming from the [+] surface"). It
+   * carries no fields — the envelope's `app` IS the answer, and the shell moves
+   * its editor onto it. Not a Codex event: the only builder event the host
+   * originates itself. */
+  | { event: "created" }
   | { event: "text"; delta: string }
   /** The agent's own thinking, streamed. Secondary to `text`, but the only
    * thing on screen during the long opening stretch of a turn. */
