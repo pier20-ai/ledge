@@ -570,6 +570,85 @@ describe("control props (D8)", () => {
   });
 });
 
+// Lists and pages (spec §5): the rule between rows, the row that is itself a
+// button, and the page swap both of them live inside. Nothing here is a new
+// protocol *mechanism* — that is the finding these tests record.
+describe("lists and pages", () => {
+  test("divider is a propless kind", () => {
+    const sink = new InMemorySink();
+    makeRenderer(sink).render(
+      <stack axis="v">
+        <text content="Open" />
+        <divider />
+        <text content="High" />
+      </stack>,
+    );
+    expect(created(sink, "divider").props).toEqual({});
+  });
+
+  test("a button's child rides the tree, not a `children` prop", () => {
+    const sink = new InMemorySink();
+    makeRenderer(sink).render(
+      <stack axis="v">
+        <button variant="plain" onClick={() => {}}>
+          <stack axis="h" gap={10} pad={10}>
+            <text content="AAPL" />
+            <spacer />
+            <text content="$214.62" />
+          </stack>
+        </button>
+      </stack>,
+    );
+
+    const row = created(sink, "button");
+    // `children` never crosses the wire; the handler does, as `true`.
+    expect(row.props).toEqual({ variant: "plain", onClick: true });
+
+    const inserts = sink.all.filter((m) => m.op === "insert") as Extract<
+      Mutation,
+      { op: "insert" }
+    >[];
+    const child = inserts.find((m) => m.parent === row.id);
+    expect(child).toBeDefined();
+    const kindOf = (id: number) =>
+      (sink.all.find((m) => m.op === "create" && m.id === id) as Create).kind;
+    expect(kindOf(child!.id)).toBe("stack");
+  });
+
+  test("navigating is an ordinary commit: the old page out, the new page in", () => {
+    const sink = new InMemorySink();
+    // The whole navigation mechanism, in one prop standing in for `useState`.
+    const session = mountApp(
+      ({ focus = null }) => (
+        <stack axis="v">
+          {focus ? (
+            <stack axis="v" pad={14}>
+              <button label="Watchlist" icon="sf:chevron.left" onClick={() => {}} />
+              <text content={String(focus)} size="xl" />
+            </stack>
+          ) : (
+            <stack axis="v" scroll>
+              <text content="AAPL" />
+            </stack>
+          )}
+        </stack>
+      ),
+      sink,
+    );
+
+    session.update({ focus: "AAPL" });
+    const swap = sink.commits.at(-1)!;
+    // A page is a subtree. The shell learns of the navigation as creates,
+    // one remove and one insert — there is no route on the wire, and the root
+    // node is never replaced, so the panel morphs rather than remounting.
+    expect(ops(swap)).toContain("remove");
+    expect(ops(swap)).toContain("insert");
+    expect(ops(swap)).not.toContain("setRoot");
+    const removed = swap.filter((m) => m.op === "remove");
+    expect(removed).toHaveLength(1);
+  });
+});
+
 describe("session", () => {
   test("update() shallow-merges props across calls", () => {
     const sink = new InMemorySink();

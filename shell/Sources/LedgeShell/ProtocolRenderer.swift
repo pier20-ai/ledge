@@ -272,8 +272,13 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // The wrapper's capped height is derived from the stack's content, so
             // it has to re-measure when the content arrives.
             (stack as? LedgeStackView)?.scrollHost?.contentChanged()
+        } else if let button = parent as? LedgeButton {
+            // `button` takes a label *or a child* (§5). The child is the button —
+            // it decides the size, the button decides the press.
+            button.host(child)
         } else {
-            // Non-stack attachable (button with a child): fill the parent.
+            // No other kind is attachable, but a future one that is gets a
+            // centred child rather than a silently dropped one.
             parent.addSubview(child)
             NSLayoutConstraint.activate([
                 child.centerXAnchor.constraint(equalTo: parent.centerXAnchor),
@@ -310,11 +315,14 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         while let current = stack.popLast() {
             if let view = tree.views[current] {
                 let container = (view as? LedgeContentHosting)?.contentView ?? view
-                if let container = container as? NSStackView {
-                    for sub in container.arrangedSubviews {
-                        if let subID = tree.views.first(where: { $0.value === sub })?.key {
-                            stack.append(subID)
-                        }
+                // A stack's children are its *arranged* subviews; anything else
+                // attachable (a `button` hosting a row) keeps them as plain
+                // subviews. Views the tree doesn't know — a button's own label —
+                // simply don't resolve to an id and are skipped.
+                let children = (container as? NSStackView)?.arrangedSubviews ?? container.subviews
+                for sub in children {
+                    if let subID = tree.views.first(where: { $0.value === sub })?.key {
+                        stack.append(subID)
                     }
                 }
                 view.removeFromSuperview()
@@ -464,6 +472,11 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
                 height: cgFloat(props["h"], default: 24)
             )
             return image
+
+        case .divider:
+            // No props and no size to negotiate: the column gives it a width, the
+            // theme gives it a colour, and that is the whole component.
+            return LedgeDividerView()
 
         case .spacer:
             let spacer = LedgeSpacerView()
@@ -642,6 +655,11 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
 
         case .spacer:
             // Built fully at create; `min` doesn't change in practice.
+            break
+
+        case .divider:
+            // A rule has no state. An `update` op on one is legal and does
+            // nothing, exactly like `spinner`.
             break
 
         // MARK: New kinds (D6). All of them update in place — no create-only props.

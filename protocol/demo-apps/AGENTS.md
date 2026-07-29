@@ -78,9 +78,10 @@ positioning, no CSS.
 |---|---|---|
 | `stack` | — | `axis` `"h"\|"v"`, `gap`, `pad`, `align` `"leading"\|"center"\|"trailing"`, `distribute` `"fill"\|"equal"`, `flex`, `scroll`, `fill`, `stroke`, `radius` |
 | `text` | `content` | `size` `xs\|s\|m\|l\|xl`, `weight` `regular\|medium\|semibold\|bold`, `color`, `mono`, `maxLines`, `truncate` |
-| `button` | — | `label`, `icon`, `variant` `plain\|glass\|accent`, `size` `s\|m\|l`, `disabled`, `onClick` |
+| `button` | — | `label` **or a child**, `icon`, `variant` `plain\|glass\|accent`, `size` `s\|m\|l`, `disabled`, `onClick` |
 | `image` | `src` | `w`, `h`, `radius` |
 | `spacer` | — | `min` |
+| `divider` | — | — |
 | `chart` | `points: number[]` | `color`, `fill` |
 | `slider` | `value` | `min`, `max`, `step`, `rate`, `onChange({value})` |
 | `input` | — | `value`, `placeholder`, `onChange({value})`, `onSubmit({value})` |
@@ -162,6 +163,56 @@ the clamp **clips** — there is no implicit scrolling; opt in with
 The panel reserves a row at the top for the camera housing, and a 42 pt app
 strip at the bottom. You cannot draw in either. Do not render your own title
 row: the shell already shows the app's name.
+
+### Lists, rows and pages
+
+Three things that keep coming up, none of which needs anything the vocabulary
+does not already have.
+
+**A row is a `button` with a child.** `label` is for a control; a list row is a
+ticker, a name, a price and a pill, and the whole row should be pressable — a
+chevron parked at the right-hand end makes the other 90% of it a dead zone. Put
+the row inside the button and let `variant="plain"` supply the hover and the
+press. `label`, `icon` and `size` describe the other form of the control and are
+ignored while a child is present.
+
+```jsx
+<button variant="plain" onClick={() => open(card.symbol)}>
+  <stack axis="h" gap={10} pad={10}>
+    <text content={card.label} size="s" weight="bold" />
+    <spacer />
+    <pill label={card.change} tone="green" />
+  </stack>
+</button>
+```
+
+**`<divider />` is the rule between them.** No props: where it goes is yours,
+what it looks like is the shell's. It is horizontal — in a row, the separation is
+already `gap` and `spacer`.
+
+**Pages are your own state.** There is no router, no `<nav>`, no route on the
+wire. Which page the panel shows is `useState` in your component, and the shell
+sees an ordinary commit that happens to replace most of the tree:
+
+```jsx
+const [focus, setFocus] = useState(null);
+return focus
+  ? <Detail symbol={focus} onBack={() => setFocus(null)} />
+  : <List onOpen={setFocus} />;
+```
+
+Two consequences worth knowing. Resolve the detail page's data out of the props
+you already render the list from, not out of what you captured at tap time — a
+monitor pass landing while the page is open should update it in place. And
+`useState` lives in the worker, so a crash or a reload puts the user back on the
+first page; anything that must survive that belongs in `ctx.update` state or a
+file.
+
+**A long list scrolls with `<stack scroll>`,** and its ceiling is the *panel's*
+whole content height. Every point a parent above it spends on `pad` is a point
+the list asks for and cannot have, and the symptom is the last row hiding under
+the app strip. Put the padding inside the scrolling stack instead — where it
+scrolls away with the content, which is what a list wants anyway.
 
 ## `ctx`
 

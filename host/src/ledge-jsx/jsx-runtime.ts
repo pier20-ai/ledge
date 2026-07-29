@@ -70,6 +70,19 @@ export interface TextProps {
   key?: string | number;
 }
 
+/**
+ * A hairline rule between rows (spec §5). No props: where it goes is the app's
+ * decision, what it looks like is the shell's.
+ *
+ * It exists because nothing else could draw one — a `stack` with a `stroke`
+ * outlines what it contains, and a stack containing nothing is zero points tall.
+ * Horizontal only, like `stack scroll` is vertical only: in a row, separation is
+ * already `gap` and `spacer`.
+ */
+export interface DividerProps {
+  key?: string | number;
+}
+
 export interface ButtonProps {
   label?: string;
   /** Leading SF Symbol, "sf:<name>" (spec §5 proposal). */
@@ -81,6 +94,14 @@ export interface ButtonProps {
    * `click`, so a disabled button is inert on both sides of the wire. */
   disabled?: boolean;
   onClick?: () => void;
+  /**
+   * A child *instead of* a label — the form §5 has always specified, and the one
+   * a list row needs: the whole row is the tap target and its inside is an
+   * ordinary tree (a ticker, a sparkline, a price) that no string could be. The
+   * child brings the size; `variant="plain"` supplies the hover wash and the
+   * press. `label`, `icon` and `size` describe the *other* form and are ignored
+   * while a child is present.
+   */
   children?: ReactNode;
   key?: string | number;
 }
@@ -257,6 +278,7 @@ export declare namespace JSX {
     button: ButtonProps;
     image: ImageProps;
     spacer: SpacerProps;
+    divider: DividerProps;
     chart: ChartProps;
     slider: SliderProps;
     input: InputProps;

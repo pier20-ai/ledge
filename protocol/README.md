@@ -286,6 +286,57 @@ Four things the shapes above are deliberately *not*:
   an app that assembles those three itself can pick two of them from one family
   and the third from another, and six apps did.
 
+## Pages are app state, and a list needs two pieces of furniture
+
+The exercise: give stocks a detail page you reach by tapping a ticker, and make
+the watchlist scroll. The question underneath it: does "a view change" want
+protocol surface — a `nav`, a route, a page stack — or is app state enough?
+
+**App state is enough, and the evidence is that nothing had to be invented.**
+Navigation is one `useState` in `stocks/app.jsx`; the commit it produces is a
+remove and an insert under the same root, which is what the reconciler emits for
+any conditional subtree. The shell never learns that a page changed, and it does
+not need to: it re-measures after every commit anyway, so the panel resizes from
+the watchlist's ten rows to the detail page's five without a word being said
+about pages. The `wing` stays put across the swap because it is a zone rather
+than part of the tree's layout, which is exactly the behaviour a nav bar would
+have needed a primitive for.
+
+The three things a page primitive would buy — a back gesture, a transition, and
+state that survives — are each worse as protocol. A back *button* is a `button`
+and reads better than a swipe in a 440 pt panel. A transition would have to be
+the shell's, and the panel already morphs its height on the standard spring. And
+"state that survives" is the honest limitation: `useState` lives in the worker,
+so a crash or a hot reload puts the user back on the list. That is a real cost,
+and it is the same cost every app already pays for every other piece of local
+state — solving it for pages alone would be a second, privileged kind of state.
+
+Two components *were* missing, both of them furniture rather than mechanism:
+
+| kind | props | why |
+|------|-------|-----|
+| `divider` | — | The rule between rows, and the one shape the container vocabulary genuinely could not express: a `stack` with a `stroke` outlines what it contains, and a stack containing nothing is zero points tall. Horizontal only, on the same grounds `stack scroll` is vertical only — in a row, separation is already `gap` and `spacer`. |
+| `button` + child | — | Not new: §5 has said "`label` or child" since the beginning, `ShadowTree` has always accepted it, and the JSX types have always declared `children`. It simply did not render — the button measured its empty label, collapsed to a 34 pt icon-only circle, and pinned the child to a centre that had nothing to do with its size. A list row is the case that needs it; a chevron at the row's right-hand end makes the other 90% of the row a dead zone. |
+
+Nothing else was reached for. A per-row `onClick` on `stack` would have done the
+same job as the child button and given every container a second, quieter way to
+be a control; a `nav` would have been a router nobody asked for.
+
+Two bugs surfaced on the way, both of them the kind only pixels find:
+
+- **One `segment` collapsed an entire page from 440 pt to 163.** A vertical
+  stack fills its children to its own width with an equality at priority 500, and
+  a `segment` hugs at 751 so it can keep its measured width. The hugging did win —
+  but an equality pulls in *both* directions, so the stack was dragged down to the
+  segment's width and every sibling neatly filled a column that had quietly
+  shrunk. Children that hug harder than the fill are now skipped, which is what
+  their 751 was declaring in the first place.
+- **A label swallowed the press meant for its row.** `NSTextField` is an
+  `NSControl` and hit-tests to itself, so the ticker was the one part of a
+  tappable row that did nothing. `LedgeText` is transparent to hit testing now: it
+  is never editable, never selectable and has no action, so every press that lands
+  on one is meant for something behind it.
+
 ### The same wave, on kinds that already exist
 
 These are ordinary props, so they behave like every other §5 prop — additive,

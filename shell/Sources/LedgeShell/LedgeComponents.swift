@@ -48,16 +48,28 @@ final class LedgeStackView: NSStackView {
     /// `.width` alignment, whose priority ties with content hugging: the tie
     /// resolves to "intrinsic width, pinned to the *trailing* edge", which
     /// silently right-aligns every bare label.
+    /// Below required, so a fixed-size child (an image, a badge) keeps its size
+    /// and simply sits at the leading edge.
+    static let fillPriority = NSLayoutConstraint.Priority(500)
+
     func syncFillWidths() {
         NSLayoutConstraint.deactivate(fillWidths)
         fillWidths = []
         guard orientation == .vertical else { return }
         let inset = edgeInsets.left + edgeInsets.right
-        fillWidths = arrangedSubviews.map { child in
+        fillWidths = arrangedSubviews.compactMap { child in
+            // A child that hugs harder than the fill *means* it — a `segment`
+            // keeps its measured width, an icon-only `button` stays square — and
+            // constraining it anyway is not merely redundant. The equality pulls
+            // in both directions: the child wins its own width, and the *stack*
+            // is dragged down to match it. One segmented control was enough to
+            // collapse a whole page from 440 pt to 163, every sibling neatly
+            // filling a column that had quietly shrunk to nothing.
+            guard child.contentHuggingPriority(for: .horizontal) < Self.fillPriority else {
+                return nil
+            }
             let constraint = child.widthAnchor.constraint(equalTo: widthAnchor, constant: -inset)
-            // Below required so a fixed-size child (an image, a badge) keeps its
-            // size and simply sits at the leading edge.
-            constraint.priority = NSLayoutConstraint.Priority(500)
+            constraint.priority = Self.fillPriority
             return constraint
         }
         NSLayoutConstraint.activate(fillWidths)
@@ -286,6 +298,13 @@ final class LedgeText: NSTextField {
         fatalError("init(coder:) has not been implemented")
     }
 
+    /// A label is never a target. It is not editable, not selectable and has no
+    /// action, so every press that lands on one is meant for something behind it
+    /// — the row it sits in, or the panel itself. NSTextField is an NSControl and
+    /// will happily consume that press, which is how a ticker in a tappable row
+    /// becomes the one part of the row that does nothing.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
     /// Apply the §5 line props. `maxLines > 1` opts into wrapping up to N lines
     /// and then tail-truncating; 1 keeps the single-line law (L7).
     func applyLines(maxLines: Int, truncate: Bool) {
@@ -474,8 +493,43 @@ final class LedgeButton: NSControl {
         }
     }
     /// An empty label earns no width and no gap (law L2), which is exactly what
-    /// makes this button a square — and, with the capsule rule, a circle.
-    var isIconOnly: Bool { label.stringValue.isEmpty }
+    /// makes this button a square — and, with the capsule rule, a circle. A
+    /// button hosting a child is neither: its content is the child.
+    var isIconOnly: Bool { hostedContent == nil && label.stringValue.isEmpty }
+
+    /// The child node this button wraps, for the `label` *or child* form §5 has
+    /// always specified. A list row is the case that needs it: the whole row is
+    /// the tap target, and its inside is an ordinary tree — a ticker, a
+    /// sparkline, a price — that no `label` string could ever be.
+    ///
+    /// Until this existed the child form parsed, validated and committed, and
+    /// then rendered as a 34 pt circle with the row hanging off its left edge:
+    /// the button measured its (empty) label and the child was pinned to a
+    /// centre that had nothing to do with its size.
+    private(set) var hostedContent: NSView?
+
+    /// Adopt a child node's view. Called by the renderer on `insert`; a second
+    /// child replaces the first, because §5 says *a* child.
+    func host(_ view: NSView) {
+        hostedContent?.removeFromSuperview()
+        hostedContent = view
+        view.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(view)
+        NSLayoutConstraint.activate([
+            view.leadingAnchor.constraint(equalTo: leadingAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+            view.topAnchor.constraint(equalTo: topAnchor),
+            view.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        // The label and the icon are the *other* form of this control. Hiding
+        // rather than removing keeps `apply` idempotent — a commit that later
+        // drops the child gets its labelled button back.
+        label.isHidden = true
+        iconView?.isHidden = true
+        refreshHugging()
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+    }
 
     init(
         _ title: String,
@@ -557,7 +611,9 @@ final class LedgeButton: NSControl {
     private func rebuildIcon() {
         iconView?.removeFromSuperview()
         iconView = nil
-        guard let symbolName else { return }
+        // A hosted child owns the whole button; an `icon` prop alongside it would
+        // draw a glyph under the row.
+        guard hostedContent == nil, let symbolName else { return }
         let icon = NSImageView()
         icon.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(
@@ -589,6 +645,14 @@ final class LedgeButton: NSControl {
             isIconOnly ? NSLayoutConstraint.Priority(751) : .defaultLow,
             for: .horizontal
         )
+        // A labelled button's height is fixed by the `size` ramp, so vertical
+        // hugging never comes up. A hosted row has no intrinsic height at all,
+        // which makes it the most willing thing in a column to absorb slack —
+        // and a list row that grows when the panel does is not a row.
+        setContentHuggingPriority(
+            hostedContent == nil ? .defaultLow : .defaultHigh,
+            for: .vertical
+        )
     }
 
     /// The measured content group: an *empty* label contributes zero width and
@@ -609,6 +673,11 @@ final class LedgeButton: NSControl {
     /// Lets the button size itself inside an Auto Layout stack. Icon-only ⇒
     /// square, so the capsule rule draws a circle (D8/Q1).
     override var intrinsicContentSize: NSSize {
+        // A hosted child brings its own size in both axes — the `size` ramp
+        // describes a labelled capsule, and a row is not one.
+        if hostedContent != nil {
+            return NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+        }
         guard !isIconOnly else {
             return NSSize(width: size.height, height: size.height)
         }
@@ -625,8 +694,19 @@ final class LedgeButton: NSControl {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.cornerCurve = .continuous
-        layer?.cornerRadius = LedgeMetrics.capsule(bounds.height > 0 ? bounds.height : size.height)
+        // The capsule rule is for controls you press *at a control's height*. A
+        // hosted row is a card by every other measure — pad, fill, the company it
+        // keeps — so it takes the card radius (D4 concentric) instead of becoming
+        // a 44 pt lozenge.
+        layer?.cornerRadius = hostedContent != nil
+            ? LedgeMetrics.rCard
+            : LedgeMetrics.capsule(bounds.height > 0 ? bounds.height : size.height)
         CATransaction.commit()
+
+        guard hostedContent == nil else {
+            syncHover()
+            return
+        }
 
         let content = contentSizes
         let contentWidth = content.icon.width + content.gap + content.label.width
@@ -854,6 +934,42 @@ final class LedgeFileImageView: NSView {
         )
         NSGraphicsContext.current?.imageInterpolation = .high
         image.draw(in: bounds, from: source, operation: .sourceOver, fraction: 1)
+    }
+}
+
+/// A `divider` node (spec §5): the hairline rule between rows.
+///
+/// It exists because nothing else in the vocabulary can draw one. A `stack` with
+/// a `stroke` outlines whatever it contains, and a stack containing nothing is
+/// zero points tall — so "a line here" was the one piece of ordinary list
+/// furniture an app had to fake with a tinted, one-child box.
+///
+/// Horizontal only, on the same grounds `stack scroll` is vertical only: in a row
+/// the separation is already `gap` and `spacer`, and a rule between two chips is
+/// decoration rather than structure. Dropped into an h-stack it is a 1 pt sliver
+/// and says nothing — which is the honest answer, not a guess at what was meant.
+final class LedgeDividerView: NSView {
+    init() {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = LedgeTheme.hairline.cgColor
+        // Weak horizontal hugging so the vertical stack's fill constraint takes
+        // it to the full column: a rule that stops short of the text it separates
+        // reads as a mistake.
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultHigh, for: .vertical)
+        setAccessibilityRole(.splitter)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// One point tall, no intrinsic width — the column decides how wide a rule is,
+    /// the shell decides how thick.
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: LedgeMetrics.hairline)
     }
 }
 

@@ -19,6 +19,11 @@ public enum ComponentKind: String, Sendable, CaseIterable {
     case progress
     case spinner
     case pill
+    /// A **rule** between rows. The one thing the container vocabulary cannot
+    /// say: an empty `stack` has no height, so `stroke` has no edge to draw and
+    /// a hairline separator was unexpressible. No props — where it goes is the
+    /// app's decision, what it looks like is the shell's.
+    case divider
     /// A **panel wing** — one of the two zones flanking the hardware cutout at
     /// the top of the expanded panel. Not the collapsed §3.3 wings (`ctx.wing`):
     /// those are the live-activity areas on the pill, this is chrome the app may

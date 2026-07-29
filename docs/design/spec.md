@@ -161,9 +161,10 @@ Small on purpose. Everything maps to a native view; layout is stack-based only.
 |----------|-----------------------|-------|
 | `stack`  | NSStackView           | `axis` (`h`/`v`), `gap`, `pad`, `align`, `distribute`, `flex` |
 | `text`   | NSTextField (label)   | `content`, `size` (`xs..xl`), `weight`, `color` (semantic: `primary`, `secondary`, `green`, `red`, `accent`), `mono`, `truncate` |
-| `button` | NSButton (custom)     | `label` or child, `variant` (`plain`/`glass`/`accent`), `onClick` |
+| `button` | NSButton (custom)     | `label` **or child** — a child fills the button and brings its own size, which is how a list row becomes the tap target; `variant` (`plain`/`glass`/`accent`), `onClick` |
 | `image`  | NSImageView           | `src` (host-fetched URL or `sf:play.fill` for SF Symbols), `w`, `h`, `radius` |
 | `spacer` | spacer view           | `min` |
+| `divider`| hairline view         | — · a rule between rows. Propless: no container can express one (an empty `stack` is zero points tall, so `stroke` has no edge to draw), and horizontal only — in a row the separation is already `gap` and `spacer`. |
 | `chart`  | custom sparkline view | `points` (number[]), `color`, `fill` |
 | `slider` | NSSlider              | `value`, `min`, `max`, `onChange` |
 | `input`  | NSTextField           | `value`, `placeholder`, `onChange`, `onSubmit` |
