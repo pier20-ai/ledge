@@ -94,7 +94,7 @@ export async function runWorker(
   // this app's crash rather than surfacing later as a null hooks dispatcher.
   let runtime: ReactRuntime;
   try {
-    runtime = await loadReactRuntime(boot.modulesRoot);
+    runtime = await loadReactRuntime(boot.modulesRoot, boot.reactPaths);
   } catch (error) {
     io.post(toCrash("render", error));
     return;

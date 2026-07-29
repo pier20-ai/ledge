@@ -36,6 +36,41 @@ export interface ReactRuntime {
   defaultEventPriority: number;
 }
 
+/**
+ * Where React actually lives, resolved once.
+ *
+ * Passed to workers rather than recomputed inside each one: `Bun.resolveSync`
+ * of a bare specifier walks `node_modules` through a process-GLOBAL filesystem
+ * cache, and doing that from several worker threads at once segfaults Bun 1.3.9
+ * — `allocators.BSSMap.getOrPut` ← `RealFS.readDirectoryWithIterator` ←
+ * `Resolver.loadAsFile` ← `Bun__resolveSync`, symbolized from a real crash. It
+ * is also simply less work: one walk per host, not three per app.
+ */
+export interface ReactPaths {
+  react: string;
+  reconciler: string;
+  constants: string;
+}
+
+/**
+ * Resolve React from `modulesRoot`. Call this ON THE HOST THREAD and hand the
+ * result to workers; see `ReactPaths` for why that matters.
+ */
+export function resolveReactPaths(modulesRoot: string): ReactPaths {
+  const root = resolve(modulesRoot);
+  try {
+    return {
+      react: Bun.resolveSync("react", root),
+      reconciler: Bun.resolveSync("react-reconciler", root),
+      constants: Bun.resolveSync("react-reconciler/constants", root),
+    };
+  } catch (error) {
+    throw new Error(
+      `could not resolve react from '${root}' — the apps root needs react + react-reconciler installed (${String(error)})`,
+    );
+  }
+}
+
 /** A module namespace that may or may not have been through an interop wrapper. */
 function interop<T>(module: Record<string, unknown>): T {
   return (module.default ?? module) as T;
@@ -49,7 +84,10 @@ function interop<T>(module: Record<string, unknown>): T {
  * that means first-run seeding didn't happen, and a clear error beats a null
  * dispatcher fifty frames later.
  */
-export async function loadReactRuntime(modulesRoot: string): Promise<ReactRuntime> {
+export async function loadReactRuntime(
+  modulesRoot: string,
+  paths?: ReactPaths,
+): Promise<ReactRuntime> {
   // ABSOLUTE, always. `Bun.resolveSync` given a relative directory resolves
   // against the process cwd rather than that directory, so a host started as
   //
@@ -66,20 +104,10 @@ export async function loadReactRuntime(modulesRoot: string): Promise<ReactRuntim
   // Normalising here rather than only at the caller because this function's
   // whole contract is "resolve react from this root", and a relative root
   // silently meaning somewhere else is precisely the trap it exists to close.
-  const root = resolve(modulesRoot);
-
-  let reactPath: string;
-  let reconcilerPath: string;
-  let constantsPath: string;
-  try {
-    reactPath = Bun.resolveSync("react", root);
-    reconcilerPath = Bun.resolveSync("react-reconciler", root);
-    constantsPath = Bun.resolveSync("react-reconciler/constants", root);
-  } catch (error) {
-    throw new Error(
-      `could not resolve react from '${root}' — the apps root needs react + react-reconciler installed (${String(error)})`,
-    );
-  }
+  // Pre-resolved by the host where possible (see `resolveReactPaths`); resolved
+  // here only when nobody did it first, which is the in-process tests.
+  const { react: reactPath, reconciler: reconcilerPath, constants: constantsPath } =
+    paths ?? resolveReactPaths(modulesRoot);
 
   const [react, reconciler, constants] = await Promise.all([
     import(reactPath) as Promise<Record<string, unknown>>,

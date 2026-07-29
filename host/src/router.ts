@@ -13,6 +13,7 @@ import type { BuilderEvent } from "./codex/events";
 import type { ShellSession } from "./connection";
 import type { Envelope } from "./protocol/envelope";
 import type { Mutation } from "./render/mutations";
+import { resolveReactPaths, type ReactPaths } from "./render/runtime";
 import { applyMeta, scanApps, type CatalogApp } from "./registry";
 import {
   AppSupervisor,
@@ -141,6 +142,7 @@ export class Router implements SupervisorSink {
   private session: ShellSession | null = null;
   private presentedApp: string | null = null;
   private closeWatcher: (() => void) | null = null;
+  private reactPaths: ReactPaths | undefined;
 
   constructor(options: RouterOptions) {
     // Absolute from here down. `--apps-root ../protocol/demo-apps` is the
@@ -176,6 +178,27 @@ export class Router implements SupervisorSink {
     this.backoff = options.backoff;
     this.watchEnabled = options.watch ?? true;
     this.hostLog = options.log ?? ((line) => console.log(line));
+  }
+
+  /** `resolveReactPaths` for this apps root, computed at most once.
+   *
+   * A failure is not cached as a failure: seeding may still be in flight on a
+   * first launch, and the next spawn should try again rather than inherit a
+   * verdict from a moment when the folder was half-written. The worker still
+   * resolves for itself if this comes back undefined, which is what keeps a
+   * missing react an app-level crash with a real message (spec §7) instead of a
+   * host that will not start.
+   */
+  private reactPathsOnce(): ReactPaths | undefined {
+    if (!this.reactPaths) {
+      try {
+        this.reactPaths = resolveReactPaths(this.appsRoot);
+      } catch (error) {
+        this.hostLog(`[ledge-host] react not resolvable yet: ${String(error)}`);
+        return undefined;
+      }
+    }
+    return this.reactPaths;
   }
 
   // MARK: - Connection lifecycle
@@ -603,6 +626,12 @@ export class Router implements SupervisorSink {
       // the shared node_modules, which is exactly the copy the app's own
       // `import "react"` finds (render/runtime.ts).
       modulesRoot: this.appsRoot,
+      // Resolved ONCE, on this thread, and handed down: a worker that resolves
+      // `react` itself walks node_modules through a process-global cache, and
+      // several workers doing that at once segfaults Bun (see ReactPaths).
+      // Lazy and cached, because a host with no apps installed should not fail
+      // to start over a react it never needed.
+      reactPaths: this.reactPathsOnce(),
       sink: this,
       factory: this.factory,
       scheduler: this.scheduler,

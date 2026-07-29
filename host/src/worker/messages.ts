@@ -349,6 +349,12 @@ export type HostToWorker =
  * the path of the (Bun-transpiled) app module, and whether this worker gets the
  * privileged `ctx.platform` API (Settings only, spec §8).
  */
+export interface ReactPaths {
+  react: string;
+  reconciler: string;
+  constants: string;
+}
+
 export interface WorkerBoot {
   /** Absolute path or file: URL of the app module to import. */
   modulePath: string;
@@ -356,6 +362,10 @@ export interface WorkerBoot {
    * (`~/.ledge`, or the apps root in the repo). The reconciler and the app must
    * share one React instance or hooks break; see render/runtime.ts. */
   modulesRoot: string;
+  /** Where React and the reconciler actually are, resolved by the HOST thread.
+   * Absent only in tests that boot a worker directly; see ReactPaths for why
+   * the worker must not resolve them itself. */
+  reactPaths?: ReactPaths;
   /** Grants ctx.platform. Set by the host only for the Settings app. */
   privileged?: boolean;
 }

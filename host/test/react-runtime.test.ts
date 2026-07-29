@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { relative, resolve } from "node:path";
-import { loadReactRuntime } from "../src/render/runtime";
+import { loadReactRuntime, resolveReactPaths } from "../src/render/runtime";
 
 // The React single-instance rule (src/render/runtime.ts). The app's `react` and
 // the reconciler's `react` must be the SAME module instance — two copies is
@@ -53,5 +53,34 @@ describe("react runtime resolution", () => {
     // DefaultEventPriority is a real react-reconciler constant; 0 would mean we
     // picked up an interop wrapper's empty default instead of the module.
     expect(runtime.defaultEventPriority).toBeGreaterThan(0);
+  });
+
+  // Resolution moved to the HOST thread (src/render/runtime.ts, ReactPaths):
+  // `Bun.resolveSync` on a bare specifier walks node_modules through a
+  // PROCESS-GLOBAL filesystem cache, and several worker threads doing that at
+  // once segfaults Bun 1.3.9 — symbolized as allocators.BSSMap.getOrPut ←
+  // RealFS.readDirectoryWithIterator ← Resolver.loadAsFile ← Bun__resolveSync.
+  // Measured: the host suite panicked 4 times in 14 runs before, 0 in 30 after.
+  test("pre-resolved paths give the same runtime as resolving in place", async () => {
+    const paths = resolveReactPaths(HOST_ROOT);
+    const [handed, resolved] = await Promise.all([
+      loadReactRuntime(HOST_ROOT, paths),
+      loadReactRuntime(HOST_ROOT),
+    ]);
+    expect(handed.createElement).toBe(resolved.createElement);
+    expect(handed.createReconciler).toBe(resolved.createReconciler);
+  });
+
+  test("handed paths are USED, not merely accepted", async () => {
+    // The point of the change is that a worker given paths does no resolution of
+    // its own. A path that cannot possibly resolve proves it: if the loader
+    // quietly fell back to resolving `react` itself, this would succeed.
+    await expect(
+      loadReactRuntime(HOST_ROOT, {
+        react: "/nowhere/react/index.js",
+        reconciler: "/nowhere/react-reconciler/index.js",
+        constants: "/nowhere/constants.js",
+      }),
+    ).rejects.toThrow();
   });
 });

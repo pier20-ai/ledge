@@ -17,6 +17,7 @@ import type {
   HostToWorker,
   NotifyRequest,
   PlatformRequest,
+  ReactPaths,
   WingSpec,
   WorkerToHost,
 } from "./worker/messages";
@@ -105,6 +106,8 @@ export interface AppSupervisorOptions {
    * instance, or hooks break; see render/runtime.ts). Defaults to the app's own
    * folder, which resolves identically for a repo checkout. */
   modulesRoot?: string;
+  /** Resolved once by the host and handed to every worker (see ReactPaths). */
+  reactPaths?: ReactPaths;
   /** Grants ctx.platform — Settings only (spec §8). */
   privileged?: boolean;
   sink: SupervisorSink;
@@ -127,6 +130,7 @@ export class AppSupervisor {
   private readonly appDir: string;
   private readonly modulePath: string;
   private readonly modulesRoot: string;
+  private readonly reactPaths?: ReactPaths;
   private readonly privileged: boolean;
   private readonly sink: SupervisorSink;
   private readonly factory: WorkerFactory;
@@ -148,6 +152,7 @@ export class AppSupervisor {
     this.appDir = options.appDir;
     this.modulePath = join(options.appDir, "app.jsx");
     this.modulesRoot = options.modulesRoot ?? options.appDir;
+    this.reactPaths = options.reactPaths;
     this.privileged = options.privileged ?? false;
     this.sink = options.sink;
     this.factory = options.factory ?? realWorkerFactory;
@@ -219,6 +224,7 @@ export class AppSupervisor {
     const boot = {
       modulePath: pathToFileURL(this.modulePath).href,
       modulesRoot: this.modulesRoot,
+      reactPaths: this.reactPaths,
       privileged: this.privileged,
     };
     const handle = this.factory(boot, {
