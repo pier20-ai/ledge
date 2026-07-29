@@ -1,9 +1,35 @@
-/*
-  Placeholder styling. The one rule here that is NOT cosmetic is the transparent
-  background: the panel is black glass, and a page that paints its own
-  background does not tint that glass, it replaces it — the notch stops looking
-  like hardware. Swift also turns off `drawsBackground`; both halves are needed.
-*/
+/* The builder surface, styled to belong to the panel it lives in.
+ *
+ * Two rules govern everything here:
+ *
+ *   1. The page is TRANSPARENT. The black glass, the rounded corners and the
+ *      rim light belong to the Swift surface; this draws on top of them. Any
+ *      opaque background — including the browser default — does not tint that
+ *      glass, it replaces it, and the notch stops looking like hardware. Swift
+ *      also turns off `drawsBackground`; both halves are needed.
+ *   2. Nothing is fetched. No web fonts, no images, no remote anything: the page
+ *      loads from file:// under a strict CSP, so a font-face URL is not a slow
+ *      render, it is a blocked request and a fallback nobody chose.
+ *
+ * Colours restate the shell's own tokens (Theme.swift). Duplicated rather than
+ * injected because fetching a palette over the bridge would put a round trip in
+ * front of first paint, and these have not changed in the life of the project.
+ */
+
+:root {
+  --ink: rgba(255, 255, 255, 0.95);
+  --ink-2: rgba(255, 255, 255, 0.62);
+  --ink-3: rgba(255, 255, 255, 0.38);
+  --raised: rgba(255, 255, 255, 0.06);
+  --raised-hi: rgba(255, 255, 255, 0.1);
+  --hairline: rgba(255, 255, 255, 0.09);
+  --accent: #0a84ff;
+  --radius: 11px;
+}
+
+* {
+  box-sizing: border-box;
+}
 
 html,
 body {
@@ -11,13 +37,20 @@ body {
   padding: 0;
   height: 100%;
   background: transparent;
-  color: rgba(255, 255, 255, 0.94);
+  color: var(--ink);
+  /* -apple-system resolves to the face AppKit draws the rest of the panel in,
+     so the transcript and the app strip read as one product. */
   font: 12.5px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   /* The panel owns every gesture that moves it; a rubber-band scroll of the
      document would slide the whole surface off its own shape. */
   overscroll-behavior: none;
+  /* This is chrome, not a document: dragging should move nothing and a
+     double-click should not select a paragraph. Re-enabled below wherever text
+     is genuinely worth copying. */
+  user-select: none;
+  cursor: default;
 }
 
 #root,
@@ -26,161 +59,326 @@ body {
 }
 
 .editor {
+  position: relative;
   display: flex;
   flex-direction: column;
-  padding: 10px 14px 12px;
-  box-sizing: border-box;
-  gap: 8px;
+  min-height: 0;
 }
+
+/* ------------------------------------------------------------- transcript */
 
 .transcript {
   flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  scrollbar-width: none;
+  overscroll-behavior: contain;
+  padding: 10px 14px 4px;
 }
 
+/* The scrollbar is presentation the panel already provides by other means: a
+   gutter here sits inside a rounded black shape and reads as a seam. */
 .transcript::-webkit-scrollbar {
   display: none;
 }
 
 .empty {
-  color: rgba(255, 255, 255, 0.32);
-  font-size: 12px;
-  padding-top: 4px;
+  color: var(--ink-3);
+  padding: 18px 4px;
+}
+
+.empty p {
+  margin: 0 0 4px;
+}
+
+.empty b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+.empty .hint {
+  font-size: 11.5px;
 }
 
 .turn {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
+  /* Enough that a turn anchored to the top of the viewport reads as a new turn,
+     without wasting a panel only ~400 pt tall. */
+  margin-bottom: 18px;
 }
 
+/* The user's own words, right-aligned so the eye finds the question in a
+   scrolled transcript without reading it. */
 .prompt {
   align-self: flex-end;
-  max-width: 78%;
-  background: rgba(255, 255, 255, 0.13);
-  border-radius: 13px;
-  padding: 7px 11px;
+  max-width: 85%;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--raised-hi);
   white-space: pre-wrap;
-  word-break: break-word;
+  user-select: text;
 }
 
-.text {
-  color: rgba(255, 255, 255, 0.9);
-  word-break: break-word;
+.reply {
+  max-width: 100%;
+  user-select: text;
 }
 
-.text p {
-  margin: 0 0 6px;
+.reply p {
+  margin: 0 0 8px;
 }
 
-.text p:last-child {
+.reply p:last-child {
   margin-bottom: 0;
 }
 
-.text code,
-.tool-detail {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
+.reply strong {
+  font-weight: 600;
 }
 
-.text pre {
-  margin: 0 0 6px;
+.reply code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--raised);
+}
+
+.reply pre {
+  width: 100%;
+  margin: 0 0 8px;
   padding: 8px 10px;
+  border-radius: var(--radius);
   background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  /* Code is the one thing here that may exceed the panel's width, and wrapping
+     it would misrepresent what the agent wrote. */
   overflow-x: auto;
+}
+
+.reply pre code {
+  padding: 0;
+  background: none;
   white-space: pre;
 }
 
-.tool {
+/* ------------------------------------------------------------- tool chips */
+
+.chip {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  align-self: flex-start;
-  padding: 4px 9px;
-  border-radius: 9px;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  gap: 6px;
   max-width: 100%;
+  padding: 3px 8px;
+  border-radius: 7px;
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  font-size: 11px;
+  color: var(--ink-2);
 }
 
-.tool.started {
-  opacity: 0.62;
+.chip-label {
+  color: var(--ink-3);
+  flex: none;
 }
 
-.tool-name {
+/* One line, always. The adapter truncates the text, but a path with no spaces
+   can still be wider than the panel. */
+.chip-detail {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.56);
-}
-
-.tool-detail {
-  color: rgba(255, 255, 255, 0.78);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+/* A running tool pulses; a finished one simply stops. Movement is how you tell
+   "still going" from "done" without reading anything. */
+.chip-started {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    background: var(--raised-hi);
+  }
+}
+
+/* ------------------------------------------------------- status and outcome */
+
+.thinking {
+  display: flex;
+  gap: 4px;
+  padding: 4px 2px;
+}
+
+.thinking i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+
+.thinking i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+  }
+  30% {
+    opacity: 1;
+  }
 }
 
 .status {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10.5px;
-  color: rgba(48, 209, 88, 1);
+  font-size: 11.5px;
+  color: var(--ink-2);
 }
 
-.error,
-.done.failed {
+/* A status line is by definition about something still happening, so it moves.
+   Used for the retry line, which would otherwise read as a failure. */
+.shimmer {
+  background: linear-gradient(90deg, var(--ink-3) 20%, var(--ink) 50%, var(--ink-3) 80%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.error {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: var(--radius);
+  background: rgba(255, 69, 58, 0.12);
+  border: 1px solid rgba(255, 69, 58, 0.3);
+  color: #ffb3ad;
   font-size: 11.5px;
-  color: rgba(255, 69, 58, 1);
   white-space: pre-wrap;
-  word-break: break-word;
+  /* The one thing on this surface a user will want to paste somewhere. */
+  user-select: text;
 }
 
-.done.interrupted {
-  font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.32);
+.outcome {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.outcome-failed {
+  color: #ffb3ad;
+}
+
+/* ------------------------------------------------------------- the composer */
+
+.jump {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 58px;
+  padding: 4px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 99px;
+  background: rgba(30, 30, 30, 0.9);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: default;
+  backdrop-filter: blur(12px);
 }
 
 .composer {
-  flex: 0 0 auto;
+  flex: none;
   display: flex;
   align-items: flex-end;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 13px;
-  padding: 8px 10px;
+  padding: 8px 12px 12px;
 }
 
 .composer textarea {
   flex: 1 1 auto;
-  border: 0;
-  outline: 0;
-  resize: none;
-  background: transparent;
-  color: inherit;
+  min-height: 30px;
+  max-height: 96px;
+  padding: 6px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--ink);
   font: inherit;
-  max-height: 84px;
-  caret-color: rgba(255, 180, 84, 1);
+  resize: none;
+  outline: none;
+  user-select: text;
 }
 
 .composer textarea::placeholder {
-  color: rgba(255, 255, 255, 0.32);
+  color: var(--ink-3);
 }
 
-.stop {
-  flex: 0 0 auto;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  background: rgba(255, 255, 255, 0.055);
-  color: inherit;
-  border-radius: 999px;
-  font: 600 11.5px/1 -apple-system, sans-serif;
-  padding: 7px 12px;
+.composer textarea:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  background: var(--raised-hi);
+}
+
+.composer button {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  font: inherit;
+  font-weight: 600;
+  font-size: 11.5px;
+  cursor: default;
+  color: #fff;
+}
+
+.composer .send {
+  background: var(--accent);
+}
+
+.composer .send:disabled {
+  background: var(--raised);
+  border-color: var(--hairline);
+  color: var(--ink-3);
+}
+
+/* Stop is not destructive and must not look like it — it is the ordinary way to
+   take a turn back. Quiet, but never hidden. */
+.composer .stop {
+  background: var(--raised-hi);
+  border-color: var(--hairline);
+  color: var(--ink);
+}
+
+.composer .stop:disabled {
+  color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip-started,
+  .thinking i,
+  .shimmer {
+    animation: none;
+  }
+  .shimmer {
+    color: var(--ink-2);
+    background: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
