@@ -27,6 +27,36 @@ enum LedgeInstall {
     static var appsRoot: URL { root.appendingPathComponent("apps") }
     static var logURL: URL { root.appendingPathComponent("host.log") }
 
+    /// The "we have introduced ourselves" marker (see `PermissionsCardView`).
+    ///
+    /// A file rather than `UserDefaults` for one reason that matters here: it
+    /// lives under `--ledge-root`, so a smoke test or a snapshot run gets a
+    /// genuine first launch without touching the user's, and clearing it is
+    /// `rm ~/.ledge/.onboarded` rather than a `defaults` incantation.
+    static var onboardedMarker: URL { root.appendingPathComponent(".onboarded") }
+
+    /// Whether the first-run permission surface has already been shown.
+    ///
+    /// Written when it is *presented*, not when the user finishes with it: there
+    /// is nothing to finish, dismissing is a legitimate answer, and a marker
+    /// that only lands on "Done" would re-open the panel on every launch until
+    /// the user pressed a button they were entitled to ignore.
+    static var hasOnboarded: Bool {
+        FileManager.default.fileExists(atPath: onboardedMarker.path)
+    }
+
+    static func markOnboarded() {
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try Data().write(to: onboardedMarker)
+        } catch {
+            // Not fatal, and deliberately not retried: the cost of failing is
+            // that the surface appears again next launch, which is a nuisance,
+            // not a broken install.
+            NSLog("[ledge] could not write %@: %@", onboardedMarker.path, String(describing: error))
+        }
+    }
+
     /// The seed archive inside the bundle, or nil for a dev build. A tarball
     /// rather than a directory because codesign refuses a bundle containing
     /// symlinks that escape it, and node_modules is full of them (see

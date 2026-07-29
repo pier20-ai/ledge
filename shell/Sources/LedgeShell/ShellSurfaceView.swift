@@ -1394,6 +1394,7 @@ final class ShellSurfaceView: FlippedView {
         case .expanded(let app): app ?? "no host"
         case .chat(let app): "\(app) chat"
         case .newApp: "new app"
+        case .permissions: "permissions"
         }
     }
 

@@ -13,6 +13,10 @@ import Foundation
 ///   renders its built-in placeholder card.
 /// - `chat(app:)` — the app's chat surface (spec §8). Shell chrome, not an app.
 /// - `newApp` — the **[+]** surface (spec §8). Shell chrome over a fresh folder.
+/// - `permissions` — the first-run macOS-permission surface. Shell chrome with
+///   no app behind it at all: it is the shell explaining what it is about to ask
+///   the system for on an app's behalf (spec §6's trust model, whose prompts are
+///   attributed to the shell because a worker cannot own one).
 /// - `mini(app:)` — the app's `<mini>` subtree, in a small surface below the
 ///   notch. The middle rung between a wing and the panel: shown by `ctx.peek`,
 ///   dismissed on a timer, and promoted to `.expanded` the moment the user
@@ -24,6 +28,7 @@ public enum ShellPresentation: Equatable, Sendable {
     case expanded(app: String?)
     case chat(app: String)
     case newApp
+    case permissions
 
     /// Whether the full panel is up. A mini is deliberately NOT an expansion:
     /// it draws no app strip, reserves no cutout row, takes no focus, and the
@@ -32,7 +37,7 @@ public enum ShellPresentation: Equatable, Sendable {
     public var isExpanded: Bool {
         switch self {
         case .collapsed, .mini: false
-        case .expanded, .chat, .newApp: true
+        case .expanded, .chat, .newApp, .permissions: true
         }
     }
 
@@ -63,7 +68,7 @@ public enum ShellPresentation: Equatable, Sendable {
         case .expanded(let app): app
         case .chat(let app): app
         case .mini(let app): app
-        case .collapsed, .newApp: nil
+        case .collapsed, .newApp, .permissions: nil
         }
     }
 
@@ -152,7 +157,7 @@ public struct ShellState: Equatable, Sendable {
             present(.chat(app: app))
         case .chat(let app):
             present(.expanded(app: app))
-        case .collapsed, .mini, .newApp:
+        case .collapsed, .mini, .newApp, .permissions:
             break
         }
     }

@@ -79,6 +79,9 @@ final class NotchPanelController {
     /// exactly as deliberate as taking it was.
     private var holdsEditorFocus = false
     private var placeholder: (phase: HostPlaceholderView.Phase, view: HostPlaceholderView)?
+    /// The permission surface (see `permissionsView`). Lazy for the same reason
+    /// the editor is: a shell nobody ever asks should not build one.
+    private var permissionsSurface: PermissionsCardView?
 
     init(session: HostSession) {
         self.session = session
@@ -210,6 +213,31 @@ final class NotchPanelController {
         reposition()
         refresh(animated: false)
         panel.orderFrontRegardless()
+        // The one time Ledge opens itself without being asked. It is worth it
+        // exactly once: the alternative is that the first consent dialog the
+        // user ever sees arrives unannounced, in the middle of something else,
+        // attributed to an app they installed ten seconds ago — and TCC never
+        // asks a second time. Marked as done on *presentation*, so this is once
+        // ever and never blocks anything (see `PermissionsCardView`).
+        guard !LedgeInstall.hasOnboarded else { return }
+        LedgeInstall.markOnboarded()
+        presentPermissions()
+    }
+
+    /// The chrome request (spec §3.3) that reopens the permission surface. The
+    /// way back to onboarding once it has been dismissed: Settings sends this,
+    /// and nothing else may (see `handleChrome`).
+    ///
+    /// There is no menu bar of our own and no Dock icon (LSUIElement), and the
+    /// app strip belongs to apps — so the only honest home for "review what
+    /// Ledge asked macOS for" is the surface that already holds every other
+    /// shell-level switch.
+    static let permissionsChromeRequest = "permissions"
+
+    /// Show the permission surface. First run calls it directly; afterwards it
+    /// arrives as Settings' chrome request.
+    func presentPermissions() {
+        present(.permissions)
     }
 
     /// Why there is no host, as the placeholder should say it. Set by the app
@@ -300,6 +328,14 @@ final class NotchPanelController {
             content = editorView(for: "")
             width = PanelLimits.defaultWidth
             height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
+        case .permissions:
+            // The one chrome surface that measures itself: a row grows a line
+            // when its status has something to say, so the panel's height is a
+            // function of what macOS currently reports (see `PermissionsCardView`).
+            let card = permissionsView()
+            content = card
+            width = PanelLimits.defaultWidth
+            height = card.panelHeight + surface.panelWingRowHeight
         }
 
         // Before `present`, so the first layout of a newly-shown surface already
@@ -326,6 +362,10 @@ final class NotchPanelController {
             animated: animated
         )
         NSLog("[ledge] presenting %@", String(describing: presentation))
+        // The permission surface watches the system while it is up — a status
+        // can change in System Settings behind our back — and must stop the
+        // moment it is not, or it polls TCC forever for a panel nobody sees.
+        permissionsSurface?.setActive(presentation == .permissions)
         if presentation.isExpanded {
             panel.orderFrontRegardless()
             focusCanvasIfNeeded(for: presentation.app)
@@ -420,6 +460,15 @@ final class NotchPanelController {
             surface.flashAttention()
         case "wing":
             setWing(app: app, spec: wing)
+        case Self.permissionsChromeRequest:
+            // **Settings only.** This is shell chrome, not app content: an app
+            // that could raise it could put an official-looking permission
+            // panel in front of the user at a moment of its own choosing, which
+            // is precisely the ambush the surface exists to prevent. Settings is
+            // already the shell wearing an app's clothes (spec §8), so it is the
+            // one caller whose ask is the user's own.
+            guard app == AppBarView.settingsAppID else { return }
+            presentPermissions()
         default:
             break                                   // unknown request → ignored
         }
@@ -447,7 +496,7 @@ final class NotchPanelController {
             // Latest asker wins, exactly as with wings — the newest thing that
             // happened is the one worth showing.
             break
-        case .expanded, .chat, .newApp:
+        case .expanded, .chat, .newApp, .permissions:
             return
         }
 
@@ -542,6 +591,25 @@ final class NotchPanelController {
         return view
     }
 
+
+    /// The permission surface, built once and kept. It holds live state — the
+    /// cached notification read, the poll that catches a change made in System
+    /// Settings — and rebuilding it per presentation would drop both.
+    private func permissionsView() -> PermissionsCardView {
+        if let permissionsSurface { return permissionsSurface }
+        let card = PermissionsCardView(probe: SystemPermissionProbe())
+        card.onDismiss = { [weak self] in self?.present(.collapsed) }
+        // A status changed under us (the user allowed something in Settings and
+        // came back), and the row that reported it may have grown or lost its
+        // explanatory line. Re-presenting is a re-measure, not a content swap —
+        // `ShellSurfaceView.present` morphs the same view to a new height.
+        card.onResize = { [weak self] in
+            guard let self, self.shellState.presentation == .permissions else { return }
+            self.refresh(animated: true)
+        }
+        permissionsSurface = card
+        return card
+    }
 
     private func placeholderView(for app: String?) -> HostPlaceholderView {
         // Name the actual gap: a connected host with zero apps is not
