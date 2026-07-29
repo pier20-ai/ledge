@@ -357,4 +357,28 @@ describe("Router end-to-end (real workers)", () => {
         .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "pomodoro-timer")),
     );
   }, 30000);
+
+  // The permission surface can only be raised by Settings. Gated in the host as
+  // well as the shell, and this is the host's half: an app that could put an
+  // official-looking consent panel on screen at a moment of its choosing is
+  // exactly the ambush that surface exists to prevent.
+  test("only Settings may ask for the permission surface", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    const router = new Router({ appsRoot: root, scheduler: new FakeScheduler(), watch: false });
+    openRouter = router;
+    await router.bindSession(session);
+
+    router.chrome("counter", "permissions");
+    expect(session.envelopesFor("counter", "chrome")).toHaveLength(0);
+
+    // And the ordinary verbs still pass for anybody.
+    router.chrome("counter", "expand");
+    expect(session.envelopesFor("counter", "chrome")).toHaveLength(1);
+
+    router.chrome("settings", "permissions");
+    const sent = session.envelopesFor("settings", "chrome");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.payload).toEqual({ request: "permissions" });
+  }, 30000);
 });

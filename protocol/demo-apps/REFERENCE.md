@@ -253,6 +253,22 @@ ctx.platform.observe(kind, name) / unobserve(kind, name)
 `observe` kinds: `distributedNotification`, `workspace`, `pasteboard`, `power`,
 `reachability`, `audio`. Observations arrive at `onEvent`.
 
+**Settings-only.** Five more calls exist, and only the app whose folder is
+`settings` may make them — anything else is refused with a reason, by the host
+and again by the shell:
+
+```
+ctx.platform.stats()                 the catalog the strip is drawing
+ctx.platform.enable(id) / disable(id)
+ctx.platform.reorder(ids)            not implemented yet
+ctx.platform.quit()                  end Ledge (there is no menu bar and no Dock icon)
+ctx.platform.permissions()           raise the shell's permission surface
+```
+
+The gate is not bureaucracy: an app that could raise an official-looking consent
+panel, or quit the shell, at a moment of its own choosing is exactly the ambush
+those surfaces exist to prevent.
+
 Everything else is the platform directly: `fetch`, `bun:sqlite`, `Bun.sleep`,
 `Bun.$`, `fs`, timers, `import.meta.dir`, `console.*` (captured into the app's
 log). Do not look for a Ledge wrapper — there isn't one, by design.

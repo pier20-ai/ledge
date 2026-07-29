@@ -492,6 +492,13 @@ export class Router implements SupervisorSink {
   }
 
   chrome(app: string, request: ChromeRequest, ms?: number): void {
+    // The shell gates this too, and deliberately: two locks on a door that
+    // opens onto a permission dialog. Refused here rather than forwarded so the
+    // reason lands in the host log, where an app author will look for it.
+    if (request === "permissions" && app !== SETTINGS_APP_ID) {
+      this.hostLog(`[ledge-host] chrome <- ${app} permissions REFUSED (Settings-only)`);
+      return;
+    }
     this.hostLog(`[ledge-host] chrome <- ${app} ${request}${ms === undefined ? "" : ` ${ms}ms`}`);
     // `ms` rides along only for `peek`; the shell reads what its verb names.
     this.session?.send(app, "chrome", ms === undefined ? { request } : { request, ms });

@@ -59,6 +59,9 @@ export async function monitor(ctx) {
       onQuit: () => {
         ctx.platform.quit().catch((error) => console.log(`could not quit: ${error}`));
       },
+      // Chrome, not a call: the shell raises its permission surface or silently
+      // does not, and there is no answer worth waiting for.
+      onPermissions: () => ctx.platform.permissions(),
     });
   };
 
@@ -106,13 +109,17 @@ function AppRow({ app, onToggle }) {
  * footer inside the list would be a quit you have to go looking for, and this
  * is the only one there is.
  */
-function QuitRow({ onQuit }) {
+function QuitRow({ onQuit, onPermissions }) {
   const [armed, setArmed] = useState(false);
   if (!armed) {
     return (
       <stack axis="h" gap={8} align="center" pad={12}>
         <text content="Quit Ledge" size="m" weight="semibold" />
         <spacer />
+        {/* The way back to the permission surface. It sits here rather than in
+            the list because it is about Ledge, not about any app — and because
+            with the menu bar gone this panel is the only door left. */}
+        <button label="Permissions…" variant="plain" onClick={() => onPermissions?.()} />
         <button label="Quit" variant="glass" onClick={() => setArmed(true)} />
       </stack>
     );
@@ -127,7 +134,7 @@ function QuitRow({ onQuit }) {
   );
 }
 
-export default function Settings({ apps = [], ready = false, onToggle, onQuit }) {
+export default function Settings({ apps = [], ready = false, onToggle, onQuit, onPermissions }) {
   const on = apps.filter((app) => app.enabled).length;
   return (
     <stack axis="v">
@@ -162,7 +169,7 @@ export default function Settings({ apps = [], ready = false, onToggle, onQuit })
       </stack>
 
       <divider />
-      <QuitRow onQuit={onQuit} />
+      <QuitRow onQuit={onQuit} onPermissions={onPermissions} />
     </stack>
   );
 }

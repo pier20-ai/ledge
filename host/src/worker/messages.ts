@@ -22,12 +22,18 @@ export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
 /** The presentation an app may ask the shell for (spec §3.3). `attention` is
  * not here: it has its own message because it is a ping, not a state request. */
 /**
+ * `permissions` raises the shell's own permission surface. Settings-only, and
+ * gated on BOTH sides: an app that could put an official-looking consent panel
+ * on screen at a moment of its choosing is the ambush that surface exists to
+ * prevent. It is chrome rather than a platform call because nothing comes back
+ * — the shell either shows it or does not.
+ *
  * `peek` is the third presentation rung, between the collapsed wing and the
  * full panel: show the app's `<mini>` subtree just below the notch for a few
  * seconds, then put it away. A track change, an alarm firing, your turn in
  * chess — moments that deserve more than a wing and less than the panel.
  */
-export type ChromeRequest = "expand" | "collapse" | "peek";
+export type ChromeRequest = "expand" | "collapse" | "peek" | "permissions";
 
 /** Which side of the shared app health state threw (spec §6 rule 2, §7): the
  * monitor loop, or a React render (initial mount / event / ctx.update). */
