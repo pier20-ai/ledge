@@ -312,4 +312,36 @@ describe("builder", () => {
       expect(fake.requests).toHaveLength(0);
     });
   });
+
+  // Whether the agent is installed at all — answered before the user types.
+  describe("the agent announcement", () => {
+    test("a PATH with no codex on it says so, and how to fix it", async () => {
+      const root = await makeApp();
+      const { builder } = harness(root, new FakeCodex());
+      // An empty PATH is the honest version of "not installed": Bun.which finds
+      // nothing, which is what a machine without codex looks like.
+      expect(builder.agentStatus({ PATH: "" })).toEqual({
+        event: "agent",
+        installed: false,
+        name: "Codex",
+        install: "npm i -g @openai/codex",
+      });
+    });
+
+    test("a PATH with codex on it says nothing needs installing", async () => {
+      const root = await makeApp();
+      const { builder } = harness(root, new FakeCodex());
+      // A directory containing an executable by that name — the shape Bun.which
+      // looks for, without depending on what this machine happens to have.
+      const bin = join(root, "bin");
+      await mkdir(bin, { recursive: true });
+      await writeFile(join(bin, "codex"), "#!/bin/sh\n", { mode: 0o755 });
+
+      const status = builder.agentStatus({ PATH: bin });
+      expect(status).toEqual({ event: "agent", installed: true, name: "Codex" });
+      // No install line when there is nothing to install: the surface keys off
+      // the field's presence.
+      expect("install" in status).toBe(false);
+    });
+  });
 });

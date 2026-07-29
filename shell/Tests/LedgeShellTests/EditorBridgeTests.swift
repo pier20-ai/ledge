@@ -377,6 +377,37 @@ struct EditorBridgeTests {
         #expect(states.allSatisfy { $0.0 == "stocks" })
     }
 
+    // MARK: - The agent announcement
+
+    /// Whether Codex is installed is not any app's news: it is the condition
+    /// every turn depends on, it arrives once per session with an empty app, and
+    /// the app-matching guard would otherwise drop it before the surface that
+    /// needs it ever hears.
+    @Test("An `agent` frame reaches the editor whatever app it is showing")
+    func agentStatusIgnoresFocus() {
+        let bridge = readyBridge(app: "stocks")
+        #expect(bridge.deliver(BuilderPayload(
+            app: "", turn: 0, event: "agent", installed: false, install: "npm i -g @openai/codex"
+        )))
+        let script = bridge.emitted.last ?? ""
+        #expect(script.contains("\"installed\":false"))
+        // `/` arrives escaped (JSONEncoder's default, and valid JSON the page
+        // parses back to the same string), so the assertion is on the part that
+        // cannot be escaped.
+        #expect(script.contains("npm i -g @openai"))
+        // And it does not become this app's transcript.
+        #expect(bridge.app == "stocks")
+    }
+
+    /// A host that says nothing about `installed` must not produce a banner on a
+    /// working machine — the absent answer is "fine", not "broken".
+    @Test("An `agent` frame with no verdict defaults to installed")
+    func agentStatusDefaultsToInstalled() {
+        let bridge = readyBridge()
+        _ = bridge.deliver(BuilderPayload(app: "", turn: 0, event: "agent"))
+        #expect((bridge.emitted.last ?? "").contains("\"installed\":true"))
+    }
+
     // MARK: - The [+] surface (spec §4.3, §8)
 
     /// The panel presents this same editor with `app: ""` when there is nothing

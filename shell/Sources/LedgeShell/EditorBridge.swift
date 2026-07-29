@@ -88,6 +88,14 @@ final class EditorBridge {
     /// exists to prevent.
     @discardableResult
     func deliver(_ payload: BuilderPayload) -> Bool {
+        // Whether the agent is installed is not any app's news — it is the
+        // condition every turn depends on, and it arrives once per session with
+        // an empty app. Delivered to whatever the editor is showing, and held
+        // for a page that has not loaded yet like anything else.
+        if payload.event == "agent" {
+            emit(Self.pageEvent(for: payload))
+            return true
+        }
         // The [+] surface: the editor is focused on `""` because the app did not
         // exist when the user pressed return, and `created` is the host telling
         // us what it called the one it just made (spec §4.3, §8). Adopting it
@@ -147,6 +155,13 @@ final class EditorBridge {
             out["status"] = .string(payload.status ?? (payload.ok == false ? "failed" : "completed"))
         case "error":
             out["message"] = .string(payload.message ?? payload.detail ?? payload.delta ?? "")
+        case "agent":
+            // Absent `installed` means the host did not say, and the surface
+            // must not invent a banner for a working machine — so the safe
+            // default is "installed".
+            out["installed"] = .bool(payload.installed ?? true)
+            if let install = payload.install { out["install"] = .string(install) }
+            out["name"] = .string(payload.name ?? "the agent")
         default:
             for (key, value) in [
                 "delta": payload.delta,

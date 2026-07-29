@@ -33,6 +33,8 @@ let creating = arguments.contains("--new")
 /// thing anyone sees, and it is the one screen no scripted turn ever shows.
 let restingOnly = arguments.contains("--empty")
 let rich = arguments.contains("--rich")
+/// The "you have no agent installed" state — the first thing a new user sees.
+let noAgent = arguments.contains("--no-agent")
 let outputPath = arguments.dropFirst().first(where: { !$0.hasPrefix("--") })
     ?? (creating ? "/tmp/ledge-editor-new.png" : "/tmp/ledge-editor.png")
 
@@ -156,6 +158,14 @@ final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         // but the snapshot should show a settled surface.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             webView.evaluateJavaScript(openThread) { _, _ in }
+            if noAgent {
+                webView.evaluateJavaScript("""
+                window.__ledgeDeliver({ event: "agent", app: "", turn: 0,
+                  installed: false, name: "Codex", install: "npm i -g @openai/codex" });
+                """) { _, _ in }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.snapshot() }
+                return
+            }
             guard !restingOnly else {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.snapshot() }
                 return

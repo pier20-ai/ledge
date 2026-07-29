@@ -12,7 +12,7 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CodexClient, type CodexClientOptions } from "./codex/client";
+import { agentPath, CodexClient, type CodexClientOptions } from "./codex/client";
 import { toBuilderEvent, type BuilderEvent, type Json } from "./codex/events";
 import { scaffoldFromPrompt } from "./scaffold";
 
@@ -40,6 +40,13 @@ export interface BuilderOptions {
   client?: CodexClientOptions;
 }
 
+/** What `codex` is called and how you get it, for the surface to render. */
+export const CODEX = {
+  name: "Codex",
+  command: "codex",
+  install: "npm i -g @openai/codex",
+} as const;
+
 export class Builder {
   private readonly appsRoot: string;
   private readonly sink: BuilderSink;
@@ -62,6 +69,22 @@ export class Builder {
     this.appsRoot = options.appsRoot;
     this.sink = options.sink;
     this.clientOptions = options.client ?? {};
+  }
+
+  /**
+   * Is the agent installed?
+   *
+   * `Bun.which` against the PATH the agent's own process would get — the same
+   * one `spawnCodex` builds, so this cannot answer "yes" for a binary the spawn
+   * would then fail to find. Asked fresh every time rather than cached: the
+   * answer changes the moment the user installs it, which is exactly when a
+   * stale "no" would be most annoying.
+   */
+  agentStatus(env: Record<string, string | undefined> = process.env): BuilderEvent {
+    const found = Bun.which(CODEX.command, { PATH: agentPath(env) });
+    return found
+      ? { event: "agent", installed: true, name: CODEX.name }
+      : { event: "agent", installed: false, name: CODEX.name, install: CODEX.install };
   }
 
   /**

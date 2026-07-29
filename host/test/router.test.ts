@@ -306,9 +306,13 @@ describe("Router end-to-end (real workers)", () => {
     // Control-plane framing (spec §3.6): the envelope's app is EMPTY and the
     // payload names the app. Sending it per-app instead decodes on neither
     // side — the shell drops it silently and the editor shows nothing.
-    await waitFor(() => session.envelopesFor("", "builder").length >= 2);
+    // The first builder envelope of any session is the agent announcement (is
+    // Codex installed at all); the turn's own events follow it.
+    await waitFor(() => session.envelopesFor("", "builder").length >= 3);
 
-    const events = session.envelopesFor("", "builder").map((e) => e.payload);
+    const all = session.envelopesFor("", "builder").map((e) => e.payload);
+    expect(all[0]!.event).toBe("agent");
+    const events = all.slice(1);
     expect(events[0]).toEqual({ app: "stocks", turn: 1, event: "text", delta: "on it" });
     expect(events[1]).toEqual({ app: "stocks", turn: 1, event: "done", status: "completed" });
   }, 30000);
@@ -340,8 +344,8 @@ describe("Router end-to-end (real workers)", () => {
     await router.bindSession(session);
     router.onEnvelope(session, await fixtureEnvelope("builder-input-new.json"));
 
-    await waitFor(() => session.envelopesFor("", "builder").length >= 1);
-    const created = session.envelopesFor("", "builder")[0]!.payload;
+    await waitFor(() => session.envelopesFor("", "builder").length >= 2);
+    const created = session.envelopesFor("", "builder")[1]!.payload;
     expect(created).toEqual({ app: "pomodoro-timer", turn: 0, event: "created" });
 
     // And the strip can name it: the shell moves its editor onto this id the

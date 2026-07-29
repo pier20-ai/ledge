@@ -206,6 +206,8 @@ function Turn({ turn, anchorRef }) {
 
 export function App() {
   const [app, setApp] = useState(null);
+  /** null until the host says; `{ installed, name, install }` after. */
+  const [agent, setAgent] = useState(null);
   const [turns, setTurns] = useState([]);
   const [draft, setDraft] = useState("");
   /** Cancel is requested, but the turn is not over until `done` says so. */
@@ -224,6 +226,17 @@ export function App() {
   useEffect(
     () =>
       window.ledge.onEvent((event) => {
+        if (event.event === "agent") {
+          // Not part of any turn: the condition every turn depends on. It
+          // arrives once per session, before anything is typed, and it survives
+          // switching apps — the agent is missing for all of them or none.
+          setAgent({
+            installed: event.installed !== false,
+            name: event.name || "the agent",
+            install: event.install || "",
+          });
+          return;
+        }
         if (event.event === "created") {
           // The [+] surface just became an app's chat. Adopt the id WITHOUT
           // clearing anything: the transcript already holds the prompt that
@@ -281,13 +294,16 @@ export function App() {
     // scaffolds an app for a turn that names none (spec §8). Only `null` — no
     // surface has been focused at all — has nobody to talk to.
     if (text === "" || running || app === null) return;
+    // The banner already says why; sending anyway would spend a round trip to
+    // be told the same thing.
+    if (agent && !agent.installed) return;
     window.ledge.send(text);
     setDraft("");
     anchorPending.current = true;
     setTurns((current) => current.concat([blankTurn(null, text)]));
     // `app` belongs here: it was only ever right by accident, because `draft`
     // changes on every keystroke and rebuilt the closure with it.
-  }, [draft, running, app]);
+  }, [draft, running, app, agent]);
 
   const stop = useCallback(() => {
     // Optimistic only as far as the button: the turn is not over until `done`
@@ -324,8 +340,28 @@ export function App() {
 
   return (
     <div className="editor">
+      {agent && !agent.installed ? (
+        // A banner rather than an error inside a turn: nothing has gone wrong
+        // yet, and there is exactly one thing to do about it. It stays until the
+        // host says otherwise, because until then every message would fail the
+        // same way.
+        <div className="banner" role="status">
+          <p>
+            <b>{agent.name} isn't installed.</b> Ledge builds apps with your own
+            agent — it never talks to a model itself.
+          </p>
+          {agent.install ? (
+            <pre className="banner-command">
+              <code>{agent.install}</code>
+            </pre>
+          ) : null}
+          <p className="hint">Then sign in with <code>{agent.name.toLowerCase()}</code> and reopen this.</p>
+        </div>
+      ) : null}
       <div className="transcript" ref={viewport} onScroll={onScroll} role="log" aria-busy={running}>
-        {turns.length === 0 ? (
+        {turns.length === 0 && agent && !agent.installed ? null : turns.length === 0 ? (
+          // The banner above already says what to do; "ask for a change to
+          // stocks" underneath it would be inviting something that cannot work.
           <div className="empty">
             {app ? (
               <>
@@ -375,7 +411,9 @@ export function App() {
           value={draft}
           rows={1}
           placeholder={
-            running
+            agent && !agent.installed
+              ? `Install ${agent.name} to build apps`
+              : running
               ? "Working…"
               : app
                 ? "Ask for a change…"
@@ -383,7 +421,7 @@ export function App() {
                   ? "Describe the app you want…"
                   : "No app selected"
           }
-          disabled={app === null}
+          disabled={app === null || (agent !== null && !agent.installed)}
           spellCheck={false}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
@@ -404,7 +442,7 @@ export function App() {
             type="button"
             className="send"
             onClick={submit}
-            disabled={draft.trim() === "" || app === null}
+            disabled={draft.trim() === "" || app === null || (agent !== null && !agent.installed)}
             title="Send (Return)"
           >
             Send

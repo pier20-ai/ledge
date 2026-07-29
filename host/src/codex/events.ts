@@ -25,6 +25,13 @@ export type BuilderEvent =
    * its editor onto it. Not a Codex event: the only builder event the host
    * originates itself. */
   | { event: "created" }
+  /** Whether the agent this build talks to is even installed.
+   *
+   * Sent unprompted, before the user types: a composer that accepts a sentence
+   * and answers "could not start codex" a second later is a worse way to learn
+   * this than a line that was there when the surface opened. `install` is the
+   * command that fixes it, so the surface never has to guess. */
+  | { event: "agent"; installed: boolean; name: string; install?: string }
   | { event: "text"; delta: string }
   /** The agent's own thinking, streamed. Secondary to `text`, but the only
    * thing on screen during the long opening stretch of a turn. */

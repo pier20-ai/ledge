@@ -542,6 +542,12 @@ public struct BuilderPayload: Codable, Sendable, Equatable {
     public var status: String?
     /// `error` events: the agent's own failure text, passed through verbatim.
     public var message: String?
+    /// `agent` events: whether the agent this build talks to is installed. Not a
+    /// turn and not an app's — it is the condition every turn depends on, sent
+    /// once per session before anything is typed.
+    public var installed: Bool?
+    /// `agent` events: the command that installs it, when it is missing.
+    public var install: String?
 
     /// Every field is decode-if-present. The builder stream is the one place a
     /// third party (the agent adapter) shapes a payload, so a field we did not
@@ -561,6 +567,8 @@ public struct BuilderPayload: Codable, Sendable, Equatable {
         text = try container.decodeIfPresent(String.self, forKey: .text)
         status = try container.decodeIfPresent(String.self, forKey: .status)
         message = try container.decodeIfPresent(String.self, forKey: .message)
+        installed = try container.decodeIfPresent(Bool.self, forKey: .installed)
+        install = try container.decodeIfPresent(String.self, forKey: .install)
     }
 
     public init(
@@ -575,7 +583,9 @@ public struct BuilderPayload: Codable, Sendable, Equatable {
         ok: Bool? = nil,
         text: String? = nil,
         status: String? = nil,
-        message: String? = nil
+        message: String? = nil,
+        installed: Bool? = nil,
+        install: String? = nil
     ) {
         self.app = app
         self.turn = turn
@@ -589,6 +599,8 @@ public struct BuilderPayload: Codable, Sendable, Equatable {
         self.text = text
         self.status = status
         self.message = message
+        self.installed = installed
+        self.install = install
     }
 }
 

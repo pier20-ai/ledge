@@ -78,6 +78,56 @@ body {
   min-height: 0;
 }
 
+/* ---------------------------------------------------------------- banner */
+
+/* Shown when the agent Ledge builds with is not installed. Not an error — this
+   is a working panel with one thing missing — so it is amber like the Preview
+   toggle rather than red, and it sits ABOVE the transcript rather than inside a
+   turn: nothing has failed yet, and it applies to every app, not this one. */
+.banner {
+  flex: none;
+  margin: 10px 14px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 180, 84, 0.35);
+  border-radius: var(--radius);
+  background: rgba(255, 180, 84, 0.1);
+}
+
+.banner p {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+
+.banner b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.banner .hint {
+  margin-top: 6px;
+  color: var(--ink-3);
+}
+
+/* The one thing to do about it. Selectable, because the next step is pasting
+   it into a terminal. */
+.banner-command {
+  margin: 8px 0 0;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--hairline);
+  overflow-x: auto;
+  user-select: text;
+}
+
+.banner-command code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  color: var(--accent);
+  white-space: pre;
+}
+
 /* ------------------------------------------------------------- transcript */
 
 .transcript {

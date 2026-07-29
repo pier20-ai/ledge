@@ -217,6 +217,11 @@ export class Router implements SupervisorSink {
     this.catalogApps = apps;
     this.sendCatalog();
 
+    // Before anything is typed. A user whose first contact with Ledge is a chat
+    // box that swallows a sentence and then says "could not start codex" has
+    // been told the same thing, later and worse.
+    this.sendBuilder("", 0, this.builder.agentStatus());
+
     for (const app of apps) {
       if (!app.enabled) continue;
       const existing = this.supervisors.get(app.id);
