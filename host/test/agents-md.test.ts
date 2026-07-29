@@ -7,19 +7,31 @@ import { loadReactRuntime } from "../src/render/runtime";
 import { createAppSession } from "../src/render/session";
 import type { mountApp } from "./helpers/react-runtime";
 
-// AGENTS.md is the platform's contract with the coding agents that write apps
-// (spec §8). Its failure mode is silent and slow: a kind or a ctx call ships,
-// nobody updates the doc, and from then on every agent writes apps as though the
-// feature does not exist — or invents a plausible API that does not.
+// AGENTS.md + REFERENCE.md are the platform's contract with the coding agents
+// that write apps (spec §8). Their failure mode is silent and slow: a kind or a
+// ctx call ships, nobody updates the docs, and from then on every agent writes
+// apps as though the feature does not exist — or invents a plausible API that
+// does not.
 //
-// So the doc is asserted against the SOURCE, the same way a new §5 kind without
-// a fixture already fails the shell suite. This does not check that the prose is
-// good; it checks that nothing is missing, which is the part that rots.
+// So the docs are asserted against the SOURCE, the same way a new §5 kind
+// without a fixture already fails the shell suite. This does not check that the
+// prose is good; it checks that nothing is missing, which is the part that rots.
+//
+// COVERAGE IS ASSERTED ACROSS THE PAIR. AGENTS.md is the short orientation and
+// REFERENCE.md is the API; which of them holds a given table is an editorial
+// decision that should be free to change, but a name present in neither is a
+// feature no agent will ever use. The split itself is checked separately, below
+// — a reference nobody is pointed at is the same failure in a different place.
 
 const HOST_DIR = join(import.meta.dir, "..");
-const AGENTS_MD = join(HOST_DIR, "..", "protocol", "demo-apps", "AGENTS.md");
+const DOCS_DIR = join(HOST_DIR, "..", "protocol", "demo-apps");
+const AGENTS_MD = join(DOCS_DIR, "AGENTS.md");
+const REFERENCE_MD = join(DOCS_DIR, "REFERENCE.md");
 
-const doc = await Bun.file(AGENTS_MD).text();
+const agents = await Bun.file(AGENTS_MD).text();
+const reference = await Bun.file(REFERENCE_MD).text();
+/** Both, for the coverage assertions — see the note above. */
+const doc = `${agents}\n${reference}`;
 
 /** Element names from the JSX vocabulary's `IntrinsicElements` block. */
 async function intrinsicElements(): Promise<string[]> {
@@ -104,10 +116,23 @@ describe("AGENTS.md tracks the real API", () => {
     }
   });
 
+  // The pair only works if the short half sends you to the long one. An agent
+  // that never learns REFERENCE.md exists is an agent working from the
+  // orientation alone, which is exactly the state that had one searching $HOME
+  // for Swift sources.
+  test("AGENTS.md stays short and points at the reference", () => {
+    const lines = agents.split("\n").length;
+    expect(lines).toBeLessThan(160);
+    expect(agents).toContain("REFERENCE.md");
+    // Not just a mention: a table of what is in it, by section.
+    expect(agents).toMatch(/REFERENCE\.md.*Components/s);
+  });
+
   test("the rules that break apps are stated", () => {
     // Each of these has actually cost someone a debugging session.
-    expect(doc).toContain("@jsxImportSource react");
-    expect(doc).toContain("crash.log");
+    // These belong in the half an agent always reads, not the lookup.
+    expect(agents).toContain("@jsxImportSource react");
+    expect(agents).toContain("crash.log");
     expect(doc).toContain("import.meta.dir");
     // The React single-instance rule (host/src/render/runtime.ts).
     expect(doc.toLowerCase()).toContain("same");
