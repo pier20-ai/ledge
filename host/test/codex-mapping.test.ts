@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { agentPath, ledgeBinDir } from "../src/codex/client";
 import { toBuilderEvent } from "../src/codex/events";
 
 // Codex app-server notification → spec §3.6 `builder` event.
@@ -155,5 +159,46 @@ describe("Codex notification → builder event", () => {
     // appear before we know about them.
     expect(toBuilderEvent("thread/goal/updated", {})).toBeNull();
     expect(toBuilderEvent("item/started", {})).toBeNull();
+  });
+});
+
+// The agent's PATH (src/codex/client.ts). AGENTS.md tells the agent to run
+// `ledge logs` and `ledge shot`; in a real transcript it ran `which ledge` and
+// got "ledge not found", because the shim lives inside the .app and nothing puts
+// it on a PATH.
+describe("the agent's PATH", () => {
+  test("the shim's directory is prepended when there is one", () => {
+    const path = agentPath({ PATH: "/usr/bin:/bin" }, "/Applications/Ledge.app/Contents/Resources");
+    expect(path).toBe("/Applications/Ledge.app/Contents/Resources:/usr/bin:/bin");
+  });
+
+  test("a checkout with no shim changes nothing", () => {
+    expect(agentPath({ PATH: "/usr/bin:/bin" }, null)).toBe("/usr/bin:/bin");
+  });
+
+  test("it is never added twice", () => {
+    const dir = "/Applications/Ledge.app/Contents/Resources";
+    const once = agentPath({ PATH: `${dir}:/usr/bin` }, dir);
+    expect(once).toBe(`${dir}:/usr/bin`);
+  });
+
+  test("ledgeBinDir answers null rather than guessing", () => {
+    expect(ledgeBinDir("/tmp/definitely/not/a/bundle")).toBe(null);
+  });
+
+  test("the depth matches where this file actually sits in the bundle", async () => {
+    // The count of `..`s is the whole mechanism, and getting it wrong returns
+    // null — the same answer as "no bundle", which is why it needs asserting
+    // against the real layout rather than being read off the comment.
+    const bundle = await mkdtemp(join(tmpdir(), "ledge-bundle-"));
+    try {
+      // Contents/Resources/{ledge, host/src/codex}
+      const resources = join(bundle, "Contents", "Resources");
+      await mkdir(join(resources, "host", "src", "codex"), { recursive: true });
+      await writeFile(join(resources, "ledge"), "#!/bin/sh\n");
+      expect(ledgeBinDir(join(resources, "host", "src", "codex"))).toBe(resources);
+    } finally {
+      await rm(bundle, { recursive: true, force: true });
+    }
   });
 });

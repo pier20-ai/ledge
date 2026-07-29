@@ -8,7 +8,41 @@
 // Transport is stdio, newline-delimited JSON. `spawn` is injectable so tests can
 // drive a fake app-server and no test ever spends the user's quota.
 
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { Json } from "./events";
+
+/**
+ * The directory holding the `ledge` shim, or null when there isn't one.
+ *
+ * Installed, it sits at `Contents/Resources/ledge`. This file is three levels
+ * below that — `Resources/host/src/codex/client.ts` — and the count is checked
+ * against the real bundle in the tests, because getting it wrong returns null
+ * and the whole thing silently does nothing. In a checkout there is no shim, and
+ * the answer is honestly nothing.
+ */
+export function ledgeBinDir(from = import.meta.dir): string | null {
+  const resources = resolve(from, "..", "..", "..");
+  return existsSync(resolve(resources, "ledge")) ? resources : null;
+}
+
+/**
+ * `PATH` for the agent, with `ledge` on it.
+ *
+ * AGENTS.md tells the agent to run `ledge logs` and `ledge shot` — the only two
+ * ways it can see what it just built. In a real transcript it ran `which ledge`
+ * and got "ledge not found", because the shim lives inside the .app and nothing
+ * puts it on a PATH. Symlinking into /usr/local/bin needs a privilege this app
+ * does not have and should not ask for, so the agent's own child process is
+ * given the directory instead: it is the process that needs it, and it costs
+ * the user nothing.
+ */
+export function agentPath(env: Record<string, string | undefined>, binDir = ledgeBinDir()): string {
+  const current = env.PATH ?? "";
+  if (!binDir) return current;
+  const already = current.split(":").includes(binDir);
+  return already || current === "" ? current || binDir : `${binDir}:${current}`;
+}
 
 interface Pending {
   resolve: (value: Json) => void;
@@ -33,7 +67,7 @@ export function spawnCodex(command = "codex"): CodexProcess {
     // Explicitly, not implicitly: Codex reads the user's own ~/.codex/auth.json,
     // and Bun's implicit environment is a snapshot from process start — an agent
     // whose credentials were set after boot would silently not see them.
-    env: process.env,
+    env: { ...process.env, PATH: agentPath(process.env) },
   });
 
   let onLine: (line: string) => void = () => {};
