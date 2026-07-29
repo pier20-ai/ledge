@@ -104,12 +104,53 @@ describe("ledge CLI", () => {
 
     const quiet = await run(["logs", "flights", "--apps-root", root]);
     expect(quiet.code).toBe(0);
-    // Not an error: "it has not crashed" is the answer, not a failure.
-    expect(quiet.out).toContain("has not crashed");
+    // Not an error: "it has printed nothing" is the answer, not a failure — and
+    // it says what to do about it, because the reader is usually an agent that
+    // just made a change and is trying to find out whether it did anything.
+    expect(quiet.out).toContain("has printed nothing");
+    expect(quiet.out).toContain("ledge reload flights");
 
     await writeFile(join(root, "flights", "crash.log"), "# boom\nTypeError: nope\n");
     const loud = await run(["logs", "flights", "--apps-root", root]);
     expect(loud.out).toContain("TypeError: nope");
+  });
+
+  test("logs prints what the app printed, crash or no crash", async () => {
+    // The failure this exists for: an agent finishes a change, runs `ledge logs`
+    // on a perfectly healthy app, is told it has not crashed, and goes hunting
+    // through `find` and `ps aux` for output that was being thrown away.
+    const root = await makeRoot();
+    await mkdir(join(root, "flights"), { recursive: true });
+    await writeFile(
+      join(root, "flights", "console.log"),
+      "--- started ---\nlog: fetched 12 flights\nerror: BA117 has no gate\n",
+    );
+
+    const { code, out } = await run(["logs", "flights", "--apps-root", root]);
+    expect(code).toBe(0);
+    expect(out).toContain("fetched 12 flights");
+    expect(out).toContain("BA117 has no gate");
+    expect(out).not.toContain("has printed nothing");
+  });
+
+  test("logs shows the tail of a long console, and says how much it hid", async () => {
+    const root = await makeRoot();
+    await mkdir(join(root, "flights"), { recursive: true });
+    const lines = Array.from({ length: 500 }, (_, i) => `log: line ${i}`);
+    await writeFile(join(root, "flights", "console.log"), `${lines.join("\n")}\n`);
+
+    const { out } = await run(["logs", "flights", "--apps-root", root, "--lines", "5"]);
+    expect(out).toContain("line 499");
+    expect(out).not.toContain("line 494");
+    // Silent truncation would read as "that is all there was".
+    expect(out).toContain("495 earlier lines");
+  });
+
+  test("logs on an app that does not exist is an error, not an empty answer", async () => {
+    const root = await makeRoot();
+    const { code, err } = await run(["logs", "ghost", "--apps-root", root]);
+    expect(code).toBe(1);
+    expect(err).toContain("no app 'ghost'");
   });
 
   test("an unknown command explains itself and exits nonzero", async () => {

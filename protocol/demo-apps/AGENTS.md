@@ -7,6 +7,27 @@ file and it hot-reloads in about 300 ms — the loop is files, so edit and look.
 This document describes what the platform **actually does today**. Where it
 disagrees with `docs/design/spec.md`, this file is right and the spec is behind.
 
+## Before you go looking
+
+Everything the platform offers is in this file, and every example of it working
+is in a sibling app in this folder — `ls ..` and read one. If something here
+does not answer your question, the answer is in a sibling app, not elsewhere on
+this machine.
+
+In particular:
+
+- **The shell is not on this machine.** Ledge's Swift source lives in a separate
+  repository; searching your home directory for `*.swift` or `LedgeFileImageView`
+  finds nothing, slowly. What the renderer supports is the table below — if a
+  prop is not in it, it does not exist.
+- **You cannot see the screen.** `screencapture` returns the wallpaper without a
+  Screen Recording grant this process does not have. Render what you wrote
+  instead: `ledge shot <app>` draws the app's real panel to a PNG, through the
+  real renderer, and prints the path.
+- **`ledge logs <app>` is how you find out what happened** — it prints what the
+  app printed, whether or not it crashed. `console.log` from anywhere in an app
+  lands there. `~/.ledge/host.log` is the *host's* log, not yours.
+
 ---
 
 ## The smallest app
@@ -153,6 +174,44 @@ to the full panel. `ctx.peek()` only says *when*. Peeks are clamped to
 0.5–20 s (default 4 s) — it is a glance, not a way to hold the notch open. Use
 `ctx.expand()` when you genuinely want the panel.
 
+### The collapsed notch, in detail
+
+`ctx.wing(spec)` owns the collapsed pill until you release it with
+`ctx.wing(null)`. The spec is three optional fields, and each is a different
+kind of presence:
+
+```js
+ctx.wing({ text: "3:41", width: 220, canvas: { id: artCanvasId, w: 30 } })
+```
+
+- **`text`** — a short label in the **left** wing (48 chars, then it is cut).
+- **`canvas`** — a drawable strip in the **right** wing, `{ id, w }`. `id` is a
+  canvas node's id, the same id you pass to `ctx.draw` — so a canvas in your
+  panel and a wing canvas can be **the same node, drawn in two places**. Height
+  is the notch's; `w` is a request the shell clamps (~160 pt).
+- **`width`** — the total pill width. On its own, with no text and no canvas, it
+  is a bare shape request: the notch simply grows.
+
+To draw artwork in the notch, render a `<canvas>` anywhere in your tree, keep
+its id, and draw an `image` op into it:
+
+```jsx
+const art = useRef(null);
+// …in the panel, or offscreen inside <mini> — it only has to exist:
+<canvas ref={art} w={30} h={30} />
+
+// then, whenever the track changes:
+ctx.draw(art.current.id, [
+  { op: "clear" },
+  { op: "image", src: `${import.meta.dir}/art.jpg`, x: 0, y: 0, w: 30, h: 30 },
+]);
+ctx.wing({ text: track.title, canvas: { id: art.current.id, w: 30 } });
+```
+
+A wing survives until the app stops, crashes or reloads — the host releases it
+for you then, so a reload never leaves a dead app's label in the notch. The
+latest app to ask wins.
+
 ### Layout and size
 
 The root is a fixed width (440 pt by default; ask for more with
@@ -262,8 +321,16 @@ ctx.draw(board.current.id, [
 ]);
 ```
 
-Ops: `clear`, `rect`, `line`, `text`, `image`. Frames arriving faster than the
-display refreshes are coalesced — only the latest survives, so there is no point
+| op | fields |
+|---|---|
+| `clear` | — (the whole canvas) |
+| `rect` | `x`, `y`, `w`, `h`, `fill`, `radius` — filled, not stroked |
+| `line` | `points: [[x,y], …]`, `stroke`, `width` |
+| `text` | `x`, `y`, `content`, `size`, `color` |
+| `image` | `src` (an absolute file path), `x`, `y`, `w`, `h`, and `sx`/`sy`/`sw`/`sh` to draw one cell of a spritesheet, in image pixels from the top-left |
+
+Draw ops take **hex colours** (`#30D158`, `#FFF`, `#30D158CC`), not the palette
+tokens — a canvas is pixels, not a view, and a token here silently draws white. Frames arriving faster than the display refreshes are coalesced — only the latest survives, so there is no point
 drawing faster than ~60 Hz. **Stop drawing when `onLifecycle` reports
 `"collapsed"`**; a game that renders into a closed notch is just burning battery.
 
@@ -307,18 +374,36 @@ ledge new <id>       scaffold an app (refuses to overwrite an existing one)
 ledge list           installed apps
 ledge status         the same, as JSON
 ledge reload <id>    touch the entry point; the watcher reloads it
-ledge logs <id>      that app's last crash and recent console output
+ledge logs <id>      what the app printed, and its last crash if any
 ```
 
-`ledge logs` is the fastest way to find out why something you wrote stopped
-working — it prints the same `crash.log` described below, without you having to
-guess the path.
+```
+ledge shot <id>      render the app's panel to a PNG and print the path
+```
+
+## Seeing what you built
+
+You have two ways to check your work, and neither of them is a screenshot of the
+screen:
+
+**`ledge logs <id>`** prints what the app printed. `console.log` anywhere in an
+app — render, monitor, an event handler — lands in `console.log` in the app's
+folder, crash or no crash, with a `--- reloaded ---` marker at each reload so
+you can see what happened *after* your change. `-n 200` for more.
+
+**`ledge shot <id>`** renders the app's panel to a PNG through the real
+renderer, with no running shell and no screen-recording permission involved, and
+prints the path. `--click N` presses the N-th clickable node first, which is how
+you see a page you can only reach by pressing something.
+
+Between them: print what you believe, reload, read it back, and look at the
+result.
 
 ## When something breaks
 
-1. `crash.log` in the app's folder — the stack from the last crash, plus recent
-   console output.
-2. A syntax error never starts a worker; it is reported as a crash with the
+1. `ledge logs <id>` — what the app printed, then the stack from the last crash.
+2. `crash.log` in the app's folder is that same crash on its own.
+3. A syntax error never starts a worker; it is reported as a crash with the
    parse error.
-3. A crash loop backs off (1 s → 2 min, 5 attempts) and then stops. Fix the
+4. A crash loop backs off (1 s → 2 min, 5 attempts) and then stops. Fix the
    file and save — a save always restarts it.

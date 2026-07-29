@@ -193,6 +193,94 @@ body {
   white-space: pre;
 }
 
+/* A heading inside a turn is a section marker, not a title: the turn already
+   has a beginning. One size for every level — see markdown.js. */
+.reply h4 {
+  margin: 12px 0 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.reply h4:first-child {
+  margin-top: 0;
+}
+
+.reply ul,
+.reply ol {
+  margin: 0 0 8px;
+  /* Enough to hang the marker, not the browser's 40px — which on a 440 pt panel
+     is a tenth of the width spent on nothing. */
+  padding-left: 18px;
+}
+
+.reply li {
+  margin-bottom: 3px;
+  white-space: pre-wrap;
+}
+
+/* A link's target is not shown (nothing here can navigate); the label is styled
+   only enough to read as the name of a thing. */
+.reply .link {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--hairline);
+  text-underline-offset: 2px;
+}
+
+/* ------------------------------------------------------------------ tables */
+
+/* A before/after table is how these models summarise a change, so it has to
+   survive a narrow panel. It scrolls sideways INSIDE its own box rather than
+   wrapping every cell to two words, and never widens the transcript — a page
+   that scrolls horizontally would slide off the notch's own shape. */
+.table-wrap {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 0 8px;
+  overflow-x: auto;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+}
+
+.table-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.reply table {
+  border-collapse: collapse;
+  font-size: 11.5px;
+  /* Not 100%: a table forced to the panel's width squeezes its columns into
+     unreadable slivers. It takes the width its content needs and scrolls. */
+  min-width: 100%;
+}
+
+.reply th,
+.reply td {
+  padding: 5px 9px;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;
+  /* Long enough to read a phrase, short enough that three columns fit. */
+  max-width: 220px;
+}
+
+.reply th {
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.reply td {
+  color: var(--ink-2);
+}
+
+/* Rules between rows only — a full grid is more ink than a three-column table
+   in a notch needs. */
+.reply tbody tr + tr td,
+.reply thead + tbody td {
+  border-top: 1px solid var(--hairline);
+}
+
 /* ------------------------------------------------------------ tool marker */
 
 /* A labelled rule, not a chip: there is exactly one of these per turn and it is

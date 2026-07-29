@@ -75,6 +75,23 @@ enum LedgeInstall {
         if !seeded.isEmpty {
             NSLog("[ledge] seeded %@", seeded.joined(separator: " + "))
         }
+
+        // AGENTS.md is REPLACED on every launch, unlike everything else here.
+        //
+        // It is not the user's file and never was: it is how this version of
+        // Ledge describes itself to the agent editing an app, and an install
+        // from six months ago would otherwise keep handing out six-month-old
+        // documentation forever — for surfaces that have since changed and
+        // commands that did not exist when it was written. The failure mode is
+        // silent and expensive: the agent believes it, goes looking for things
+        // that are not there, and burns a turn finding out.
+        //
+        // Safe precisely because nobody edits it. Anything a user or an agent
+        // writes lives in an app's own folder, and every other member here is
+        // still restored only when it is missing.
+        if extract(seedArchive, member: "apps/AGENTS.md", into: root) == false {
+            NSLog("[ledge] could not refresh AGENTS.md from the seed archive")
+        }
         return manager.fileExists(atPath: appsRoot.path)
     }
 

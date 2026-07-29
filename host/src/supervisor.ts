@@ -6,6 +6,7 @@
 // tests exercise backoff with a fake clock and no real sleeps.
 
 import { join } from "node:path";
+import { ConsoleLog } from "./console-log";
 import { pathToFileURL } from "node:url";
 import type {
   AgentRequest,
@@ -144,6 +145,8 @@ export class AppSupervisor {
   private spawnAt = 0;
   private cancelRestart: (() => void) | null = null;
   private consoleRing: string[] = [];
+  /** The same lines, on disk and unbounded by a crash — see console-log.ts. */
+  private readonly consoleFile: ConsoleLog;
   /** Set once the app is disabled/removed — no further restarts. */
   private stopped = false;
 
@@ -160,6 +163,10 @@ export class AppSupervisor {
     this.transpile = options.transpile ?? transpileCheck;
     this.backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
     this.consoleRingSize = options.consoleRingSize ?? 100;
+    this.consoleFile = new ConsoleLog({
+      path: join(this.appDir, "console.log"),
+      onError: (error) => this.sink.log(this.appId, `could not write console.log: ${String(error)}`),
+    });
   }
 
   /** The app's folder — the working directory for anything run on its behalf
@@ -213,6 +220,10 @@ export class AppSupervisor {
   private async spawn(state: AppState): Promise<void> {
     if (this.stopped) return;
     this.consoleRing = []; // crash.log reflects this run's console only
+    // The FILE keeps its history and gets a boundary instead: "did my change do
+    // anything" is a question about what happened after the reload, and an agent
+    // reading the tail needs to see where that was.
+    this.consoleFile.mark(`${state} ${new Date().toISOString()}`);
 
     // Syntax-check first: a parse error is a crash report + crash.log, no spawn.
     const parseError = await this.transpile(this.modulePath);
@@ -297,6 +308,7 @@ export class AppSupervisor {
       case "console": {
         const line = `${msg.level}: ${msg.text}`;
         this.pushConsole(line);
+        this.consoleFile.write(line);
         this.sink.log(this.appId, line);
         break;
       }

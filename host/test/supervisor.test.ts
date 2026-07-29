@@ -390,4 +390,31 @@ describe("AppSupervisor", () => {
     expect(boots).toHaveLength(2);
     expect(boots.every((boot) => boot.reactPaths === reactPaths)).toBe(true);
   });
+
+  // `console.log` in the app's folder (src/console-log.ts). The ring buffer that
+  // feeds crash.log only reaches disk when something crashes, which meant a
+  // working app's output — the output an agent reads to find out whether its
+  // change did anything — was thrown away.
+  test("console output reaches the app's folder, with a marker per run", async () => {
+    const dir = await appDir();
+    const sink = new RecordingSink();
+    const { factory, instances } = fakeFactory();
+    const sup = new AppSupervisor({ appId: "x", appDir: dir, sink, factory, transpile: async () => null });
+
+    await sup.start();
+    instances[0]!.hooks.onMessage({ type: "console", level: "log", text: "fetched 12 flights" });
+    await sup.reload();
+    instances[1]!.hooks.onMessage({ type: "console", level: "error", text: "BA117 has no gate" });
+    // The debounce is short; the flush is what is being waited on, not a clock.
+    await Bun.sleep(250);
+
+    const written = await Bun.file(join(dir, "console.log")).text();
+    expect(written).toContain("fetched 12 flights");
+    expect(written).toContain("BA117 has no gate");
+    // A reload is the boundary "did my change do anything" is asked against.
+    expect(written).toContain("--- started");
+    expect(written).toContain("--- reloaded");
+    expect(written.indexOf("fetched 12")).toBeLessThan(written.indexOf("--- reloaded"));
+    sup.stop();
+  });
 });

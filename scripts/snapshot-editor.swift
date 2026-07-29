@@ -1,6 +1,9 @@
 // Render the built editor bundle in a real WKWebView and write a PNG.
 //
-//   swift scripts/snapshot-editor.swift [out.png] [--new] [--empty]
+//   swift scripts/snapshot-editor.swift [out.png] [--new] [--empty] [--rich]
+//
+// `--rich` renders the markdown a real turn emits — a heading, a table, a list,
+// a link — which is the only way to see whether any of it is readable.
 //
 // `--new` renders the [+] surface instead: the editor with no app behind it,
 // the prompt that creates one, and the host's `created` answer arriving mid-turn
@@ -29,6 +32,7 @@ let creating = arguments.contains("--new")
 /// Just the resting surface: no prompt, no turn. The empty state is the first
 /// thing anyone sees, and it is the one screen no scripted turn ever shows.
 let restingOnly = arguments.contains("--empty")
+let rich = arguments.contains("--rich")
 let outputPath = arguments.dropFirst().first(where: { !$0.hasPrefix("--") })
     ?? (creating ? "/tmp/ledge-editor-new.png" : "/tmp/ledge-editor.png")
 
@@ -101,7 +105,27 @@ window.__ledgeDeliver({ app: "stocks", turn: 1, event: "tool", name: "edit", sta
   detail: "/Users/you/.ledge/apps/stocks/app.jsx" });
 """
 
-let script = creating ? createScript : editScript
+// Verbatim shapes from the music app's artwork turn, which is where the table
+// problem was found.
+let richScript = """
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "Done — the collapsed right wing now shows 30pt album art.\\n\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "## Album artwork\\n\\n| Before | After |\\n| --- | --- |\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "| Collapsed wing showed text only | Reuses the mini-player canvas |\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "| Artwork edge was unframed | Added a subtle white outline |\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "| Missing artwork | Falls back to text-only |\\n\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "Checks made:\\n- `app.jsx` compiled and hot-reloaded\\n- the live host confirmed the wing\\n\\n" });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "text",
+  delta: "[app.jsx](/Users/admin/.ledge/apps/music/app.jsx:430) is the only file touched." });
+window.__ledgeDeliver({ app: "stocks", turn: 1, event: "done", status: "completed" });
+"""
+
+let script = rich ? richScript : (creating ? createScript : editScript)
 
 final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let webView: WKWebView

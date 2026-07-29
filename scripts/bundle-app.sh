@@ -190,6 +190,10 @@ cat > "$CONTENTS/Resources/ledge" <<'SHIM'
 # Ledge CLI (spec §8). Symlink this somewhere on your PATH:
 #   ln -s "/Applications/Ledge.app/Contents/Resources/ledge" /usr/local/bin/ledge
 HERE="$(cd "$(dirname "$0")" && pwd)"
+# `ledge shot` renders an app through the shell binary. It is right here, and
+# saying so beats making the CLI guess where the app was installed.
+LEDGE_SHELL_BIN="$HERE/../MacOS/LedgeShell"
+export LEDGE_SHELL_BIN
 exec "$HERE/../MacOS/ledge-host" "$HERE/host/src/cli.ts" "$@"
 SHIM
 chmod +x "$CONTENTS/Resources/ledge"
