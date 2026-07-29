@@ -37,7 +37,7 @@ final class PermissionsCardView: FlippedView {
 
     static let width: CGFloat = PanelLimits.defaultWidth
     private static let pad: CGFloat = LedgeMetrics.errorCardPad
-    private static let rowGap: CGFloat = 5
+    private static let rowGap: CGFloat = 6
 
     /// The user is done with this surface — dismissed, not "finished", because
     /// there is nothing here that has to be completed.
@@ -215,10 +215,12 @@ final class PermissionsCardView: FlippedView {
     /// this surface is optional is that the prompts still happen on their own,
     /// and a user who does not know that reads a skipped onboarding as a broken
     /// install.
+    /// Two lines, not three. Five rows and a panel that clamps at 480 pt means
+    /// every line of preamble is taken out of the content it introduces — and
+    /// the third line was restating the first.
     private static let intro = """
-        Apps reach macOS through Ledge, so the system asks Ledge — normally at \
-        the moment an app first needs something. You can settle any of these now \
-        instead, or skip it and answer when it comes up.
+        Apps reach macOS through Ledge, so the system asks Ledge — usually the \
+        moment an app needs something. Settle any of these now, or later.
         """
 }
 
@@ -229,7 +231,7 @@ fileprivate final class PermissionRowView: RoundedBoxView {
     private(set) var actionButton: LedgeButton?
 
     private static let padX: CGFloat = 12
-    private static let padY: CGFloat = 8
+    private static let padY: CGFloat = 10
     private static let titleHeight: CGFloat = 16
     private static let lineHeight: CGFloat = 14
     private static let footnoteHeight: CGFloat = 13
@@ -243,8 +245,8 @@ fileprivate final class PermissionRowView: RoundedBoxView {
     private static let textWidth = width - iconColumn - padX * 2
 
     static func height(for row: PermissionRow) -> CGFloat {
-        let footnote = row.footnote == nil ? 0 : footnoteHeight + 2
-        return padY * 2 + titleHeight + 2 + lineHeight + footnote
+        let footnote = row.footnote == nil ? 0 : footnoteHeight + 3
+        return padY * 2 + titleHeight + 3 + lineHeight + footnote
     }
 
     init(row: PermissionRow, act: @escaping () -> Void) {
@@ -269,7 +271,7 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         title.frame = CGRect(
             x: Self.padX + Self.iconColumn,
             y: Self.padY,
-            width: 200,
+            width: Self.textWidth - 92,
             height: Self.titleHeight
         )
         addSubview(title)
@@ -281,7 +283,7 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         )
         summary.frame = CGRect(
             x: Self.padX + Self.iconColumn,
-            y: Self.padY + Self.titleHeight + 2,
+            y: Self.padY + Self.titleHeight + 3,
             width: Self.textWidth,
             height: Self.lineHeight
         )
@@ -295,37 +297,55 @@ fileprivate final class PermissionRowView: RoundedBoxView {
             )
             label.frame = CGRect(
                 x: Self.padX + Self.iconColumn,
-                y: Self.padY + Self.titleHeight + Self.lineHeight + 4,
+                y: Self.padY + Self.titleHeight + Self.lineHeight + 6,
                 width: Self.textWidth,
                 height: Self.footnoteHeight
             )
             addSubview(label)
         }
 
-        let pill = LedgePill(text: row.status.badge, tone: Self.tone(row.status))
-        addSubview(pill)
-
-        var rightEdge = Self.width - Self.padX
+        // ONE thing on the right, never two. A pill reading NOT ASKED beside a
+        // button reading "Allow…" states the same fact twice, and the pair was
+        // what made five rows feel like a form: two objects competing for the
+        // end of every title line, in a panel 440 pt wide.
+        //
+        // So the button IS the status when there is something to do — "Allow…"
+        // says not-yet, "Settings" says denied or unreadable — and a row with
+        // nothing left to do says so quietly in words instead.
         if let label = row.action.label {
             let button = LedgeButton(label, variant: .glass, size: .s, handler: act)
             let buttonWidth = max(64, button.intrinsicContentSize.width)
             button.frame = CGRect(
-                x: rightEdge - buttonWidth,
-                y: Self.padY - 3,
+                x: Self.width - Self.padX - buttonWidth,
+                y: Self.padY - 2,
                 width: buttonWidth,
                 height: LedgeMetrics.Size.s.height
             )
             addSubview(button)
             actionButton = button
-            rightEdge -= buttonWidth + 8
+        } else {
+            let font = LedgeTheme.systemFont(11, weight: .medium)
+            let badge = makeLabel(
+                row.status.plain,
+                font: font,
+                color: row.status.tone == .good ? LedgeTheme.green : LedgeTheme.secondary
+            )
+            badge.alignment = .right
+            // Measured from the STRING, not from the field. A label's intrinsic
+            // width came back a few points short here and the word arrived
+            // ellipsised — "Allowed" as "Allow…", which is not a smaller version
+            // of the truth, it is a different one.
+            let badgeWidth = ceil(
+                (row.status.plain as NSString).size(withAttributes: [.font: font]).width
+            ) + 4
+            badge.frame = CGRect(
+                x: Self.width - Self.padX - badgeWidth,
+                y: Self.padY + 1,
+                width: badgeWidth,
+                height: Self.titleHeight
+            )
+            addSubview(badge)
         }
-        let pillWidth = pill.intrinsicContentSize.width
-        pill.frame = CGRect(
-            x: rightEdge - pillWidth,
-            y: Self.padY + 1,
-            width: pillWidth,
-            height: LedgeMetrics.pillHeight
-        )
 
         setAccessibilityRole(.group)
         setAccessibilityLabel("\(row.permission.title): \(row.status.badge)")
@@ -336,11 +356,4 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    private static func tone(_ status: PermissionStatus) -> LedgePill.Tone {
-        switch status.tone {
-        case .good: .green
-        case .bad: .red
-        case .quiet: .neutral
-        }
-    }
 }

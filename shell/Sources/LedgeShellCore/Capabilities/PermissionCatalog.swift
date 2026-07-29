@@ -178,6 +178,21 @@ public enum PermissionStatus: Equatable, Sendable {
         }
     }
 
+    /// The same state as a WORD, for a row that has no button.
+    ///
+    /// `badge` is pill copy — short, upper-case, sized to sit inside a shape.
+    /// Set as plain text at the end of a title line it reads as shouting, and
+    /// "N/A" reads as a form field. This is the same fact said normally.
+    public var plain: String {
+        switch self {
+        case .granted: "Allowed"
+        case .denied: "Denied"
+        case .notDetermined: "Not asked"
+        case .unreadable: "Unknown"
+        case .unavailable: "Unavailable"
+        }
+    }
+
     /// Hue family, named by meaning. The shell maps it to a palette; Core has no
     /// colors, and a status that carried one would be the one place the theme
     /// could not be changed from `LedgeTheme`.
