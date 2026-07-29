@@ -367,4 +367,34 @@ struct ProtocolEngineTests {
         #expect(try sends[0].decodePayload([String: JSONValue].self)["text"]?.asString == "make it green")
         #expect(try sends[1].decodePayload([String: JSONValue].self)["cancel"]?.asBool == true)
     }
+
+    /// The framing, asserted against the shared fixture the host reads too.
+    ///
+    /// This exists because both halves of `builderInput` were once tested only
+    /// against themselves, and they disagreed: the shell put the target app in
+    /// the PAYLOAD (a control-plane frame, like `selection` and `resyncRequest`)
+    /// and the host read the ENVELOPE's app. Nothing failed anywhere. Every
+    /// message the user typed simply ran a turn for the app named `""` and
+    /// streamed its answer to an editor that was showing something else.
+    ///
+    /// A shared fixture is the only kind of test that could have caught it, so
+    /// this one names the file the host's suite also asserts against.
+    @Test("Builder input is framed exactly like the shared fixture (§4.3)")
+    func builderInputMatchesTheFixture() throws {
+        let (engine, _, outbound) = makeEngine()
+        engine.sendBuilderInput(app: "stocks", text: "make the price green when it's up")
+        // And the [+] surface's form: an app id that does not exist yet, which
+        // the host reads as "make one" (§8).
+        engine.sendBuilderInput(app: "", text: "a pomodoro timer that dings")
+
+        for (index, name) in ["builder-input.json", "builder-input-new.json"].enumerated() {
+            let fixture = try JSONDecoder().decode(Envelope.self, from: try Fixtures.data(name))
+            let sent = outbound.all(ofType: "builderInput")[index]
+            #expect(sent.app == fixture.app, "\(name): the envelope's app must be the control plane's")
+            let payload = try sent.decodePayload([String: JSONValue].self)
+            let expected = try fixture.decodePayload([String: JSONValue].self)
+            #expect(payload["app"] == expected["app"], "\(name): the TARGET app lives in the payload")
+            #expect(payload["text"] == expected["text"], "\(name)")
+        }
+    }
 }

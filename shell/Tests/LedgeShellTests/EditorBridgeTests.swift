@@ -385,14 +385,18 @@ struct EditorBridgeTests {
     /// onto it *without* clearing, because the transcript already holds the
     /// prompt that caused it and the reply is streaming into it.
     @Test("`created` moves the [+] surface onto the app the host just made")
-    func createdAdoptsTheNewApp() {
+    func createdAdoptsTheNewApp() throws {
         let bridge = EditorBridge()
         bridge.focus(app: "")
         bridge.submit(.ready)
         var announced: [String] = []
         bridge.onCreated = { announced.append($0) }
 
-        #expect(bridge.deliver(event(app: "pomodoro-timer", turn: 0, event: "created")))
+        // The real frame from the shared corpus, decoded exactly as the wire
+        // delivers it — the same file the host's suite asserts against.
+        let envelope = try JSONDecoder().decode(
+            Envelope.self, from: try Fixtures.data("builder-created.json"))
+        #expect(bridge.deliver(try envelope.decodePayload(BuilderPayload.self)))
         #expect(bridge.app == "pomodoro-timer")
         #expect(announced == ["pomodoro-timer"])
 

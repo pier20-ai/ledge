@@ -10,6 +10,13 @@ import { Builder } from "../src/builder";
 import { FakeCodex } from "../src/fakes/fake-codex";
 import type { RestartScheduler } from "../src/supervisor";
 import type { Mutation } from "../src/render/mutations";
+import { parseEnvelope } from "../src/protocol/envelope";
+
+/** One envelope from the corpus both sides read (protocol/fixtures). */
+const PROTOCOL_FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "protocol", "fixtures");
+async function fixtureEnvelope(name: string): Promise<Envelope> {
+  return parseEnvelope(await Bun.file(join(PROTOCOL_FIXTURES, name)).json());
+}
 
 // Router + REAL Bun workers against a recording ShellSession (spec §§3–4). This is
 // the host-side end-to-end: a genuine worker mounts through the supervisor, the
@@ -287,13 +294,12 @@ describe("Router end-to-end (real workers)", () => {
     // halves agreed with each other and disagreed with the shell. The symptom
     // was total: every message the user typed started a turn for the app named
     // `""` and streamed back to an editor that was showing a different one.
-    router.onEnvelope(session, {
-      v: 1,
-      app: "",
-      seq: 1,
-      type: "builderInput",
-      payload: { app: "stocks", text: "make it green" },
-    });
+    // Read from the SHARED fixture rather than written out here: the previous
+    // version of this test wrote the frame itself, agreed with the router, and
+    // so proved only that the host was self-consistent. Swift asserts its
+    // emitter against the same file (ProtocolEngineTests), which is the only
+    // arrangement in which the two halves cannot drift apart in silence.
+    router.onEnvelope(session, await fixtureEnvelope("builder-input.json"));
 
     await waitFor(() => fake.requests.some((r) => r.method === "turn/start"));
     fake.emitTurn("thread-1", "on it");
@@ -332,13 +338,7 @@ describe("Router end-to-end (real workers)", () => {
     });
 
     await router.bindSession(session);
-    router.onEnvelope(session, {
-      v: 1,
-      app: "",
-      seq: 1,
-      type: "builderInput",
-      payload: { app: "", text: "a pomodoro timer that dings" },
-    });
+    router.onEnvelope(session, await fixtureEnvelope("builder-input-new.json"));
 
     await waitFor(() => session.envelopesFor("", "builder").length >= 1);
     const created = session.envelopesFor("", "builder")[0]!.payload;
