@@ -2,10 +2,20 @@ import AppKit
 import Darwin
 import LedgeShellCore
 
+/// No status-bar item, deliberately.
+///
+/// Ledge had one with "Toggle expansion" and "Quit Ledge" on it. The first
+/// duplicated the notch itself — the whole product is a thing you click at the
+/// top of the screen — and the second is one line in Settings. A menu-bar icon
+/// that exists to hold a single Quit is a permanent tenant of a crowded strip,
+/// paying rent on somebody else's screen.
+///
+/// The consequence is worth stating plainly: `LSUIElement` means no Dock icon
+/// either, so the Settings panel is now the only way to quit Ledge without
+/// Activity Monitor. That is a real constraint on Settings, not an afterthought.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
-    private var statusItem: NSStatusItem?
     private var hostSession: HostSession?
     private var hostProcess: HostProcess?
     /// Socket path override; `nil` means `~/.ledge/ledge.sock` (spec §1).
@@ -18,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostSession = session
         let controller = NotchPanelController(session: session)
         panelController = controller
-        installStatusMenu()
         controller.start()
 
         // The shell is the listener (spec §1): it binds the socket and the host
@@ -82,46 +91,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostSession?.stop()
     }
 
-    private func installStatusMenu() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(
-            systemSymbolName: "rectangle.tophalf.inset.filled",
-            accessibilityDescription: "Ledge"
-        )
-        item.button?.toolTip = "Ledge"
-
-        let menu = NSMenu(title: "Ledge")
-        let collapse = NSMenuItem(
-            title: "Toggle expansion",
-            action: #selector(toggleExpansion),
-            keyEquivalent: " "
-        )
-        collapse.target = self
-        menu.addItem(collapse)
-
-        menu.addItem(.separator())
-        let quit = NSMenuItem(
-            title: "Quit Ledge",
-            action: #selector(quit),
-            keyEquivalent: "q"
-        )
-        quit.target = self
-        menu.addItem(quit)
-        item.menu = menu
-        statusItem = item
-    }
-
-    @objc private func toggleExpansion() {
-        panelController?.toggleExpansion()
-    }
-
     @objc private func screenConfigurationChanged() {
         panelController?.reposition()
     }
 
-    @objc private func quit() {
-        NSApp.terminate(nil)
-    }
 }
 
 @main
