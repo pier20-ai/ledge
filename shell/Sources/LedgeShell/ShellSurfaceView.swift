@@ -134,6 +134,63 @@ private struct Spring {
     static let bump = Spring(response: 0.30, damping: 0.75)
 }
 
+/// A quiet continuation cue over an overflowing app row. The gradient makes
+/// the clipped edge legible and the chevron names the available gesture; both
+/// are pass-through so they never steal scrolling or a click from an icon.
+private final class AppStripScrollHintView: NSView {
+    enum Direction {
+        case left
+        case right
+    }
+
+    private let direction: Direction
+    private let gradient = CAGradientLayer()
+    private let chevron = NSImageView()
+
+    init(direction: Direction) {
+        self.direction = direction
+        super.init(frame: .zero)
+        wantsLayer = true
+        gradient.startPoint = CGPoint(x: 0, y: 0.5)
+        gradient.endPoint = CGPoint(x: 1, y: 0.5)
+        gradient.colors = direction == .left
+            ? [LedgeTheme.glass.cgColor, NSColor.clear.cgColor]
+            : [NSColor.clear.cgColor, LedgeTheme.glass.cgColor]
+        layer?.addSublayer(gradient)
+
+        chevron.image = NSImage(
+            systemSymbolName: direction == .left ? "chevron.left" : "chevron.right",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        )
+        chevron.contentTintColor = LedgeTheme.secondary
+        chevron.imageScaling = .scaleProportionallyDown
+        addSubview(chevron)
+        isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layout() {
+        super.layout()
+        gradient.frame = bounds
+        let iconSize: CGFloat = 12
+        let x: CGFloat = direction == .left ? 3 : bounds.width - iconSize - 3
+        chevron.frame = CGRect(
+            x: x,
+            y: bounds.midY - iconSize / 2,
+            width: iconSize,
+            height: iconSize
+        )
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 /// The 42 pt strip every expanded panel reserves (spec §8). Built from the
 /// host's `catalog` snapshot and nothing else: installed apps at left in
 /// catalog order, then **[+]**, then Settings at the far right.
@@ -142,9 +199,8 @@ private struct Spring {
 /// the two controls that must never be unreachable are exactly the two an
 /// overflowing row pushes off the end first: **[+]** (how you make app eleven)
 /// and Settings (how you turn app ten off). So the row is
-/// `[scrolling icons][+][safe gap][Settings]`, and the scroll area only ever
-/// takes the width it needs — below the overflow point the layout is
-/// point-for-point what it was before the scroller existed.
+/// `[scrolling icons][+][safe gap][Settings]`: the two fixed controls stay
+/// grouped at the right, and the icon area takes whatever remains.
 final class AppBarView: FlippedView {
     /// The Settings app is pinned to the far right rather than shown among the
     /// installed apps (spec §8). It is still an ordinary app to the protocol —
@@ -158,6 +214,8 @@ final class AppBarView: FlippedView {
     private let settingsDivider = HairlineView()
     private let scrollView = NSScrollView()
     private let iconRow = FlippedView()
+    private let leftScrollHint = AppStripScrollHintView(direction: .left)
+    private let rightScrollHint = AppStripScrollHintView(direction: .right)
     private let callbacks: ShellCallbacks
 
     init(callbacks: ShellCallbacks) {
@@ -200,11 +258,14 @@ final class AppBarView: FlippedView {
         addSubview(scrollView)
         addSubview(separator)
         addSubview(settingsDivider)
+        addSubview(leftScrollHint)
+        addSubview(rightScrollHint)
         setApps([])
     }
 
     @objc private func iconAreaDidScroll() {
         syncIconHover()
+        updateScrollHints()
     }
 
     @available(*, unavailable)
@@ -283,10 +344,10 @@ final class AppBarView: FlippedView {
             height: LedgeMetrics.stripIconCell
         )
 
-        // `min` is what makes an uncrowded strip identical to the old one: the
-        // area takes exactly its content's width, so [+] lands where it always
-        // did, and only an overflowing row is clamped and starts scrolling.
-        let iconArea = min(iconContentWidth, maxIconAreaWidth)
+        // Fill the available icon lane even when there are only a few apps.
+        // That keeps [+] beside Settings instead of leaving a large accidental
+        // gap between the strip's two permanent controls.
+        let iconArea = maxIconAreaWidth
         scrollView.frame = CGRect(x: 0, y: 1, width: iconArea, height: LedgeMetrics.stripIconCell)
         iconRow.frame = CGRect(
             x: 0,
@@ -300,7 +361,29 @@ final class AppBarView: FlippedView {
             width: LedgeMetrics.stripIconCell,
             height: LedgeMetrics.stripIconCell
         )
+        let hintWidth = min(LedgeMetrics.stripScrollHintWidth, iconArea)
+        leftScrollHint.frame = CGRect(
+            x: scrollView.frame.minX,
+            y: scrollView.frame.minY,
+            width: hintWidth,
+            height: scrollView.frame.height
+        )
+        rightScrollHint.frame = CGRect(
+            x: scrollView.frame.maxX - hintWidth,
+            y: scrollView.frame.minY,
+            width: hintWidth,
+            height: scrollView.frame.height
+        )
+        updateScrollHints()
         syncIconHover()
+    }
+
+    private func updateScrollHints() {
+        let maxOffset = max(0, iconRow.frame.width - scrollView.contentView.bounds.width)
+        let offset = scrollView.contentView.bounds.minX
+        let overflowing = maxOffset > 0.5
+        leftScrollHint.isHidden = !overflowing || offset <= 0.5
+        rightScrollHint.isHidden = !overflowing || offset >= maxOffset - 0.5
     }
 
     /// Light the presented app's icon (spec §8: the dot indicator). `newApp`
@@ -351,6 +434,8 @@ final class AppBarView: FlippedView {
     /// Whether the icon area is actually scrolling (content wider than its clip).
     var isIconAreaScrolling: Bool { iconContentWidth > scrollView.frame.width + 0.5 }
     var iconAreaFrame: CGRect { scrollView.frame }
+    var showsLeftScrollHint: Bool { !leftScrollHint.isHidden }
+    var showsRightScrollHint: Bool { !rightScrollHint.isHidden }
     /// Scroll the icon area, as a live scroll would — for the staleness test.
     func scrollIcons(to x: CGFloat) {
         scrollView.contentView.scroll(to: CGPoint(x: x, y: 0))
@@ -411,7 +496,7 @@ final class PanelWingBarView: FlippedView {
         editButton = LedgeButton(
             "Edit",
             symbol: "wand.and.stars",
-            variant: .glass,
+            variant: .plain,
             size: .s,
             handler: onEdit
         )
@@ -467,11 +552,9 @@ final class PanelWingBarView: FlippedView {
         needsLayout = true
     }
 
-    /// The toggle's build status (spec §3.2 `app` states, read through the
-    /// editor): neutral glass normally, green when the app reloaded cleanly,
-    /// red when it crashed. The colour lives on this control rather than in the
-    /// transcript because it is the answer to "did that work" — and the eye is
-    /// already on this corner when the user goes to look back at the app.
+    /// The last build status (spec §3.2 `app` states, read through the editor).
+    /// The surface uses changes to pulse once, but Edit itself stays transparent:
+    /// persistent fill is reserved for the yellow Preview mode.
     func setBuildStatus(_ status: EditorBuildStatus) {
         buildStatus = status
         applyToggleAppearance()
@@ -481,8 +564,7 @@ final class PanelWingBarView: FlippedView {
     ///
     /// While the editor is open the button is the way BACK to your app, and it
     /// has to be findable at a glance in a panel that is otherwise a wall of
-    /// transcript — so it fills, in yellow, with white ink. Build status is a
-    /// wash on the same control when the app's tree is showing.
+    /// transcript — so it fills, in yellow, with white ink. Edit has no fill.
     private func applyToggleAppearance() {
         if isShowingEditor {
             // The shell's accent already IS the amber this asks for (Theme.swift).
@@ -491,11 +573,7 @@ final class PanelWingBarView: FlippedView {
             return
         }
         editButton.filledTint = nil
-        editButton.tint = switch buildStatus {
-        case .neutral: nil
-        case .reloaded: LedgeTheme.green
-        case .crashed: LedgeTheme.red
-        }
+        editButton.tint = nil
     }
 
     private(set) var buildStatus: EditorBuildStatus = .neutral
@@ -1456,6 +1534,7 @@ final class ShellSurfaceView: FlippedView {
         } else {
             openWork?.cancel()
             if presentation.isExpanded {
+                guard presentation.allowsPassiveCollapse else { return }
                 // An exit right after a morph is the panel moving, not the
                 // user leaving — forgive it; present() scheduled a resync for
                 // when the grace lapses.

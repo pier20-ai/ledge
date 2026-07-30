@@ -94,6 +94,21 @@ struct HostStatusTests {
         #expect(HostPlaceholderView.Phase.noHost(detail: "a") != .noHost(detail: "b"))
     }
 
+    @Test("A broken login shell is bounded and falls back")
+    func loginPathHasADeadline() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ledge-path-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let shell = root.appendingPathComponent("stuck-shell")
+        try Data("#!/bin/sh\nwhile :; do :; done\n".utf8).write(to: shell)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: shell.path)
+
+        let started = Date()
+        #expect(HostProcess.loginPath(shell: shell.path, timeout: 0.05) == nil)
+        #expect(Date().timeIntervalSince(started) < 0.5)
+    }
+
     /// Every string drawn anywhere in a view tree.
     private static func allText(in view: NSView) -> [String] {
         var found: [String] = []

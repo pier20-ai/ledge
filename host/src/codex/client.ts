@@ -47,6 +47,7 @@ export function agentPath(env: Record<string, string | undefined>, binDir = ledg
 interface Pending {
   resolve: (value: Json) => void;
   reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
 }
 
 /** The subprocess surface the client needs — injectable for tests. */
@@ -59,7 +60,7 @@ export interface CodexProcess {
 }
 
 /** Spawn a real `codex app-server`. */
-export function spawnCodex(command = "codex"): CodexProcess {
+export function spawnCodex(command = "codex", log: (line: string) => void = () => {}): CodexProcess {
   const proc = Bun.spawn([command, "app-server"], {
     stdin: "pipe",
     stdout: "pipe",
@@ -87,6 +88,33 @@ export function spawnCodex(command = "codex"): CodexProcess {
       }
     }
   })();
+  // stderr is prose rather than protocol, but it still has to be consumed. An
+  // unread pipe is bounded; once full it stops app-server at its next write and
+  // makes an otherwise healthy turn look hung forever.
+  void (async () => {
+    const reader = proc.stderr.getReader();
+    const decoder = new TextDecoder();
+    let stderr = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      stderr += decoder.decode(value, { stream: true });
+      let newline: number;
+      while ((newline = stderr.indexOf("\n")) >= 0) {
+        const line = stderr.slice(0, newline).trim();
+        stderr = stderr.slice(newline + 1);
+        if (line) log(`[ledge-host] codex: ${line.slice(0, 2_000)}`);
+      }
+      // A tool can print one enormous line. Keep draining even then, and bound
+      // what diagnostic text the host retains between newlines.
+      if (stderr.length > 8_192) {
+        log(`[ledge-host] codex: ${stderr.slice(0, 2_000)}…`);
+        stderr = "";
+      }
+    }
+    const tail = stderr.trim();
+    if (tail) log(`[ledge-host] codex: ${tail.slice(0, 2_000)}`);
+  })();
 
   return {
     write: (line) => {
@@ -106,17 +134,23 @@ export function spawnCodex(command = "codex"): CodexProcess {
 export interface CodexClientOptions {
   spawn?: () => CodexProcess;
   log?: (line: string) => void;
+  /** Deadline for one JSON-RPC reply. Turn execution itself is notification
+   * driven and is not constrained by this value. */
+  requestTimeoutMs?: number;
 }
 
 export class CodexClient {
   private readonly proc: CodexProcess;
   private readonly log: (line: string) => void;
+  private readonly requestTimeoutMs: number;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
   private exited = false;
 
   /** Called for every server→client notification. */
   onNotification: (method: string, params: Json) => void = () => {};
+  /** Called after the process has stopped and pending requests are rejected. */
+  onExit: (code: number) => void = () => {};
   /**
    * Called for every server→client *request*. Approvals arrive this way, and a
    * request that never gets answered wedges the turn silently — so there is a
@@ -129,15 +163,21 @@ export class CodexClient {
 
   constructor(options: CodexClientOptions = {}) {
     this.log = options.log ?? (() => {});
-    this.proc = (options.spawn ?? (() => spawnCodex()))();
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000;
+    this.proc = options.spawn ? options.spawn() : spawnCodex("codex", this.log);
     this.proc.onLine((line) => this.dispatch(line));
     this.proc.onExit((code) => {
+      if (this.exited) return;
       this.exited = true;
       this.log(`[ledge-host] codex app-server exited (${code})`);
       // Fail everything still waiting rather than let an app hang forever.
-      for (const [, entry] of this.pending) entry.reject(new Error("codex app-server exited"));
+      for (const [, entry] of this.pending) {
+        clearTimeout(entry.timeout);
+        entry.reject(new Error("codex app-server exited"));
+      }
       this.pending.clear();
       this.activeTurns.clear();
+      this.onExit(code);
     });
   }
 
@@ -163,6 +203,7 @@ export class CodexClient {
       const entry = this.pending.get(id);
       if (!entry) return;
       this.pending.delete(id);
+      clearTimeout(entry.timeout);
       if (message.error) {
         const error = message.error as { message?: string };
         entry.reject(new Error(error.message ?? JSON.stringify(message.error)));
@@ -200,10 +241,23 @@ export class CodexClient {
   request(method: string, params: Json = {}): Promise<Json> {
     if (this.exited) return Promise.reject(new Error("codex app-server is not running"));
     const id = this.nextId++;
-    const promise = new Promise<Json>((res, rej) =>
-      this.pending.set(id, { resolve: res, reject: rej }),
-    );
-    this.write({ jsonrpc: "2.0", id, method, params });
+    const promise = new Promise<Json>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`codex ${method} timed out after ${this.requestTimeoutMs} ms`));
+      }, this.requestTimeoutMs);
+      this.pending.set(id, { resolve, reject, timeout });
+    });
+    try {
+      this.write({ jsonrpc: "2.0", id, method, params });
+    } catch (error) {
+      const entry = this.pending.get(id);
+      if (entry) {
+        clearTimeout(entry.timeout);
+        this.pending.delete(id);
+        entry.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
     return promise;
   }
 

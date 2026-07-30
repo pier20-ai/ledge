@@ -101,7 +101,9 @@ export default function App() {
     expect(calls[0]!.args[1]).toBe(outDir);
     // The batch it renders is written where the shell was told to look — and
     // swept afterwards, so a `ledge shot` loop does not fill /tmp with JSON.
-    expect(handed?.name).toBe("Solo");
+    // Assignment happens inside the injected async runner, which TypeScript's
+    // control-flow analysis cannot follow back into this scope.
+    expect((handed as { name?: string } | null)?.name).toBe("Solo");
     expect(await Bun.file(join(calls[0]!.args[3]!, "solo.json")).exists()).toBe(false);
   });
 

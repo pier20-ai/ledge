@@ -408,6 +408,24 @@ struct EditorBridgeTests {
         #expect((bridge.emitted.last ?? "").contains("\"installed\":true"))
     }
 
+    @Test("The agent announcement survives a WebKit page reset")
+    func agentStatusSurvivesPageReset() throws {
+        let bridge = readyBridge()
+        _ = bridge.deliver(BuilderPayload(
+            app: "", turn: 0, event: "agent", name: "Codex", installed: false
+        ))
+        let before = bridge.emitted.count
+
+        bridge.pageReset()
+        bridge.submit(.ready)
+
+        #expect(bridge.emitted.count == before + 2)
+        #expect(bridge.emitted[before].contains("\"thread\""))
+        let status = try lastEvent(bridge)
+        #expect(status["event"]?.asString == "agent")
+        #expect(status["installed"]?.asBool == false)
+    }
+
     // MARK: - The [+] surface (spec §4.3, §8)
 
     /// The panel presents this same editor with `app: ""` when there is nothing

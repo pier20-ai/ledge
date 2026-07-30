@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// First-run seeding of `~/.ledge` (spec §6: everything lives under `~/.ledge/`).
@@ -13,6 +14,22 @@ import Foundation
 /// a compiled host carries no copy of its own. If seeding does not happen, every
 /// app crashes on boot with "could not resolve react".
 enum LedgeInstall {
+    /// Exact historical Settings sources that were shipped as inert pictures.
+    ///
+    /// Settings is shell-owned chrome in practice — the only in-app route to
+    /// Quit, Permissions, and app management — but it lives beside user apps so
+    /// the host can render it through the same protocol. That makes upgrades a
+    /// narrow migration problem: replace only a source Ledge itself shipped,
+    /// identified byte-for-byte, and leave every edited variant alone.
+    static let legacySettingsDigests: Set<String> = [
+        // 790668b: inert Settings mockup.
+        "2cb03dc92cf9f0c82eb95a2b43c0b96f61f5abc97f9c44ff048ffbfd64e988db",
+        // 33a5e62: working app toggles and Quit, but no route back to Permissions.
+        "8e55f92d07814ed65d893b9dc71b274e3e3144095d6a0d6238233ab87f9ef10f",
+        // c492b16..HEAD: Permissions called the obsolete ctx.platform API.
+        "41d6114988791705aa95a6cc5b2fa9c613d7bf8e5636f21391c372c6a01a8d4d",
+    ]
+
     /// Overrides the install root (`--ledge-root`). Redirects seeding, the apps
     /// root and the host log together, so a test run can exercise the real
     /// first-launch path without writing into the user's actual `~/.ledge`.
@@ -106,6 +123,24 @@ enum LedgeInstall {
             NSLog("[ledge] seeded %@", seeded.joined(separator: " + "))
         }
 
+        // Settings is the one app an upgrade may have to restore. Older bundles
+        // seeded an inert mockup or a Settings implementation with no working
+        // route to Permissions, and this release removes the menu-bar escape
+        // hatch because the real Settings app owns Quit and Permissions. Keeping
+        // one of those exact old files would strand an existing installation.
+        //
+        // A digest, not a marker comment: an agent may have edited the old source
+        // without removing its header. Only the exact bytes Ledge shipped are
+        // replaceable; anything else is user work and remains untouched.
+        let settingsEntry = appsRoot.appendingPathComponent("settings/app.jsx")
+        if settingsNeedsRefresh(settingsEntry, manager: manager) {
+            if extract(seedArchive, member: "apps/settings/app.jsx", into: root) {
+                NSLog("[ledge] installed current Settings app")
+            } else {
+                NSLog("[ledge] could not refresh the Settings app")
+            }
+        }
+
         // The DOCS are replaced on every launch, unlike everything else here.
         //
         // They are not the user's files and never were: they are how this version
@@ -164,5 +199,20 @@ enum LedgeInstall {
         let contents = (try? manager.contentsOfDirectory(atPath: destination.path)) ?? []
         // .DS_Store and friends don't count as content.
         return contents.allSatisfy { $0.hasPrefix(".") }
+    }
+
+    /// Whether the shell-owned Settings entry may safely be installed.
+    ///
+    /// Missing is safe. Unreadable is not: inability to prove a file is ours is
+    /// never permission to overwrite it.
+    static func settingsNeedsRefresh(
+        _ entry: URL,
+        manager: FileManager,
+        legacyDigests: Set<String> = legacySettingsDigests
+    ) -> Bool {
+        guard manager.fileExists(atPath: entry.path) else { return true }
+        guard let data = try? Data(contentsOf: entry) else { return false }
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        return legacyDigests.contains(digest)
     }
 }

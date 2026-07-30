@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Runs the Bun host as a child of the shell (spec §1: Swift listens, the host
@@ -62,6 +63,9 @@ final class HostProcess {
     private var attempts = 0
     private var startedAt: Date?
     private var stopping = false
+    /// PATH discovery is deliberately outside the main actor. Kept so repeated
+    /// starts cannot launch parallel login shells while the first is resolving.
+    private var environmentTask: Task<Void, Never>?
 
     init(socketPath: String, appsRoot: String, logURL: URL) {
         self.socketPath = socketPath
@@ -77,10 +81,19 @@ final class HostProcess {
     }
 
     func start() {
-        guard !stopping else { return }
+        guard !stopping, process == nil, environmentTask == nil else { return }
         switch Self.locateHost() {
         case .found(let runtime, let entry):
-            launch(runtime: runtime, entry: entry)
+            report(.starting)
+            environmentTask = Task { [weak self] in
+                let path = await Task.detached(priority: .userInitiated) {
+                    Self.loginPath()
+                }.value
+                guard let self else { return }
+                self.environmentTask = nil
+                guard !self.stopping, self.process == nil else { return }
+                self.launch(runtime: runtime, entry: entry, loginPath: path)
+            }
         case .developerBuild:
             NSLog("[ledge] no bundled host (dev build) — start one with `bun src/host.ts`")
             report(.developerBuild)
@@ -122,7 +135,7 @@ final class HostProcess {
         return .found(runtime: runtime, entry: entry)
     }
 
-    private func launch(runtime: URL, entry: URL) {
+    private func launch(runtime: URL, entry: URL, loginPath: String?) {
         let process = Process()
         process.executableURL = runtime
         process.arguments = [
@@ -134,7 +147,7 @@ final class HostProcess {
         // or anything else the user installed. Rather than guess at locations,
         // ask the user's own login shell what their PATH is (see `loginPath()`).
         var environment = ProcessInfo.processInfo.environment
-        if let path = Self.loginPath() { environment["PATH"] = path }
+        if let loginPath { environment["PATH"] = loginPath }
         process.environment = environment
 
         // stdin stays open for as long as we live; its closure is the shutdown
@@ -159,7 +172,6 @@ final class HostProcess {
             self.process = process
             self.stdinPipe = stdin
             self.startedAt = Date()
-            report(.starting)
             NSLog("[ledge] host started (pid %d), logging to %@", process.processIdentifier, logURL.path)
         } catch {
             NSLog("[ledge] could not start the host: %@", String(describing: error))
@@ -204,6 +216,8 @@ final class HostProcess {
     /// callback does not run on SIGKILL.
     func stop() {
         stopping = true
+        environmentTask?.cancel()
+        environmentTask = nil
         guard let process, process.isRunning else { return }
         // Closing stdin is the graceful path (the host unwinds its workers);
         // terminate() is the follow-up for a host that ignored it.
@@ -215,14 +229,17 @@ final class HostProcess {
 
     // MARK: - Environment
 
-    /// The user's real PATH, read once from their login shell.
+    /// The user's real PATH, read before a bundled host launch.
     ///
     /// `codex`, `bun` and friends live in places (`/opt/homebrew/bin`,
     /// `~/.local/bin`, a version manager's shims) that a GUI process never sees,
     /// and the builder is useless if it cannot find the agent. A login shell is
     /// the only thing that knows where the user actually installed things.
-    private static func loginPath() -> String? {
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+    nonisolated static func loginPath(
+        shell: String? = nil,
+        timeout: TimeInterval = 2
+    ) -> String? {
+        let shell = shell ?? ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: shell)
         // -l so the profile that sets PATH is actually read.
@@ -230,13 +247,23 @@ final class HostProcess {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
+        let finished = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in finished.signal() }
         do {
             try process.run()
         } catch {
             return nil
         }
+        guard finished.wait(timeout: .now() + timeout) == .success else {
+            process.terminate()
+            if finished.wait(timeout: .now() + 0.2) == .timedOut {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                _ = finished.wait(timeout: .now() + 0.2)
+            }
+            return nil
+        }
+        guard process.terminationStatus == 0 else { return nil }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
         let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (path?.isEmpty ?? true) ? nil : path
     }

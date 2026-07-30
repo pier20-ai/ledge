@@ -140,7 +140,10 @@ export class Builder {
       await client.startTurn(threadId, text);
       // The turn is now running; `turn/completed` clears `busy` (see onEvent).
     } catch (error) {
-      this.busy.delete(app);
+      // Process exit may already have failed every accepted turn. In that case
+      // this await rejects too, but emitting a second error/done pair would make
+      // one failure look like two turns.
+      if (!this.busy.delete(app)) return;
       // Verbatim (spec §3.6): "not installed", "auth expired" and "rate limited"
       // are all things the user can act on, and paraphrasing them helps nobody.
       this.emit(app, { event: "error", message: describe(error) });
@@ -169,6 +172,7 @@ export class Builder {
         log: this.clientOptions.log ?? ((line) => this.sink.log(line)),
       });
       client.onNotification = (method, params) => this.onNotification(method, params);
+      client.onExit = (code) => this.clientExited(client, code);
       try {
         const info = await client.initialize();
         this.sink.log(`[ledge-host] codex ready: ${String(info.userAgent ?? "app-server")}`);
@@ -229,6 +233,32 @@ export class Builder {
     this.emit(app, event);
   }
 
+  /**
+   * Recover every accepted turn owned by a dead app-server.
+   *
+   * The process owns all threads, so one exit invalidates all mappings. Busy is
+   * cleared before events are emitted: a listener that immediately retries must
+   * reach `ensureClient`, where a fresh process and fresh thread mappings are
+   * established.
+   */
+  private clientExited(client: CodexClient, code: number): void {
+    // Initialization failures are handled by the awaiting `handleInput` catch,
+    // and a stale client's delayed exit must not tear down its replacement.
+    if (this.client !== client) return;
+    this.client = null;
+    this.threads.clear();
+    this.appsByThread.clear();
+
+    for (const app of [...this.busy]) {
+      this.busy.delete(app);
+      this.emit(app, {
+        event: "error",
+        message: `codex app-server exited (${code}); the next message will restart it`,
+      });
+      this.emit(app, { event: "done", status: "failed" });
+    }
+  }
+
   private emit(app: string, event: BuilderEvent): void {
     this.sink.builder(app, this.turnCounts.get(app) ?? 0, event);
   }
@@ -259,8 +289,9 @@ export class Builder {
   }
 
   shutdown(): void {
-    this.client?.kill();
+    const client = this.client;
     this.client = null;
+    client?.kill();
   }
 }
 

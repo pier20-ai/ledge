@@ -149,6 +149,22 @@ describe("settings.json (the host's own state)", () => {
     expect(await Bun.file(path).json()).toEqual({ disabled: [] });
   });
 
+  test("quick changes serialize without losing either toggle", async () => {
+    const { dir } = await makeRoot({});
+    const path = join(dir, "settings.json");
+    const store = new SettingsStore(path);
+    await store.load();
+
+    await Promise.all([
+      store.setEnabled("alpha", false),
+      store.setEnabled("beta", false),
+    ]);
+
+    expect(await Bun.file(path).json()).toEqual({ disabled: ["alpha", "beta"] });
+    expect([...store.disabled].sort()).toEqual(["alpha", "beta"]);
+    expect((await readdir(dir)).filter((file) => file.endsWith(".tmp"))).toEqual([]);
+  });
+
   test("Settings cannot be disabled, however it is asked", async () => {
     const { dir } = await makeRoot({});
     const path = join(dir, "settings.json");
@@ -325,6 +341,46 @@ describe("ctx.platform enable/disable (spec §8), answered by the host", () => {
     // …and it never crashed on the way (a mismatched stats() shape would show
     // up here and nowhere else).
     expect(session.envelopesFor("settings", "app").map((e) => e.payload.state)).toEqual(["started"]);
+  }, 30000);
+
+  test("the shipped Permissions button raises shell permission chrome", async () => {
+    const source = await Bun.file(
+      join(HOST_DIR, "..", "protocol", "demo-apps", "settings", "app.jsx"),
+    ).text();
+    const { dir, appsRoot } = await makeRoot({ settings: source });
+    const session = new RecordingSession();
+    const router = new Router({
+      appsRoot,
+      settingsPath: join(dir, "settings.json"),
+      watch: false,
+    });
+    openRouter = router;
+    await router.bindSession(session);
+
+    const buttonId = (): number | undefined => {
+      for (const commit of session.envelopesFor("settings", "commit")) {
+        for (const mutation of commit.payload.mutations as Mutation[]) {
+          if (
+            mutation.op === "create"
+            && mutation.kind === "button"
+            && mutation.props.label === "Permissions…"
+          ) {
+            return mutation.id;
+          }
+        }
+      }
+      return undefined;
+    };
+
+    await waitFor(() => buttonId() !== undefined);
+    router.onEnvelope(
+      session,
+      envelope("settings", "event", { id: buttonId()!, name: "click", data: {} }),
+    );
+    await waitFor(() => session.envelopesFor("settings", "chrome").length >= 1);
+    expect(session.envelopesFor("settings", "chrome").at(-1)?.payload).toEqual({
+      request: "permissions",
+    });
   }, 30000);
 
   test("the Quit button, pressed twice, puts a quit call on the wire", async () => {

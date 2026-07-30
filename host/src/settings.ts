@@ -38,6 +38,16 @@ const EMPTY: ReadonlySet<string> = new Set();
 export class SettingsStore {
   private readonly file: string;
   private disabledIds = new Set<string>();
+  /**
+   * One durable mutation at a time.
+   *
+   * UI events are independent async requests, so two quick switches can reach
+   * this object together. Chaining them makes each mutation observe the state
+   * committed by the one before it and keeps the shared atomic temp path single
+   * writer. A rejected write is swallowed only by the tail; its caller still
+   * receives the rejection, while later settings remain usable.
+   */
+  private mutationTail: Promise<void> = Promise.resolve();
 
   constructor(path: string) {
     this.file = path;
@@ -94,16 +104,20 @@ export class SettingsStore {
    * Turn one app on or off and persist it. Resolves once the file is on disk,
    * so the caller can tell an app "done" and mean it.
    */
-  async setEnabled(appId: string, enabled: boolean): Promise<void> {
+  setEnabled(appId: string, enabled: boolean): Promise<void> {
     if (appId === SETTINGS_APP_ID && !enabled) {
-      throw new Error("Settings cannot be disabled (spec §8)");
+      return Promise.reject(new Error("Settings cannot be disabled (spec §8)"));
     }
-    if (enabled === this.isEnabled(appId)) return;
-    const next = new Set(this.disabledIds);
-    if (enabled) next.delete(appId);
-    else next.add(appId);
-    await this.write(next);
-    this.disabledIds = next;
+    const mutation = this.mutationTail.then(async () => {
+      if (enabled === this.isEnabled(appId)) return;
+      const next = new Set(this.disabledIds);
+      if (enabled) next.delete(appId);
+      else next.add(appId);
+      await this.write(next);
+      this.disabledIds = next;
+    });
+    this.mutationTail = mutation.catch(() => {});
+    return mutation;
   }
 
   /** Write-temp-then-rename, the same atomicity rule apps are given for their

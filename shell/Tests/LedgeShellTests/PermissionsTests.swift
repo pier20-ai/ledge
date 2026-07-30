@@ -16,6 +16,9 @@ final class FakePermissionProbe: PermissionProbing {
     var statuses: [LedgePermission: PermissionStatus]
     /// What the next `ask` should resolve to, per permission.
     var answers: [LedgePermission: PermissionStatus] = [:]
+    /// System Screen Recording preflight is intentionally unable to reflect the
+    /// transitional answer until relaunch.
+    var reflectsAnswers = true
     private(set) var asked: [LedgePermission] = []
     private(set) var opened: [LedgePermission] = []
 
@@ -30,7 +33,7 @@ final class FakePermissionProbe: PermissionProbing {
     func ask(_ permission: LedgePermission, then: @escaping @MainActor (PermissionStatus) -> Void) {
         asked.append(permission)
         let answer = answers[permission] ?? .granted
-        statuses[permission] = answer
+        if reflectsAnswers { statuses[permission] = answer }
         then(answer)
     }
 
@@ -157,11 +160,11 @@ struct PermissionsTests {
         // its "macOS will not ask again" line — has to fit under the notch on
         // the smallest Mac that has one: a 14" MacBook Pro caps the panel at
         // roughly 660 pt (`PanelLimits.detect`), cutout row included.
-        #expect(noisyCard.panelHeight + NotchMetrics.fallback.closedHeight < 600)
+        #expect(noisyCard.panelHeight + NotchMetrics.fallback.closedHeight < 660)
         // And the case that actually happens on a fresh machine — two rows with
         // something to say — stays svelte.
         let fresh = PermissionsCardView(probe: FakePermissionProbe())
-        #expect(fresh.panelHeight < 480)
+        #expect(fresh.panelHeight < 560)
     }
 
     @Test("Pressing a row's button does the one thing that row offers")
@@ -196,6 +199,28 @@ struct PermissionsTests {
         #expect(probe.opened == [.location])
     }
 
+    @Test("Permission copy is laid out below its action, never under it")
+    func rowCopyClearsActions() throws {
+        let card = PermissionsCardView(probe: FakePermissionProbe())
+        card.frame = CGRect(x: 0, y: 0, width: PermissionsCardView.width, height: card.panelHeight)
+        card.layoutSubtreeIfNeeded()
+
+        let button = try #require(
+            descendants(of: card)
+                .compactMap { $0 as? LedgeButton }
+                .first { $0.currentLabel == "Settings" }
+        )
+        let summary = try #require(
+            descendants(of: card)
+                .compactMap { $0 as? NSTextField }
+                .first { $0.stringValue == LedgePermission.automation.summary }
+        )
+        let buttonFrame = card.convert(button.bounds, from: button)
+        let summaryFrame = card.convert(summary.bounds, from: summary)
+        #expect(!buttonFrame.intersects(summaryFrame))
+        #expect(summaryFrame.minY >= buttonFrame.maxY)
+    }
+
     /// Allowing something has to be visible immediately. The rows are rebuilt
     /// wholesale from a fresh read rather than patched, because one click can
     /// change the shape of the row it landed on.
@@ -208,6 +233,21 @@ struct PermissionsTests {
         #expect(card.visibleRows.first { $0.permission == .calendar }?.status == .granted)
         #expect(card.visibleRows.first { $0.permission == .calendar }?.action == .settled)
         #expect(card.actionLabel(for: .calendar) == nil)
+    }
+
+    @Test("An answer survives an ambiguous system re-read")
+    func ambiguousReadKeepsAnswer() {
+        let probe = FakePermissionProbe([.screenRecording: .notDetermined])
+        probe.answers[.screenRecording] = .unreadable("Takes effect when Ledge restarts.")
+        probe.reflectsAnswers = false
+        let card = PermissionsCardView(probe: probe)
+
+        card.activate(.screenRecording)
+
+        let row = card.visibleRows.first { $0.permission == .screenRecording }
+        #expect(row?.status == .unreadable("Takes effect when Ledge restarts."))
+        #expect(row?.action == .openSettings)
+        #expect(card.actionLabel(for: .screenRecording) == "Settings")
     }
 
     /// A surface nobody is looking at must not poll TCC. It stays in the view
@@ -264,6 +304,8 @@ struct PermissionsTests {
     @Test("Permissions is chrome, not an app")
     func presentationSemantics() {
         #expect(ShellPresentation.permissions.isExpanded)
+        #expect(!ShellPresentation.permissions.allowsPassiveCollapse)
+        #expect(ShellPresentation.expanded(app: "stocks").allowsPassiveCollapse)
         #expect(ShellPresentation.permissions.app == nil)
         #expect(ShellPresentation.permissions.reportedApp == nil)
         #expect(!ShellPresentation.permissions.isChat)

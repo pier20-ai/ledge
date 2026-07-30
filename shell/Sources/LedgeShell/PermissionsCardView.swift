@@ -50,6 +50,11 @@ final class PermissionsCardView: FlippedView {
     private let content = FlippedView()
     private var rows: [PermissionRow] = []
     private var rowViews: [LedgePermission: PermissionRowView] = [:]
+    /// An ask can know more than a subsequent preflight read. Screen Recording
+    /// is the concrete case: macOS says "false" both before asking and after a
+    /// grant that needs a relaunch. Hold the answer until a later read reaches a
+    /// settled state instead of snapping the row back to "Allow…".
+    private var answeredStatuses: [LedgePermission: PermissionStatus] = [:]
     /// Re-read while the surface is on screen. The whole point of the Settings
     /// button is that the user leaves and changes something behind our back; a
     /// row still reading DENIED when they come back would teach them the deep
@@ -99,8 +104,23 @@ final class PermissionsCardView: FlippedView {
         SystemPermissionProbe.refreshNotificationStatus { [weak self] in self?.reload() }
         // Rebuild only on a real change: this fires every 1.5 s, and tearing the
         // subtree down under the user's cursor would flicker every button's hover.
-        guard permissionRows(from: probe) != rows else { return }
+        guard resolvedRows() != rows else { return }
         reload()
+    }
+
+    private func resolvedRows() -> [PermissionRow] {
+        permissionRows(from: probe).map { observed in
+            guard let answered = answeredStatuses[observed.permission] else {
+                return observed
+            }
+            // A settled system read supersedes our transitional answer. An
+            // ambiguous `notDetermined` does not.
+            guard observed.status == .notDetermined else {
+                answeredStatuses.removeValue(forKey: observed.permission)
+                return observed
+            }
+            return PermissionRow(permission: observed.permission, status: answered)
+        }
     }
 
     /// Rebuild the whole list from a fresh read.
@@ -110,7 +130,7 @@ final class PermissionsCardView: FlippedView {
     /// cannot tell until you relaunch", which is a different row shape than the
     /// one that was clicked.
     private func reload() {
-        rows = permissionRows(from: probe)
+        rows = resolvedRows()
         rowViews.removeAll()
         content.subviews.forEach { $0.removeFromSuperview() }
 
@@ -192,7 +212,11 @@ final class PermissionsCardView: FlippedView {
         case .settled:
             break
         case .ask:
-            probe.ask(row.permission) { [weak self] _ in self?.reload() }
+            probe.ask(row.permission) { [weak self] status in
+                guard let self else { return }
+                self.answeredStatuses[row.permission] = status
+                self.reload()
+            }
         case .openSettings:
             probe.openSettings(for: row.permission)
         }
@@ -236,6 +260,8 @@ fileprivate final class PermissionRowView: RoundedBoxView {
     private static let lineHeight: CGFloat = 14
     private static let footnoteHeight: CGFloat = 13
     private static let iconColumn: CGFloat = 26
+    private static let controlHeight = LedgeMetrics.Size.s.height
+    private static let copyGap: CGFloat = 5
     /// The row's own width: the panel minus the card inset either side. Stated
     /// here because the pill and the button are laid out from the right edge
     /// before the row has been given a frame.
@@ -246,7 +272,7 @@ fileprivate final class PermissionRowView: RoundedBoxView {
 
     static func height(for row: PermissionRow) -> CGFloat {
         let footnote = row.footnote == nil ? 0 : footnoteHeight + 3
-        return padY * 2 + titleHeight + 3 + lineHeight + footnote
+        return padY * 2 + controlHeight + copyGap + lineHeight + footnote
     }
 
     init(row: PermissionRow, act: @escaping () -> Void) {
@@ -260,49 +286,13 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         // The glyph is a label for the row, not a status: it stays quiet ink
         // whatever the state is, and the pill carries the colour (L9).
         icon.contentTintColor = LedgeTheme.secondary
-        icon.frame = CGRect(x: Self.padX, y: Self.padY, width: 18, height: Self.titleHeight)
-        addSubview(icon)
-
-        let title = makeLabel(
-            row.permission.title,
-            font: LedgeTheme.systemFont(12.5, weight: .semibold),
-            color: LedgeTheme.primary
-        )
-        title.frame = CGRect(
-            x: Self.padX + Self.iconColumn,
-            y: Self.padY,
-            width: Self.textWidth - 92,
+        icon.frame = CGRect(
+            x: Self.padX,
+            y: Self.padY + (Self.controlHeight - Self.titleHeight) / 2,
+            width: 18,
             height: Self.titleHeight
         )
-        addSubview(title)
-
-        let summary = makeLabel(
-            row.permission.summary,
-            font: LedgeTheme.systemFont(11),
-            color: LedgeTheme.secondary
-        )
-        summary.frame = CGRect(
-            x: Self.padX + Self.iconColumn,
-            y: Self.padY + Self.titleHeight + 3,
-            width: Self.textWidth,
-            height: Self.lineHeight
-        )
-        addSubview(summary)
-
-        if let footnote = row.footnote {
-            let label = makeLabel(
-                footnote,
-                font: LedgeTheme.systemFont(10.5),
-                color: LedgeTheme.tertiary
-            )
-            label.frame = CGRect(
-                x: Self.padX + Self.iconColumn,
-                y: Self.padY + Self.titleHeight + Self.lineHeight + 6,
-                width: Self.textWidth,
-                height: Self.footnoteHeight
-            )
-            addSubview(label)
-        }
+        addSubview(icon)
 
         // ONE thing on the right, never two. A pill reading NOT ASKED beside a
         // button reading "Allow…" states the same fact twice, and the pair was
@@ -312,17 +302,19 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         // So the button IS the status when there is something to do — "Allow…"
         // says not-yet, "Settings" says denied or unreadable — and a row with
         // nothing left to do says so quietly in words instead.
+        let trailingFrame: CGRect
         if let label = row.action.label {
             let button = LedgeButton(label, variant: .glass, size: .s, handler: act)
             let buttonWidth = max(64, button.intrinsicContentSize.width)
             button.frame = CGRect(
                 x: Self.width - Self.padX - buttonWidth,
-                y: Self.padY - 2,
+                y: Self.padY,
                 width: buttonWidth,
-                height: LedgeMetrics.Size.s.height
+                height: Self.controlHeight
             )
             addSubview(button)
             actionButton = button
+            trailingFrame = button.frame
         } else {
             let font = LedgeTheme.systemFont(11, weight: .medium)
             let badge = makeLabel(
@@ -340,11 +332,58 @@ fileprivate final class PermissionRowView: RoundedBoxView {
             ) + 4
             badge.frame = CGRect(
                 x: Self.width - Self.padX - badgeWidth,
-                y: Self.padY + 1,
+                y: Self.padY + (Self.controlHeight - Self.titleHeight) / 2,
                 width: badgeWidth,
                 height: Self.titleHeight
             )
             addSubview(badge)
+            trailingFrame = badge.frame
+        }
+
+        let titleX = Self.padX + Self.iconColumn
+        let title = makeLabel(
+            row.permission.title,
+            font: LedgeTheme.systemFont(12.5, weight: .semibold),
+            color: LedgeTheme.primary
+        )
+        title.frame = CGRect(
+            x: titleX,
+            y: Self.padY + (Self.controlHeight - Self.titleHeight) / 2,
+            width: max(0, trailingFrame.minX - titleX - LedgeMetrics.gap),
+            height: Self.titleHeight
+        )
+        addSubview(title)
+
+        // Copy starts below the complete 28 pt control row. Previously it began
+        // 19 pt down, so the button covered seven pixels of the sentence and
+        // longer summaries visibly ran underneath it.
+        let summaryY = Self.padY + Self.controlHeight + Self.copyGap
+        let summary = makeLabel(
+            row.permission.summary,
+            font: LedgeTheme.systemFont(11),
+            color: LedgeTheme.secondary
+        )
+        summary.frame = CGRect(
+            x: titleX,
+            y: summaryY,
+            width: Self.textWidth,
+            height: Self.lineHeight
+        )
+        addSubview(summary)
+
+        if let footnote = row.footnote {
+            let label = makeLabel(
+                footnote,
+                font: LedgeTheme.systemFont(10.5),
+                color: LedgeTheme.tertiary
+            )
+            label.frame = CGRect(
+                x: titleX,
+                y: summaryY + Self.lineHeight + 3,
+                width: Self.textWidth,
+                height: Self.footnoteHeight
+            )
+            addSubview(label)
         }
 
         setAccessibilityRole(.group)

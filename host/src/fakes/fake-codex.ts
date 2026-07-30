@@ -60,6 +60,11 @@ export class FakeCodex {
     this.emit("turn/completed", { threadId, turn: { id: this.lastTurnId, status } });
   }
 
+  /** End the process after it has accepted work. */
+  stop(code = 1): void {
+    this.exit(code);
+  }
+
   private receive(raw: string): void {
     const message = JSON.parse(raw.trim()) as {
       id?: number;

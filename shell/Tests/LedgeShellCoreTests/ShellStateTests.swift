@@ -89,6 +89,13 @@ struct ShellStateTests {
         #expect(state.presentation == .expanded(app: "stocks"))
     }
 
+    @Test("A non-editable app may ignore the reselect-to-chat shortcut")
+    func pinnedSelection() {
+        var state = ShellState(presentation: .expanded(app: "settings"))
+        state.selectApp("settings", reselectOpensChat: false)
+        #expect(state.presentation == .expanded(app: "settings"))
+    }
+
     @Test("App ids are runtime strings — the shell has no built-in app list")
     func runtimeAppIDs() {
         var state = ShellState()

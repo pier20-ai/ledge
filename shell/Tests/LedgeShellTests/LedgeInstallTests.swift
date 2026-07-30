@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 @testable import LedgeShell
@@ -77,5 +78,35 @@ struct LedgeInstallTests {
         let file = root.appendingPathComponent("apps")
         try "not a directory".write(to: file, atomically: true, encoding: .utf8)
         #expect(!LedgeInstall.needsSeeding(file, manager: manager))
+    }
+
+    @Test("Settings migrates only when missing or byte-for-byte known")
+    func settingsMigrationIsSurgical() throws {
+        let manager = FileManager.default
+        let root = try makeRoot()
+        defer { try? manager.removeItem(at: root) }
+        let entry = root.appendingPathComponent("apps/settings/app.jsx")
+
+        #expect(LedgeInstall.settingsNeedsRefresh(entry, manager: manager))
+
+        try manager.createDirectory(
+            at: entry.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let legacy = Data("the exact old Settings source".utf8)
+        try legacy.write(to: entry)
+        let digest = SHA256.hash(data: legacy).map { String(format: "%02x", $0) }.joined()
+        #expect(LedgeInstall.settingsNeedsRefresh(
+            entry,
+            manager: manager,
+            legacyDigests: [digest]
+        ))
+
+        try "// user edited Settings".write(to: entry, atomically: true, encoding: .utf8)
+        #expect(!LedgeInstall.settingsNeedsRefresh(
+            entry,
+            manager: manager,
+            legacyDigests: [digest]
+        ))
     }
 }

@@ -39,6 +39,10 @@ final class EditorBridge {
     /// yet is simply lost.
     private(set) var isReady = false
     private var pending: [JSONValue] = []
+    /// The agent capability is session-global and sent only once by the host.
+    /// Keep it independently of transcript queues so a WebKit process reload
+    /// can reconstruct the banner without asking the host to reconnect.
+    private var latestAgentStatus: JSONValue?
 
     /// A cap on the held events, because "the page never came up" must cost a
     /// bounded amount of memory rather than an unbounded one. Dropping the
@@ -93,7 +97,9 @@ final class EditorBridge {
         // an empty app. Delivered to whatever the editor is showing, and held
         // for a page that has not loaded yet like anything else.
         if payload.event == "agent" {
-            emit(Self.pageEvent(for: payload))
+            let event = Self.pageEvent(for: payload)
+            latestAgentStatus = event
+            emit(event)
             return true
         }
         // The [+] surface: the editor is focused on `""` because the app did not
@@ -258,5 +264,6 @@ final class EditorBridge {
         pending.removeAll()
         guard let app else { return }
         emit(.object(["event": .string("thread"), "app": .string(app)]))
+        if let latestAgentStatus { emit(latestAgentStatus) }
     }
 }

@@ -70,29 +70,31 @@ struct EditorToggleTests {
         #expect((edit.iconFrame?.width ?? 0) > 0)
     }
 
-    @Test("The toggle stays neutral glass until a turn lands")
+    @Test("Edit stays transparent")
     func statusStartsNeutral() {
         let surface = makeSurface()
         #expect(surface.panelWingBarView.buildStatus == .neutral)
         #expect(surface.panelWingBarView.editView.tint == nil)
+        #expect(surface.panelWingBarView.editView.filledTint == nil)
     }
 
-    @Test("A clean reload turns the toggle green; a crash turns it red")
-    func statusCarriesTheBuildOutcome() {
+    @Test("Build outcomes do not turn Edit into a status chip")
+    func statusDoesNotFillEdit() {
         let surface = makeSurface()
         let edit = surface.panelWingBarView.editView
 
         surface.setBuildStatus(.reloaded)
         #expect(surface.panelWingBarView.buildStatus == .reloaded)
-        #expect(edit.tint == LedgeTheme.green)
+        #expect(edit.tint == nil)
+        #expect(edit.filledTint == nil)
 
         surface.setBuildStatus(.crashed)
         #expect(surface.panelWingBarView.buildStatus == .crashed)
-        #expect(edit.tint == LedgeTheme.red)
-
-        // A new turn makes the last outcome stale.
-        surface.setBuildStatus(.neutral)
         #expect(edit.tint == nil)
+        #expect(edit.filledTint == nil)
+
+        surface.setPanelWing(name: "Stocks", content: nil, canEdit: true, showingEditor: true)
+        #expect(edit.filledTint == LedgeTheme.accent)
     }
 
     /// The pulse is an answer to something the user just did. Re-applying the

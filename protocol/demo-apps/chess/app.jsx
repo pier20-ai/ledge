@@ -590,12 +590,15 @@ export default function ChessApp({
 
         <stack axis="v" gap={7}>
           <stack axis="v" gap={2} pad={8} fill="raised" stroke="hairline" radius={9}>
-            <stack axis="h" gap={4}>
+            {/* A nested fill-width row sits at the card edge, so it needs its
+                own inset. The sizing spacer is 16 pt narrower to compensate for
+                the row's horizontal padding and keep the column fixed. */}
+            <stack axis="h" gap={4} pad={8}>
               <text content="STATUS" size="xs" weight="bold" color="tertiary" mono />
               {/* `min` on a spacer is the only way an app asks for a column
                   width: a v-stack sizes to its widest child, so this row is
                   what decides how much of the panel the board leaves over. */}
-              <spacer min={128} />
+              <spacer min={112} />
             </stack>
             <text content={status} size="s" weight="semibold" color={statusColor} />
             <text content={`you (white) vs ${engine}`} size="xs" color="tertiary" />

@@ -33,26 +33,31 @@ struct AppStripTests {
         return bar
     }
 
-    @Test("A strip that fits is laid out exactly as it was before the scroller")
-    func uncrowdedIsUnchanged() throws {
+    @Test("A strip that fits keeps its icons left and its fixed controls right")
+    func uncrowdedLayout() throws {
         let bar = makeBar(4)
         #expect(!bar.isIconAreaScrolling)
+        #expect(!bar.showsLeftScrollHint)
+        #expect(!bar.showsRightScrollHint)
 
-        // The historical layout: first icon at 10, 40 pt pitch, [+] straight
-        // after the last one.
+        // App icons keep their 10 pt lead and 40 pt pitch.
         for index in 0..<4 {
             let frame = try #require(bar.frameForApp("app\(index)"))
             #expect(frame.minX == 10 + CGFloat(index) * 40)
             #expect(frame.width == 40)
         }
         let plus = try #require(bar.newAppButtonFrame)
-        #expect(plus.minX == 170, "plus at \(plus)")
+        let settings = try #require(bar.settingsButtonFrame)
+        #expect(plus.maxX < settings.minX)
+        #expect(settings.minX - plus.maxX == 10)
     }
 
     @Test("A crowded strip scrolls its icons and keeps [+] and Settings put")
     func crowdedScrolls() throws {
         let bar = makeBar(20)
         #expect(bar.isIconAreaScrolling)
+        #expect(!bar.showsLeftScrollHint)
+        #expect(bar.showsRightScrollHint)
 
         let plus = try #require(bar.newAppButtonFrame)
         let settings = try #require(bar.settingsButtonFrame)
@@ -110,6 +115,8 @@ struct AppStripTests {
         bar.layoutSubtreeIfNeeded()
         let after = try #require(bar.frameForApp("app0"))
         #expect(after.minX < before.minX)
+        #expect(bar.showsLeftScrollHint)
+        #expect(bar.showsRightScrollHint)
 
         // Scrolling moves the icons and nothing else: [+] is a sibling of the
         // scroll view, so it sits at the area's edge whatever the icons do.

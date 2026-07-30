@@ -136,12 +136,14 @@ enum LedgeMetrics {
     static let stripLeadingPad: CGFloat = 10
     /// Distance from the strip's right edge to the Settings icon's left edge,
     /// and to the hairline that separates it from everything else.
-    static let stripSettingsInset: CGFloat = 50
-    static let stripSettingsDividerInset: CGFloat = 61
+    static let stripSettingsInset: CGFloat = 46
+    static let stripSettingsDividerInset: CGFloat = 52
     /// The gap that keeps **[+]** off the Settings divider however crowded the
     /// strip gets. A minimum, never a target: the scrolling icon area gives back
     /// whatever it doesn't need, so an uncrowded strip looks exactly as it did.
-    static let stripSafeGap: CGFloat = 12
+    static let stripSafeGap: CGFloat = 4
+    /// The fading chevron at either edge of an overflowing icon row.
+    static let stripScrollHintWidth: CGFloat = 24
 
     // MARK: - Panel wings (the hardware-cutout exclusion row)
 

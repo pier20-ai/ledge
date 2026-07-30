@@ -61,7 +61,7 @@ export async function monitor(ctx) {
       },
       // Chrome, not a call: the shell raises its permission surface or silently
       // does not, and there is no answer worth waiting for.
-      onPermissions: () => ctx.platform.permissions(),
+      onPermissions: () => ctx.permissions(),
     });
   };
 

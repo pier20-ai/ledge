@@ -79,6 +79,17 @@ public enum ShellPresentation: Equatable, Sendable {
         if case .chat = self { return true }
         return false
     }
+
+    /// Whether merely leaving the panel may collapse this surface.
+    ///
+    /// Permission onboarding is raised by the shell rather than by a hover, so
+    /// applying the ordinary hover-exit policy to it makes the first-run screen
+    /// disappear without the user doing anything. It stays until an explicit
+    /// dismissal; app surfaces keep their lightweight hover behavior.
+    public var allowsPassiveCollapse: Bool {
+        if case .permissions = self { return false }
+        return true
+    }
 }
 
 /// The shell's presentation state machine. Deliberately tiny: which surface is
@@ -165,8 +176,8 @@ public struct ShellState: Equatable, Sendable {
     /// Strip selection (spec §4.3/§8): picking the app that is already presented
     /// toggles its chat, matching "the ✦ toggle opens the chat below the live
     /// preview" without adding a second control to the strip.
-    public mutating func selectApp(_ app: String) {
-        if presentation.app == app {
+    public mutating func selectApp(_ app: String, reselectOpensChat: Bool = true) {
+        if reselectOpensChat, presentation.app == app {
             toggleChat()
         } else {
             present(.expanded(app: app))

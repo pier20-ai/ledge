@@ -179,6 +179,26 @@ describe("builder", () => {
     expect(fake.requests.filter((r) => r.method === "turn/start")).toHaveLength(2);
   });
 
+  test("an app-server exit fails the turn and the next message restarts it", async () => {
+    const root = await makeApp();
+    const fake = new FakeCodex();
+    const { builder, events } = harness(root, fake);
+
+    await builder.handleInput("stocks", { text: "one" });
+    fake.stop(17);
+    await settle();
+
+    expect(events.slice(-2).map((entry) => entry.event.event)).toEqual(["error", "done"]);
+    expect(events.at(-1)?.event).toEqual({ event: "done", status: "failed" });
+
+    // Busy was cleared by the exit, so this reaches a new CodexClient instead
+    // of being refused as "still working".
+    await builder.handleInput("stocks", { text: "two" });
+    await settle();
+    expect(fake.requests.filter((request) => request.method === "turn/start")).toHaveLength(2);
+    expect(events.at(-1)?.event.event).not.toBe("status");
+  });
+
   test("cancel interrupts the running turn, carrying its turn id", async () => {
     const root = await makeApp();
     const fake = new FakeCodex();

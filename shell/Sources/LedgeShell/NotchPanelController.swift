@@ -74,6 +74,10 @@ final class NotchPanelController {
     /// Created lazily: a shell that is never asked for the editor never pays for
     /// WebKit.
     private var editorSurface: EditorSurfaceView?
+    /// Session-global capability sent once when the host binds. The editor is
+    /// lazy, so the event routinely arrives before there is a bridge to receive
+    /// it; replay it when that bridge is eventually created.
+    private var latestAgentStatus: BuilderPayload?
     /// Whether the panel is holding key focus for the editor. Tracked because
     /// taking it steals the user's insertion point, so releasing it has to be
     /// exactly as deliberate as taking it was.
@@ -110,7 +114,13 @@ final class NotchPanelController {
         selectNewApp = { [weak self] in self?.present(.newApp) }
         selectSettings = { [weak self] in
             guard let self else { return }
-            self.shellState.selectApp(AppBarView.settingsAppID)
+            // Settings has no editable app surface. Re-selecting it therefore
+            // keeps the settings controls on screen instead of applying the
+            // ordinary app shortcut that toggles into chat/edit mode.
+            self.shellState.selectApp(
+                AppBarView.settingsAppID,
+                reselectOpensChat: false
+            )
             self.refresh(animated: true)
         }
         toggleChat = { [weak self] in
@@ -168,7 +178,9 @@ final class NotchPanelController {
         // the bridge, not queued — a transcript is per app, and a turn the user
         // cannot see is one the host is still recording anyway.
         session.onBuilder = { [weak self] payload in
-            self?.editorSurface?.bridge.deliver(payload)
+            guard let self else { return }
+            if payload.event == "agent" { self.latestAgentStatus = payload }
+            self.editorSurface?.bridge.deliver(payload)
         }
         // The honest answer to "did that edit work" is the worker's, not the
         // agent's: an agent can finish a turn cleanly and leave an app that no
@@ -554,8 +566,10 @@ final class NotchPanelController {
 
     private func editorView(for app: String) -> EditorSurfaceView {
         let view: EditorSurfaceView
+        let created: Bool
         if let editorSurface {
             view = editorSurface
+            created = false
         } else {
             view = EditorSurfaceView()
             view.bridge.onInput = { [weak self] bridgeApp, text, cancel in
@@ -586,8 +600,14 @@ final class NotchPanelController {
             // back to neutral glass until the worker reloads or crashes again.
             view.onActivity = { [weak self] in self?.surface.setBuildStatus(.neutral) }
             editorSurface = view
+            created = true
         }
         view.present(app: app)
+        // Focus first: `focus` deliberately clears another app's pending queue,
+        // while this event belongs to every app and must survive that boundary.
+        if created, let latestAgentStatus {
+            view.bridge.deliver(latestAgentStatus)
+        }
         return view
     }
 

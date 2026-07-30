@@ -66,19 +66,19 @@ user wanted one of each. The wing-bar toggle switches back to the app's tree.
   and keep it separate from the §3.3 collapsed wings, which are a different
   surface with a different owner).
 - **The ✦ chat toggle** lives in that right zone now, as a real toggle: *Edit*
-  (wand) while the app's tree is on screen, *Preview* (eye) while the editor is.
-  Its colour carries build status — neutral glass, green when the app reloaded
-  cleanly, red when it crashed — driven from `app` lifecycle envelopes (§3.2),
-  because the honest answer to "did that edit work" is the worker's, not the
-  agent's. It is also still a gesture: **clicking the presented app's icon in the
-  strip toggles its chat**, and the icon stays lit while the chat is open (§8).
+  (wand) is transparent while the app's tree is on screen, and *Preview* (eye)
+  is the sole filled state, in yellow, while the editor is open. A genuine build
+  outcome still pulses the panel once in green or red without turning Edit into
+  a status chip. It is also still a gesture: **clicking the presented app's icon
+  in the strip toggles its chat**, and the icon stays lit while the chat is open
+  (§8).
 - **The app strip scrolls.** Ten demo apps already overrun a 440 pt panel, and
   the first two controls an overflowing row pushes off the end are exactly the
   two you want when a strip has overflowed — **[+]** (how you add app eleven) and
   Settings (how you turn app ten off). So the icons live in an overlay-scroller
   `NSScrollView` and those two are its siblings, with a fixed safe gap between
-  them. The scroll area only takes the width it needs, so a strip that fits is
-  laid out point-for-point as it was before the scroller existed.
+  them. The scroll area takes the remaining width, keeping **[+]** and Settings
+  grouped at the right; fading chevrons show when more icons continue offscreen.
 
 ## Presentation state (`LedgeShellCore/ShellState.swift`)
 
