@@ -5,12 +5,15 @@ import { describe, expect, test } from "bun:test";
 // reaches across a package boundary.
 import { renderMarkdown } from "../../editor/src/markdown.js";
 
-// What the builder surface does with agent output (editor/src/markdown.js).
+// What chat mode does with agent output (editor/src/markdown.js).
 //
 // The property under test is never "does it match CommonMark" — it is "does the
-// thing an agent actually emitted end up readable". Tables are the case that
-// prompted this suite: a before/after table is how these models summarise a
-// change, and rendered as a paragraph it arrives as a wall of pipes.
+// thing an agent actually emitted read as a sentence in a bubble". That test
+// changed when the transcript did: this text now lands inside a chat bubble
+// (design.html §08 — "iMessage, never a terminal · no agent chrome anywhere"),
+// and the document idioms the old renderer supported are exactly what dragged
+// it back towards a build log. Tables, fences and headings are therefore
+// asserted to be *gone* — reduced to lines, not preserved.
 
 interface Element {
   type: string;
@@ -37,9 +40,10 @@ function find(node: unknown, type: string): Element[] {
   return here.concat(find(element.props?.children, type));
 }
 
-describe("markdown in the builder transcript", () => {
-  test("a table becomes a table, not a paragraph of pipes", () => {
-    // Verbatim from a real turn (the music app's artwork change).
+describe("markdown in the transcript", () => {
+  test("a table becomes lines, not a grid and not a wall of pipes", () => {
+    // Verbatim from a real turn (the music app's artwork change). A table in a
+    // 76%-wide bubble is unreadable as a grid; the pipes are worse.
     const blocks = renderMarkdown(
       [
         "| Before | After |",
@@ -49,39 +53,37 @@ describe("markdown in the builder transcript", () => {
       ].join("\n"),
     );
 
-    expect(blocks).toHaveLength(1);
-    const table = find(blocks, "table");
-    expect(table).toHaveLength(1);
-    expect(find(blocks, "th").map(text)).toEqual(["Before", "After"]);
-    const rows = find(find(blocks, "tbody"), "tr");
-    expect(rows).toHaveLength(2);
-    expect(find(rows[0], "td").map(text)).toEqual([
-      "Collapsed wing showed text only",
-      "Reuses the mini-player canvas",
-    ]);
+    expect(kinds(blocks)).toEqual(["p"]);
+    expect(find(blocks, "table")).toHaveLength(0);
+    expect(text(blocks)).toBe(
+      [
+        "Before · After",
+        "Collapsed wing showed text only · Reuses the mini-player canvas",
+        "Artwork edge was unframed · Added a subtle white outline",
+      ].join("\n"),
+    );
   });
 
-  test("a ragged row is padded to the header rather than shifting the columns", () => {
+  test("a ragged row loses its empty cells rather than its meaning", () => {
     const blocks = renderMarkdown("| a | b | c |\n| --- | --- | --- |\n| 1 | 2 |");
-    const cells = find(find(blocks, "tbody"), "td");
-    expect(cells).toHaveLength(3);
-    expect(cells.map(text)).toEqual(["1", "2", ""]);
+    expect(text(blocks)).toBe("a · b · c\n1 · 2");
   });
 
   test("a sentence containing a pipe is still a sentence", () => {
-    // The lookahead for the `| --- |` rule is what makes this true; without it
-    // any prose with a pipe in it would open a table.
     const blocks = renderMarkdown("Run `a | b` to pipe it.");
     expect(kinds(blocks)).toEqual(["p"]);
+    expect(text(blocks)).toBe("Run a | b to pipe it.");
   });
 
-  test("headings and lists survive, including a numbered one", () => {
+  test("a heading is a bold line; lists survive, including a numbered one", () => {
     const blocks = renderMarkdown(
       ["## Album artwork", "", "- reuses the canvas", "- falls back to text", "", "1. first", "2. second"].join(
         "\n",
       ),
     );
-    expect(kinds(blocks)).toEqual(["h4", "ul", "ol"]);
+    // No h4: a turn is a few sentences and has no sections.
+    expect(kinds(blocks)).toEqual(["p", "ul", "ol"]);
+    expect(find(blocks[0], "strong")).toHaveLength(1);
     expect(text(blocks[0])).toBe("Album artwork");
     expect(find(blocks[1], "li").map(text)).toEqual(["reuses the canvas", "falls back to text"]);
     expect(find(blocks[2], "li").map(text)).toEqual(["first", "second"]);
@@ -94,12 +96,16 @@ describe("markdown in the builder transcript", () => {
     expect(rendered).not.toContain("/Users/admin");
   });
 
-  test("fenced code is still verbatim, and an open fence still renders", () => {
+  test("a fence keeps its words and loses its box", () => {
+    // The code lives in the app's folder and on the stage above; a scrolling
+    // black box repeating it inside a bubble is the terminal aesthetic §08
+    // forbids. The lines themselves are still what the agent said.
     const closed = renderMarkdown("before\n\n```\n| not | a | table |\n```\n");
-    expect(kinds(closed)).toEqual(["p", "pre"]);
+    expect(kinds(closed)).toEqual(["p", "p"]);
+    expect(find(closed, "pre")).toHaveLength(0);
     expect(text(closed[1])).toBe("| not | a | table |");
     // Mid-stream: the agent is still typing inside the fence.
-    expect(kinds(renderMarkdown("```\nhalf a li"))).toEqual(["pre"]);
+    expect(kinds(renderMarkdown("```\nhalf a li"))).toEqual(["p"]);
   });
 
   test("nothing it emits can be raw HTML", () => {
@@ -108,5 +114,6 @@ describe("markdown in the builder transcript", () => {
     const json = JSON.stringify(blocks);
     expect(json).not.toContain("dangerouslySetInnerHTML");
     expect(text(blocks)).toContain("<img src=x onerror=alert(1)>");
+    expect(text(blocks)).toContain("<b>no</b>");
   });
 });

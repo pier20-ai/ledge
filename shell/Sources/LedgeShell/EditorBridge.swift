@@ -16,6 +16,17 @@ enum EditorCommand: Equatable, Sendable {
     case ready
     case input(String)
     case cancel
+    /// The pill's ⌄/⌃. The pane clears itself; Swift re-measures the panel,
+    /// which is a different height with no transcript in it.
+    case transcript(collapsed: Bool)
+    /// The user scrolled into the past, or came back to the latest. The stage
+    /// behind recedes while they are back there (design.html §08).
+    case scrollback(past: Bool)
+    /// Esc, with no turn to interrupt. Forwarded from the page rather than left
+    /// to WebKit's responder chain: whether an unhandled key event escapes a
+    /// focused `<textarea>` inside a `WKWebView` is not a contract anybody
+    /// wrote down, and "Esc closes the visit" is flow.md's Transitions table.
+    case escape
 }
 
 /// The JS↔Swift half of the editor surface, with no WebKit in it.
@@ -80,6 +91,28 @@ final class EditorBridge {
         emit(.object([
             "event": .string("thread"),
             "app": .string(newApp),
+        ]))
+    }
+
+    // MARK: - The stage behind the pane
+
+    /// The last stage geometry sent, so a re-layout that changed nothing does
+    /// not cost a `evaluateJavaScript` — `layout` runs on every applied commit,
+    /// and a live app commits several times a second.
+    private var stage: (present: Bool, inset: CGFloat)?
+
+    /// Tell the page how much of the pane the native stage occupies at the top,
+    /// and whether there is one at all. The transcript leaves that much room;
+    /// the pill grows its ⌄/⌃ only when there is something to watch (flow.md:
+    /// "A blank slot has no stage: chat only, no glass toggle").
+    func setStage(present: Bool, inset: CGFloat) {
+        let rounded = (inset * 2).rounded() / 2
+        guard stage?.present != present || stage?.inset != rounded else { return }
+        stage = (present, rounded)
+        emit(.object([
+            "event": .string("stage"),
+            "present": .bool(present),
+            "inset": .double(Double(rounded)),
         ]))
     }
 
@@ -227,6 +260,12 @@ final class EditorBridge {
             return .ready
         case "cancel":
             return .cancel
+        case "escape":
+            return .escape
+        case "transcript":
+            return .transcript(collapsed: message["collapsed"] as? Bool ?? false)
+        case "scrollback":
+            return .scrollback(past: message["past"] as? Bool ?? false)
         case "input":
             guard let text = message["text"] as? String else { return nil }
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -253,6 +292,12 @@ final class EditorBridge {
         case .cancel:
             guard let app else { return }
             onInput?(app, nil, true)
+        case .transcript, .scrollback, .escape:
+            // Presentation, not protocol: these never become an envelope. The
+            // surface acted on them before handing the command over (see
+            // `EditorSurfaceView.handle`), and they are listed rather than
+            // defaulted so a new command cannot be silently swallowed here.
+            break
         }
     }
 
@@ -262,6 +307,9 @@ final class EditorBridge {
     func pageReset() {
         isReady = false
         pending.removeAll()
+        // The new page knows nothing about the stage behind it; the next layout
+        // has to be allowed to tell it again.
+        stage = nil
         guard let app else { return }
         emit(.object(["event": .string("thread"), "app": .string(app)]))
         if let latestAgentStatus { emit(latestAgentStatus) }

@@ -13,33 +13,41 @@ enum EditorBuildStatus: Equatable, Sendable {
     case crashed
 }
 
-/// The editor surface (spec §8): the app's builder chat, as a web view.
+/// The transcript layer of chat mode (spec §8, design.html §08): the
+/// conversation, as a transparent web view.
 ///
-/// **Full panel, not a split.** The mockups put the chat under a live preview of
-/// the app; that is two half-height surfaces where the user wanted one of each.
-/// The editor takes the whole panel and the wing-bar toggle switches back — one
-/// control, two full-size surfaces, and the app's tree keeps every point it had.
+/// **One layer of three, not a page.** `ChatSurfaceView` composes it over the
+/// session's live stage and inside the panel body's own glass; this draws the
+/// bubbles, the shimmer and the pill and nothing else. It covers the whole pane
+/// rather than a box below the stage, which is what lets a bubble float back
+/// over the stage's bottom edge — and what makes the pointer arrest total.
 ///
 /// Why a web view at all, in a shell whose entire premise is native views: this
 /// is the one surface that is *not* an app. It renders a transcript — streamed
-/// markdown, diffs, tool chips — which is the thing AppKit is worst at and the
-/// web is best at, and it is the one surface the user iterates on daily. The
-/// protocol vocabulary (§5) stays deliberately small precisely so it does not
-/// have to grow a rich-text engine for this.
+/// prose, at a word budget, with bubbles that glow — which is the thing AppKit
+/// is worst at and the web is best at, and it is the one surface the user
+/// iterates on daily. The protocol vocabulary (§5) stays deliberately small
+/// precisely so it does not have to grow a rich-text engine for this.
 ///
 /// Everything crossing into it is untrusted: the transcript is model output.
 /// The page loads from `file://` under a CSP that permits no network at all, and
 /// the bridge hands it JSON — never HTML.
 @MainActor
 final class EditorSurfaceView: FlippedView {
-    /// Total panel height (content + the 42 pt app strip). Fixed, like every
-    /// chrome surface: there is no host tree behind this one to measure.
-    static let panelHeight: CGFloat = 384
-
     let bridge = EditorBridge()
     /// The user sent something, so whatever the last turn's build status was is
     /// now stale. The controller uses this to put the toggle back to neutral.
     var onActivity: (() -> Void)?
+    /// The pill's ⌄/⌃ (design.html §08). The pane clears itself; the panel is a
+    /// different height with no transcript in it.
+    var onTranscript: ((Bool) -> Void)?
+    /// The transcript scrolled into the past, or came back to the latest.
+    var onScrollback: ((Bool) -> Void)?
+    /// Esc, with nothing in the page left to interrupt.
+    var onEscape: (() -> Void)?
+    /// The page announced itself — a first load, or a return from a web-content
+    /// crash. Anything the page cannot know on its own has to be re-sent.
+    var onReady: (() -> Void)?
 
     private let webView: WKWebView
     private var relay: EditorWebRelay!
@@ -110,22 +118,31 @@ final class EditorSurfaceView: FlippedView {
     /// keystroke.
     var keyboardResponder: NSView { webView }
 
-    // MARK: - Threads
-
-    /// Point the editor at an app (spec §8: one app, one session). One web view
-    /// is reused — there is one panel — so this is a message, not a reload.
-    func present(app: String) {
-        bridge.focus(app: app)
+    /// Test seam: the destination of the relay's hop, reachable without a live
+    /// web content process. There is no `WKWebView` painting in `swift test`, so
+    /// this is the only way to assert what a page message actually *does* rather
+    /// than only that it parses.
+    func apply(_ command: EditorCommand) {
+        handle(command)
     }
 
     private func handle(_ command: EditorCommand) {
         switch command {
         case .input, .cancel:
             onActivity?()
+        case .transcript(let collapsed):
+            onTranscript?(collapsed)
+        case .scrollback(let past):
+            onScrollback?(past)
+        case .escape:
+            onEscape?()
         case .ready:
+            // After `bridge.submit`, below: the queue has to flush before
+            // anything new is emitted, or the re-sent state arrives first.
             break
         }
         bridge.submit(command)
+        if case .ready = command { onReady?() }
     }
 
     // MARK: - Loading

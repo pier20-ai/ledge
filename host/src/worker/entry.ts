@@ -143,7 +143,7 @@ export async function runWorker(
     return;
   }
 
-  const { ctx, settle } = createCtx(
+  const { ctx, setReduceMotion, settle } = createCtx(
     {
       post: io.post,
       update: (patch) => session.update(patch),
@@ -176,6 +176,10 @@ export async function runWorker(
         }
         break;
       case "lifecycle":
+        // Reduce Motion first (spec §4.2): it rides the same envelope as the
+        // phase, and an `onLifecycle` that reacts to it has to see the new value
+        // rather than the one it is being told about.
+        if (typeof msg.reduceMotion === "boolean") setReduceMotion(msg.reduceMotion);
         // The monitor runs regardless (spec §4.2); apps that care about panel
         // phase handle it in their optional onLifecycle export.
         if (typeof onLifecycle === "function") {

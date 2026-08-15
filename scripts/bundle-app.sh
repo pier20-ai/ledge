@@ -151,25 +151,20 @@ rsync -a --exclude '.build' --exclude 'crash.log' --exclude 'node_modules' \
   "$DEMO_APPS/" "$SEED_STAGE/apps/"
 rsync -a "$DEMO_APPS/node_modules/" "$SEED_STAGE/node_modules/"
 
-# Stockfish ships every build it knows how to make — full and lite, threaded and
-# single, wasm and asm.js — and the NNUE nets inside the full ones are 100 MB
-# apiece. That was 239 MB of a 238 MB bundle for a demo chess app that loads
-# exactly one of them. Everything else is deleted from the STAGE, never from the
-# user's node_modules: `bun install` owns that directory.
-#
-# The variant is read out of the app rather than hardcoded, and its absence is
-# fatal: a chess app that silently loses its engine at bundle time and falls
-# back to the built-in one would look like a much subtler bug than it is.
-STOCKFISH_BIN="$SEED_STAGE/node_modules/stockfish/bin"
-if [ -d "$STOCKFISH_BIN" ]; then
-  VARIANT="$(sed -n 's|.*/bin/\(stockfish-[a-z0-9.-]*\)\.js.*|\1|p' "$DEMO_APPS/chess/app.jsx" | head -1)"
-  [ -n "$VARIANT" ] || fail "could not tell which stockfish build chess/app.jsx loads"
-  before="$(du -sk "$STOCKFISH_BIN" | cut -f1)"
-  find "$STOCKFISH_BIN" -type f ! -name "$VARIANT.*" -delete
-  for required in "$VARIANT.js" "$VARIANT.wasm"; do
-    [ -f "$STOCKFISH_BIN/$required" ] || fail "stockfish prune removed $required — chess would fall back to the built-in engine"
-  done
-  log "stockfish: kept $VARIANT ($(du -sh "$STOCKFISH_BIN" | cut -f1) of $((before / 1024)) MB)"
+# The stockfish prune, restored in D4 when chess came back to the apps root.
+# The package ships every build it knows how to make — asm.js, and full and
+# lite WASM — and the NNUE net inside each full build is ~100 MB, so the whole
+# thing is 239 MB. Chess loads exactly one of them: `stockfish-18-lite-single`,
+# the single-threaded build, which is the only shape that survives being
+# spawned as someone else's child (see the app's header). Keeping just that
+# pair takes the dependency from 239 MB to ~7 MB. Nothing here is conditional
+# on chess being installed: if the package is absent the glob matches nothing
+# and the loop is a no-op.
+SF_BIN="$SEED_STAGE/node_modules/stockfish/bin"
+if [ -d "$SF_BIN" ]; then
+  before="$(du -sh "$SF_BIN" | cut -f1)"
+  find "$SF_BIN" -type f ! -name 'stockfish-18-lite-single.*' -delete
+  log "pruned stockfish builds: $before -> $(du -sh "$SF_BIN" | cut -f1) (lite-single only)"
 fi
 
 tar -czf "$CONTENTS/Resources/seed.tar.gz" -C "$SEED_STAGE" apps node_modules

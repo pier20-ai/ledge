@@ -63,7 +63,7 @@ struct EnvelopeFixtureTests {
         #expect(image["sw"]?.asDouble == 16)
     }
 
-    @Test("Chrome fixtures: expand, and the three wing shapes (§3.3)")
+    @Test("Chrome fixtures: expand, and the four wing shapes (§3.3)")
     func chromeFixtures() throws {
         let expand = try decode("chrome-expand.json")
         #expect(expand.kind == .chrome)
@@ -80,6 +80,23 @@ struct EnvelopeFixtureTests {
         #expect(width.wing?.width == 286)
         #expect(width.wing?.text == nil)
         #expect(width.wing?.canvas == nil)
+
+        // A meter — the stock right-wing bar (flow.md's third wing form). The
+        // app names a fraction; every other number belongs to the shell.
+        let meter = try decode("chrome-wing-meter.json").decodePayload(ChromePayload.self)
+        #expect(meter.wing?.text == "12:04")
+        #expect(meter.wing?.meter == WingMeterSpec(value: 0.42))
+        #expect(meter.wing?.canvas == nil)
+        #expect(meter.wing?.isEmpty == false)
+
+        // The host clamps `value` on the way out; the shell clamps it again on
+        // the way in, because a fill wider than its track is the one thing this
+        // must never draw — and a fixture is the only place both can be proved.
+        let clamped = try decode("chrome-wing-meter-clamp.json").decodePayload(ChromePayload.self)
+        #expect(clamped.wing?.meter?.value == 1.8)
+        #expect(clamped.wing?.meter?.fraction == 1)
+        #expect(WingMeterSpec(value: -0.5).fraction == 0)
+        #expect(WingMeterSpec(value: .nan).fraction == 0)
 
         // `wing: null` releases the notch.
         let clear = try decode("chrome-wing-clear.json").decodePayload(ChromePayload.self)
@@ -198,6 +215,7 @@ struct EnvelopeFixtureTests {
             ("platform-observe-power.json", "power", "changed"),
             ("platform-observe-reachability.json", "reachability", "changed"),
             ("platform-observe-audio.json", "audio", "changed"),
+            ("platform-observe-focus.json", "focus", "changed"),
         ]
         for entry in expected {
             let payload = try decode(entry.file).decodePayload(PlatformPayload.self)
@@ -216,7 +234,7 @@ struct EnvelopeFixtureTests {
         let files = [
             "event-platform-workspace.json", "event-platform-pasteboard.json",
             "event-platform-power.json", "event-platform-reachability.json",
-            "event-platform-audio.json",
+            "event-platform-audio.json", "event-platform-focus.json",
         ]
         for file in files {
             let payload = try decode(file).decodePayload([String: JSONValue].self)
@@ -407,6 +425,62 @@ struct EnvelopeFixtureTests {
         #expect(nested.isEmpty)
     }
 
+    @Test("Summary fixtures mount, update, and reject a nested zone (§5 `summary`)")
+    func summaryFixtures() throws {
+        let mount = try decode("commit-summary.json")
+        let mutations = try mount.decodePayload(CommitPayload.self).mutations
+        let tree = ShadowTree()
+        #expect(tree.apply(mutations).isSuccess)
+
+        let summary = try #require(mutations.first { $0.kind == "summary" })
+        // No props at all: what a summary says is its children, and *when* it
+        // shows is the shell's. An app can neither ask for one nor pin one open,
+        // and the chevron on it is drawn outside this node entirely.
+        #expect(summary.props?.isEmpty ?? true)
+        // A root-level zone, exactly like `wing` and `mini`.
+        #expect(tree.node(2)?.kind == .summary)
+        #expect(tree.node(2)?.parent == 1)
+        #expect(tree.node(2)?.children == [3])
+        // The heavy thing it stands in for is a *sibling*, not a child: a heavy
+        // session is one that owes the hover a cheap line instead of a board.
+        #expect(tree.node(6)?.kind == .canvas)
+        #expect(tree.node(6)?.parent == 1)
+
+        // Updates on summary descendants are ordinary updates.
+        let updates = try decode("commit-summary-update.json")
+            .decodePayload(CommitPayload.self).mutations
+        #expect(updates.allSatisfy { $0.op == .update })
+        #expect(tree.apply(updates).isSuccess)
+
+        // …and a summary nested in the layout is the same §3.1 failure a nested
+        // wing or mini is: it would render into a surface its parent cannot see.
+        let nested = ShadowTree()
+        let misplaced = try decode("invalid-commit-nested-summary.json")
+            .decodePayload(CommitPayload.self).mutations
+        expectFailure(nested.apply(misplaced), .misplacedZone(id: 3, kind: .summary))
+        #expect(nested.isEmpty)
+    }
+
+    @Test("A peek carries its priority class, and absent is ambient (§3.3)")
+    func peekClassFixtures() throws {
+        let alert = try decode("chrome-peek-alert.json")
+        #expect(alert.kind == .chrome)
+        let payload = try alert.decodePayload(ChromePayload.self)
+        #expect(payload.request == "peek")
+        // `class` on the wire, `priority` in Swift — `class` is a keyword here.
+        #expect(payload.priority == .alert)
+
+        // The ordinary peek names no class, and must stay that way: a default
+        // spelled out on the wire is a default kept in sync in two places.
+        let ambient = try decode("chrome-peek.json").decodePayload(ChromePayload.self)
+        #expect(ambient.priority == nil)
+        // Absent — and anything the shell has not heard of — reads as ambient,
+        // so a forward-compatible wire can never produce a swell that never
+        // goes away.
+        #expect(NotificationClass(token: ambient.priority?.rawValue) == .ambient)
+        #expect(NotificationClass(token: "urgent") == .ambient)
+    }
+
     @Test("Rate fixtures carry `rate` on slider and progress (§5)")
     func rateFixtures() throws {
         let mount = try decode("commit-rate.json")
@@ -426,12 +500,21 @@ struct EnvelopeFixtureTests {
         // heard of `rate` looks on the wire.
         #expect(try props(4)["rate"] == nil)
 
+        // `progress.color` (G3) is a *token*, never a hex string: one bar names
+        // a hue family, the other names nothing and is ink.
+        #expect(try props(3)["color"]?.asString == "accent")
+        #expect(try props(5)["color"] == nil)
+
         let updates = try decode("commit-rate-update.json")
             .decodePayload(CommitPayload.self).mutations
         #expect(tree.apply(updates).isSuccess)
         // Pausing is `rate: 0`; deleting the key (§3.1 null) means the same.
         #expect(updates.first { $0.id == 2 }?.props?["rate"]?.asDouble == 0)
         #expect(updates.first { $0.id == 3 }?.props?["rate"] == JSONValue.null)
+        // …and the hue goes the same two ways in one commit: deleted on one bar,
+        // added on the other.
+        #expect(updates.first { $0.id == 3 }?.props?["color"] == JSONValue.null)
+        #expect(updates.first { $0.id == 5 }?.props?["color"]?.asString == "green")
     }
 
     @Test("A wrongly-typed rate or wing side is rejected (§3.1)")
@@ -444,6 +527,12 @@ struct EnvelopeFixtureTests {
         expectFailure(
             tree.apply([Mutation(op: .create, id: 2, kind: "progress", props: ["rate": .bool(true)])]),
             .badProps(id: 2, key: "rate")
+        )
+        // `progress.color` is a token string, so a raw number is refused on the
+        // wire rather than silently ignored by the renderer (G3).
+        expectFailure(
+            tree.apply([Mutation(op: .create, id: 4, kind: "progress", props: ["color": .int(0xFF)])]),
+            .badProps(id: 4, key: "color")
         )
         // Not merely "a string": the ONE enumerated prop on the wire.
         expectFailure(
@@ -475,6 +564,40 @@ struct EnvelopeFixtureTests {
         // `disabled: null` is the canonical "delete this prop" form (§3.1).
         let reenable = try #require(updates.first { $0.id == 3 })
         #expect(reenable.props?["disabled"] == JSONValue.null)
+    }
+
+    @Test("Type-ramp fixtures validate: two new sizes, a new weight, and `caps` (§5)")
+    func typeRampFixtures() throws {
+        let mount = try decode("commit-type-ramp.json")
+        let mutations = try mount.decodePayload(CommitPayload.self).mutations
+        let tree = ShadowTree()
+        #expect(tree.apply(mutations).isSuccess)
+
+        func props(_ id: Int) throws -> [String: JSONValue] {
+            try #require(mutations.first { $0.op == .create && $0.id == id }?.props)
+        }
+        #expect(try props(2)["size"]?.asString == "hero")
+        #expect(try props(2)["weight"]?.asString == "light")
+        #expect(try props(3)["size"]?.asString == "display")
+        // `caps` is a *bool*, and it has to be type-checked as one: a `caps: "on"`
+        // that validated would reach the renderer and render as no caps at all.
+        #expect(try props(4)["caps"]?.asBool == true)
+        // The pre-existing ramp is untouched — §3.1's headline price still xl/bold.
+        #expect(try props(5)["size"]?.asString == "xl")
+
+        let update = try decode("commit-type-ramp-update.json")
+        let updates = try update.decodePayload(CommitPayload.self).mutations
+        #expect(updates.allSatisfy { $0.op == .update })
+        #expect(tree.apply(updates).isSuccess)
+        // `caps: null` is the canonical delete (§3.1): the label goes back to the
+        // casing the app wrote rather than staying shouted.
+        #expect(updates.first { $0.id == 4 }?.props?["caps"] == JSONValue.null)
+
+        // And the wrong type still fails, on the new prop as on every other one.
+        expectFailure(
+            tree.apply([Mutation(op: .update, id: 4, props: ["caps": .string("on")])]),
+            .badProps(id: 4, key: "caps")
+        )
     }
 
     @Test("Control-prop fixtures carry the new props on the existing kinds")
@@ -560,6 +683,64 @@ struct EnvelopeFixtureTests {
         #expect(events.first?.event == "text")
         #expect(events.last?.event == "done")
         #expect(events.last?.ok == true)
+    }
+
+    @Test("App-control fixtures: `variant=\"ghost\"` and `image.stroke` (F2.3)")
+    func appControlFixtures() throws {
+        let mount = try decode("commit-app-controls.json")
+        let mutations = try mount.decodePayload(CommitPayload.self).mutations
+        let tree = ShadowTree()
+        #expect(tree.apply(mutations).isSuccess)
+
+        func props(_ id: Int) throws -> [String: JSONValue] {
+            try #require(mutations.first { $0.op == .create && $0.id == id }?.props)
+        }
+        // `stroke` is a *string* token on an image, the same way it is on a
+        // stack — a raw colour would put theming in the app (§5).
+        #expect(try props(2)["stroke"]?.asString == "hairline")
+        #expect(try props(3)["stroke"]?.asString == "accent")
+        #expect(try props(4)["stroke"] == nil)                     // absent ⇒ unframed
+        #expect(try props(5)["variant"]?.asString == "ghost")
+        // `bead` validates on the wire — it is a string, and the wire's job is
+        // types. Refusing it is the *renderer's* ruling, and the shell suite's
+        // AppControlsTests is where that is pinned.
+        #expect(try props(7)["variant"]?.asString == "bead")
+
+        let updates = try decode("commit-app-controls-update.json")
+            .decodePayload(CommitPayload.self).mutations
+        #expect(updates.allSatisfy { $0.op == .update })
+        #expect(tree.apply(updates).isSuccess)
+        // `stroke: null` is the canonical delete (§3.1): the well loses its ring
+        // rather than keeping a stale one.
+        #expect(updates.first { $0.id == 2 }?.props?["stroke"] == JSONValue.null)
+        // …and a symbol node swaps its `src` in place (G3). Still an `sf:` src
+        // on both sides of the pair: a src that changes *kind* is a different
+        // component, not an update.
+        #expect(try props(3)["src"]?.asString == "sf:waveform")
+        #expect(updates.first { $0.id == 3 }?.props?["src"]?.asString == "sf:waveform.badge.mic")
+
+        // And the wrong type is still refused on the new prop.
+        expectFailure(
+            tree.apply([Mutation(op: .update, id: 2, props: ["stroke": .int(1)])]),
+            .badProps(id: 2, key: "stroke")
+        )
+    }
+
+    @Test("`lifecycle` carries Reduce Motion beside the phase (§4.2)")
+    func reduceMotionRidesLifecycle() throws {
+        let payload = try rawObject("lifecycle-reduce-motion.json")["payload"]?.asObject ?? [:]
+        #expect(payload["phase"]?.asString == "collapsed")
+        #expect(payload["reduceMotion"]?.asBool == true)
+        // Same envelope, same screen block: the flag is a *rider*, not a new
+        // shape, which is the whole reason it needs no version bump.
+        #expect(payload["screen"]?.asObject?["notchWidth"]?.asDouble == 189)
+
+        // The pre-existing fixture has no such key, and that has to stay legal:
+        // absent means "unchanged", so a shell that predates the flag is not a
+        // shell claiming motion is fine.
+        let older = try rawObject("lifecycle-expanded.json")["payload"]?.asObject ?? [:]
+        #expect(older["reduceMotion"] == nil)
+        #expect(older["phase"]?.asString == "expanded")
     }
 
     // MARK: - Helpers

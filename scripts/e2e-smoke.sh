@@ -59,7 +59,7 @@ trap cleanup EXIT INT TERM
 # --- Preconditions ----------------------------------------------------------
 
 log "workspace: $WORK_DIR"
-[ -f "$DEMO_APPS/stocks/app.jsx" ] || fail "demo app missing at $DEMO_APPS/stocks/app.jsx"
+[ -f "$DEMO_APPS/timer/app.jsx" ] || fail "demo app missing at $DEMO_APPS/timer/app.jsx"
 
 # Ensure the apps root's own dependencies are installed (spec §6: the shared
 # node_modules at the apps root, plus the lockfile that pins it). The apps root
@@ -115,7 +115,7 @@ for _ in $(seq 1 40); do
   if grep -q "applied commit" "$SHELL_LOG" 2>/dev/null \
      && grep -q "connected, gen" "$HOST_LOG" 2>/dev/null \
      && grep -q "catalog ->" "$HOST_LOG" 2>/dev/null \
-     && grep -q "stocks=sf:" "$SHELL_LOG" 2>/dev/null; then
+     && grep -q "timer=sf:" "$SHELL_LOG" 2>/dev/null; then
     break
   fi
   kill -0 "$HOST_PID" 2>/dev/null || fail "host exited early"
@@ -132,23 +132,23 @@ log "✓ catalog delivered"
 # Meta extraction (spec §6 → §3.6): the worker declares name/icon, the host
 # merges it, and the shell's strip finally shows real icons instead of the
 # registry's placeholder — the user-visible bug this API group fixes.
-grep -q "meta <- stocks" "$HOST_LOG"   || fail "worker never posted its meta"
+grep -q "meta <- timer" "$HOST_LOG"    || fail "worker never posted its meta"
 log "✓ worker meta extracted"
-grep -q "stocks=sf:chart.line.uptrend.xyaxis" "$SHELL_LOG" \
+grep -q "timer=sf:timer" "$SHELL_LOG" \
   || fail "shell's catalog never carried the app's real icon (strip would show a placeholder)"
 log "✓ shell strip has the app's real sf: icon"
-grep -q "commit -> stocks" "$HOST_LOG" || fail "host never routed a commit for stocks"
+grep -q "commit -> timer" "$HOST_LOG"  || fail "host never routed a commit for timer"
 log "✓ host routed the mount commit"
 grep -q "applied commit" "$SHELL_LOG"  || fail "shell never applied a commit"
 log "✓ shell applied the commit end-to-end"
 
-# React identity (host/src/render/runtime.ts). `alarm` is the demo app that uses
-# useState, so its commit landing proves the worker's reconciler and the app
-# resolved the SAME react — two copies is a null hooks dispatcher on first
+# React identity (host/src/render/runtime.ts). `settings` is the demo app that
+# uses useState, so its commit landing proves the worker's reconciler and the
+# app resolved the SAME react — two copies is a null hooks dispatcher on first
 # render. Asserted by name because this is the one failure that appears ONLY in
 # the compiled host (LEDGE_HOST_CMD=dist/ledge), where a static `import react`
 # gets embedded in the binary while the app keeps resolving its own off disk.
-grep -q "applied commit app=alarm" "$SHELL_LOG" \
+grep -q "applied commit app=settings" "$SHELL_LOG" \
   || fail "the hooks app never rendered — likely two react instances (see host/src/render/runtime.ts)"
 log "✓ hooks app rendered (one react instance)"
 

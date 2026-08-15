@@ -22,11 +22,6 @@ final class HostSession {
     private var transport: SocketTransport?
     private var drawTimer: Timer?
 
-    /// Height reserved for the shell-drawn app strip (spec §5/§8). The 34 pt
-    /// header the spec also reserves is now part of the app's own tree — see
-    /// shell/README.md ("the header is app content").
-    static let stripHeight: CGFloat = 42
-
     /// What the screen allows a panel to be. Set by the panel controller from
     /// the display it sits on; the fallback only applies before the first
     /// `reposition` (and in headless snapshot rendering).
@@ -39,9 +34,13 @@ final class HostSession {
     /// it reserved.
     var cutoutRowHeight: CGFloat = NotchMetrics.fallback.closedHeight
 
-    /// Everything a panel spends before the app's own tree gets a point: the
-    /// app strip below, the cutout exclusion row above.
-    var chromeHeight: CGFloat { Self.stripHeight + cutoutRowHeight }
+    /// Everything a panel spends before the app's own tree gets a point.
+    ///
+    /// One row now, not two: the bottom app strip is gone (flow.md — in a visit
+    /// the wings are Ledge's controls, and there is no bar), so the panel is the
+    /// cutout exclusion row plus the app's own measured height and nothing else.
+    /// **Panel height = content fit.**
+    var chromeHeight: CGFloat { cutoutRowHeight }
 
     /// The app whose tree is currently in the panel, as last reported.
     private var shownApp: String?
@@ -60,9 +59,21 @@ final class HostSession {
     var onContentChanged: ((String) -> Void)?
     /// An app-level chrome request (spec §3.3): `expand`/`collapse`/`attention`,
     /// or a `wing` with its spec (nil spec = release the notch).
-    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?, _ ms: Double?) -> Void)?
+    var onChrome: ((
+        _ app: String,
+        _ request: String,
+        _ wing: WingSpec?,
+        _ ms: Double?,
+        _ priority: NotificationClass?
+    ) -> Void)?
     /// The user clicked a notification's body (§6): open the notch at the app.
     var onNotificationOpened: ((_ app: String) -> Void)?
+    /// A §4.1 event left one of an app's nodes. Reported as (app, name) only —
+    /// this is not a second event bus, it is how the panel controller learns
+    /// that the **action inside a notification swell** was pressed, which is a
+    /// row of flow.md's Transitions table the shell cannot otherwise see: the
+    /// button belongs to the app's borrowed tree and takes the click itself.
+    var onNodeEvent: ((_ app: String, _ name: String) -> Void)?
     /// One event of an app's builder stream (spec §3.6), on its way to the
     /// editor surface. Not filtered here: which transcript an event belongs to
     /// is presentation, and presentation is the panel controller's half.
@@ -71,6 +82,12 @@ final class HostSession {
     /// `stopped`). The crash card is already drawn by the renderer; this is the
     /// same signal read as *build status* for the editor's toggle.
     var onAppState: ((_ app: String, _ state: String) -> Void)?
+    /// The error card's Reload (flow.md, Errors). Only the app delegate owns the
+    /// `HostProcess`, so this is a pass-through: the renderer draws the button,
+    /// the delegate restarts the process, and nothing in between knows both.
+    var onReloadHost: (() -> Void)? {
+        didSet { renderer.onReloadHost = onReloadHost }
+    }
 
     init() {
         // Send the shell's real geometry in `hello` (spec §4.3), not the mockup
@@ -85,6 +102,7 @@ final class HostSession {
         )
         renderer.onEvent = { [weak self] app, id, name, data in
             self?.engine.emitEvent(app: app, id: id, name: name, data: data)
+            self?.onNodeEvent?(app, name)
         }
         // The composite is *not* invalidated here: an ordinary commit mutates
         // the same root in place, and rebuilding the wrapper would cross-fade
@@ -94,7 +112,9 @@ final class HostSession {
         // A scrolling stack has to know the ceiling it is scrolling under, and
         // the ceiling is per-app (`meta.panel.maxHeight`) and per-screen.
         renderer.scrollCap = { [weak self] app in
-            guard let self else { return PanelLimits.fallback.maxHeight - Self.stripHeight }
+            guard let self else {
+                return PanelLimits.fallback.maxHeight - NotchMetrics.fallback.closedHeight
+            }
             return max(0, self.panelSize(for: app).maxHeight - self.chromeHeight)
         }
         renderer.onCatalog = { [weak self] payload in
@@ -110,11 +130,21 @@ final class HostSession {
             )
             self.onCatalog?(payload.apps)
         }
-        renderer.onChrome = { [weak self] app, request, wing, ms in
-            self?.onChrome?(app, request, wing, ms)
+        renderer.onChrome = { [weak self] app, request, wing, ms, priority in
+            self?.onChrome?(app, request, wing, ms, priority)
         }
         renderer.onBuilder = { [weak self] payload in self?.onBuilder?(payload) }
-        renderer.onLifecycle = { [weak self] app, state in self?.onAppState?(app, state) }
+        renderer.onLifecycle = { [weak self] app, state in
+            guard let self else { return }
+            self.onAppState?(app, state)
+            // Spec §4.2's "once on connect", implemented where the phase is
+            // actually known. A worker that has just come up has never been told
+            // anything — not its panel phase and not Reduce Motion — and the
+            // first thing many of them do is start a frame loop.
+            if state == "started" || state == "reloaded" {
+                self.engine.sendLifecycle(app: app, phase: self.shownApp == app ? "expanded" : "collapsed")
+            }
+        }
 
         // Shell-executed capabilities (spec §6). The engine answers `apple` /
         // `notify` / `capture` through this object and puts its results back on
@@ -136,6 +166,47 @@ final class HostSession {
         }
         engine.capabilities = capabilities
         NSLog("[ledge] notifications via %@", capabilities.notificationMode)
+        observeReduceMotion()
+    }
+
+    // MARK: - Reduce Motion (spec §4.2, principle 10)
+
+    /// The system's Reduce Motion switch, forwarded to every app.
+    ///
+    /// Principle 10 is unobeyable from a worker: a Bun process cannot read an
+    /// AppKit accessibility preference, and `ctx` carries exactly the things the
+    /// platform cannot provide. So the shell reads it, `hello` seeds it, and
+    /// every `lifecycle` carries it — see `sendReduceMotionToAll`.
+    private var reduceMotionObserver: NSObjectProtocol?
+
+    private func observeReduceMotion() {
+        engine.updateReduceMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        // `NSWorkspace`'s own centre, not the default one: this notification is
+        // posted per-process by AppKit and never reaches `NotificationCenter`.
+        reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.applyReduceMotion(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            }
+        }
+    }
+
+    /// Record the new value and, if it moved, tell every running app at once —
+    /// the flag has no envelope of its own, so a fresh `lifecycle` with the
+    /// app's *current* phase is how the change travels (spec §4.2).
+    func applyReduceMotion(_ value: Bool) {
+        guard engine.updateReduceMotion(value) else { return }
+        NSLog("[ledge] reduce motion: %@", value ? "on" : "off")
+        sendReduceMotionToAll()
+    }
+
+    private func sendReduceMotionToAll() {
+        for app in catalog where app.running {
+            engine.sendLifecycle(app: app.id, phase: shownApp == app.id ? "expanded" : "collapsed")
+        }
     }
 
     /// An **app-level** event for the presented app (§4.1 with id 0): the drop
@@ -146,6 +217,15 @@ final class HostSession {
         guard let app = shownApp else { return false }
         engine.emitAppEvent(app: app, name: name, data: data)
         return true
+    }
+
+    /// The same event, to an app the **caller** names rather than the presented
+    /// one. A swipe across the collapsed pill belongs to whichever app owns the
+    /// wing (spec §3.3 extension), and nothing is presented while the notch is
+    /// closed — so the addressee cannot come from `shownApp`. Arbitration is
+    /// still not this object's job: the panel controller knows the owner.
+    func sendAppEvent(to app: String, name: String, data: JSONValue) {
+        engine.emitAppEvent(app: app, name: name, data: data)
     }
 
     /// The user typed into the presented app's editor, or asked to interrupt the
@@ -176,6 +256,21 @@ final class HostSession {
 
     /// Whether there is an app on screen that could receive a drop right now.
     var hasPresentedApp: Bool { shownApp != nil }
+
+    /// **Stop a session** — the ledge's ✕ (flow.md, "The strip"; spec §4.3
+    /// extension `appControl`). The worker is torn down by the host and the app
+    /// stays installed; Settings' switch is the way back, and it is the same
+    /// switch, because this sends the host down the path that one already takes.
+    func stopApp(_ app: String) {
+        engine.sendAppControl(app: app, action: "stop")
+    }
+
+    /// The app's catalog glyph — an SF Symbol name (spec §3.6). The shelf draws
+    /// it big and white; a session with no catalog row falls back to the generic
+    /// square, which is what the strip has always shown for one.
+    func icon(for app: String) -> String {
+        catalog.first(where: { $0.id == app })?.symbolName ?? "square.dashed"
+    }
 
     /// The renderer, for the wing canvas hookup (spec §3.3 extension). The panel
     /// controller owns which app's wing is up; the renderer owns where its draw
@@ -219,14 +314,14 @@ final class HostSession {
     }
 
     /// Build the `ScreenInfo` reported in `hello` from the display the shell
-    /// prefers (the notched one, else the main screen), reusing the same
-    /// `NotchMetrics.detect` measurement the panel geometry uses so the host and
-    /// the shell agree on the notch size. `maxPanelHeight` is clamped to the
-    /// visible screen height (spec §5: shell-computed, default 480).
+    /// prefers (`NotchScreen`: the notched one, else the primary), reusing the
+    /// same `NotchMetrics.detect` measurement the panel geometry uses so the
+    /// host and the shell agree on the notch size — including when that notch
+    /// is one the shell synthesized for a display that has none.
+    /// `maxPanelHeight` is clamped to the visible screen height (spec §5:
+    /// shell-computed, default 480).
     static func detectScreen() -> ScreenInfo {
-        guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
-            ?? NSScreen.main
-        else {
+        guard let screen = NotchScreen.preferred() else {
             return ScreenInfo(
                 notchWidth: 210,
                 menubarHeight: 34,
@@ -281,6 +376,13 @@ final class HostSession {
         engine.connectionOpened(generation: 1)
     }
 
+    /// Blit whatever draws are pending, right now (spec §3.4). Live, this is the
+    /// display-link tick's job; the snapshot replay has no display link and has
+    /// to ask, once the panel has been laid out and its canvases have a size.
+    func flushDraws() {
+        engine.flushDraws()
+    }
+
     private func send(_ envelope: Envelope) {
         guard let data = try? JSONEncoder().encode(envelope) else { return }
         transport?.sendFrame(data)
@@ -333,6 +435,22 @@ final class HostSession {
     func panelWing(for app: String?) -> NSView? {
         app.flatMap { renderer.wingView(for: $0) }
     }
+
+    /// The app's `<summary>` content (spec §5 `summary`), or nil when it
+    /// declared none — in which case a hover that reaches Th opens the visit
+    /// instead of a glance surface (flow.md).
+    func summaryView(for app: String) -> NSView? {
+        renderer.summaryView(for: app)
+    }
+
+    /// Is this session heavy — does it owe the hover a summary?
+    func declaresSummary(for app: String) -> Bool {
+        renderer.declaresSummary(for: app)
+    }
+
+    /// The strip of sessions the visit walks (flow.md, "The strip"). Session ≡
+    /// app for now, and the catalog is the only source (spec §3.6).
+    var strip: SessionStrip { SessionStrip(catalog: catalog) }
 
     /// Report which app the panel is showing (spec §4.3): a `selection`
     /// envelope, plus `collapsed` for the app leaving the panel and `expanded`

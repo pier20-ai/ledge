@@ -26,7 +26,15 @@ public protocol ProtocolEngineDelegate: AnyObject {
     /// `wing` is non-nil only for `request == "wing"` with a spec attached; a
     /// `wing` request with a nil spec releases the notch.
     /// `ms` accompanies `peek` only; nil everywhere else means "your default".
-    func chromeRequest(app: String, request: String, wing: WingSpec?, ms: Double?)
+    /// `priority` (`class` on the wire) accompanies `peek` too: an alert-class
+    /// swell holds until acted on, an ambient one retracts on `Ti` (flow.md).
+    func chromeRequest(
+        app: String,
+        request: String,
+        wing: WingSpec?,
+        ms: Double?,
+        priority: NotificationClass?
+    )
 
     /// Blit coalesced draw ops to one app's canvas (spec §3.4). Called on flush.
     /// Scoped by app because node ids restart at 1 per worker (§3.1).
@@ -121,6 +129,10 @@ public final class ProtocolEngine {
     public weak var capabilities: CapabilityDelegate?
     private let send: (Envelope) -> Void
     private var screen: ScreenInfo
+    /// The system's Reduce Motion preference (spec §4.2). Held here rather than
+    /// read at each emit so the engine stays testable without an `NSWorkspace`,
+    /// and so every `lifecycle` and `hello` reports the same value.
+    private var reduceMotion = false
 
     private var shadows: [String: ShadowTree] = [:]
     private var inbound = SeqGate()
@@ -169,6 +181,20 @@ public final class ProtocolEngine {
 
     public func updateScreen(_ screen: ScreenInfo) { self.screen = screen }
 
+    /// Record the system's Reduce Motion preference (spec §4.2). Returns true
+    /// when it actually changed, which is the caller's cue to re-send a
+    /// `lifecycle` to every running app — the flag has no envelope of its own,
+    /// because it is the same kind of fact `phase` is: how hard to work.
+    @discardableResult
+    public func updateReduceMotion(_ value: Bool) -> Bool {
+        guard reduceMotion != value else { return false }
+        reduceMotion = value
+        return true
+    }
+
+    /// What the engine will report on the next `lifecycle`/`hello`.
+    public var reducesMotion: Bool { reduceMotion }
+
     // MARK: - Inbound dispatch (spec §3)
 
     /// Handle one decoded envelope. Returns false only when the frame is
@@ -197,7 +223,7 @@ public final class ProtocolEngine {
         case .capture:    handleCapture(envelope)
         case .platform:   handlePlatform(envelope)
         // Shell → host types are never received; ignore if echoed.
-        case .event, .lifecycle, .selection, .builderInput, .resyncRequest,
+        case .event, .lifecycle, .selection, .builderInput, .appControl, .resyncRequest,
              .appleResult, .notifyAction, .captureResult, .platformResult:
             return false
         }
@@ -297,7 +323,8 @@ public final class ProtocolEngine {
             app: envelope.app,
             request: payload.request,
             wing: wing,
-            ms: payload.ms
+            ms: payload.ms,
+            priority: payload.priority
         )
     }
 
@@ -533,10 +560,13 @@ public final class ProtocolEngine {
         emit(app: app, type: .notifyAction, payload: .encoding(NotifyActionPayload(id: id, action: action)))
     }
 
-    /// Report a per-app panel state change (§4.2).
+    /// Report a per-app panel state change (§4.2). Every one of these also
+    /// carries the current Reduce Motion state, so an app that reads the flag
+    /// from a draw loop never has to ask for it.
     public func sendLifecycle(app: String, phase: String) {
         emit(app: app, type: .lifecycle, payload: .object([
             "phase": .string(phase),
+            "reduceMotion": .bool(reduceMotion),
             "screen": screenJSON(screen),
         ]))
     }
@@ -563,6 +593,21 @@ public final class ProtocolEngine {
 
     /// Ask the host for a fresh full commit for one app (§4.3). Sent with the
     /// shell-level app id `""` and the target app in the payload.
+    /// **Stop a session** (spec §4.3 extension) — the ledge's ✕, the only ✕ in
+    /// the product (flow.md, "The strip").
+    ///
+    /// The host already knows how to do this: it is the same path Settings'
+    /// switch takes (`ctx.platform.disable`), which tears the worker down and
+    /// leaves the app installed. This is a second *trigger* for that one path
+    /// rather than a second mechanism, so "this app is not running" cannot end
+    /// up with two answers.
+    public func sendAppControl(app: String, action: String) {
+        emit(app: "", type: .appControl, payload: .object([
+            "app": .string(app),
+            "action": .string(action),
+        ]))
+    }
+
     public func sendResyncRequest(app: String) {
         emit(app: "", type: .resyncRequest, payload: .object(["app": .string(app)]))
     }

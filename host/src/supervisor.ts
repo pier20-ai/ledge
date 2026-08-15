@@ -14,6 +14,7 @@ import type {
   AppleRequest,
   CaptureRequest,
   ChromeRequest,
+  NotificationClass,
   CrashPhase,
   HostToWorker,
   NotifyRequest,
@@ -79,7 +80,12 @@ export interface SupervisorSink {
   wing(app: string, wing: WingSpec | null): void;
   /** ctx.expand/ctx.collapse — a presentation request (spec §3.3). */
   /** `ms` is the peek dwell; absent for every other request. */
-  chrome(app: string, request: ChromeRequest, ms?: number): void;
+  chrome(
+    app: string,
+    request: ChromeRequest,
+    ms?: number,
+    cls?: NotificationClass,
+  ): void;
   /** ctx.notify (spec §6): a shell-posted notification + optional glow. */
   notify(app: string, notification: NotifyRequest): void;
   /** ctx.attention (spec §6, chrome §3.3): notch glow, no notification. */
@@ -283,7 +289,7 @@ export class AppSupervisor {
         this.sink.wing(this.appId, msg.wing);
         break;
       case "chrome":
-        this.sink.chrome(this.appId, msg.request, msg.ms);
+        this.sink.chrome(this.appId, msg.request, msg.ms, msg.cls);
         break;
       case "notify": {
         const { type: _type, ...notification } = msg;

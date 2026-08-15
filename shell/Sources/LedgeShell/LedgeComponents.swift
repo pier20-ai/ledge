@@ -15,6 +15,19 @@ protocol LedgeContentHosting: AnyObject {
     var contentView: NSView { get }
 }
 
+/// A view with **no width of its own** — a rule, a sparkline, a slider, a row.
+/// The column is the only thing that can give it one, so it keeps the vertical
+/// stack's fill constraint even when the stack is centring or trailing its
+/// children (`LedgeStackView.syncFillWidths`).
+///
+/// Marked rather than measured. `intrinsicContentSize` would answer for most of
+/// these and `fittingSize` for the rest, but both are read at *insert* time,
+/// when a subtree's own children have not arrived yet — a stack asked how wide
+/// it wants to be mid-commit says "nothing", and the answer would be cached as
+/// a constraint. A conformance is true before the first layout pass.
+@MainActor
+protocol LedgeColumnFilling: AnyObject {}
+
 final class LedgeStackView: NSStackView {
     init(axis: LedgeAxis, gap: CGFloat = LedgeMetrics.gap, pad: CGFloat = 0, views: [NSView] = []) {
         super.init(frame: .zero)
@@ -42,7 +55,9 @@ final class LedgeStackView: NSStackView {
 
     /// A vertical stack stretches its children to its own width, so rows,
     /// boxes, charts and sliders span the panel without every app repeating a
-    /// width; anything narrower goes in an h-stack next to a spacer.
+    /// width; anything narrower goes in an h-stack next to a spacer. Unless the
+    /// stack named an alignment — see `placesChildren`, which is what makes
+    /// `align="center"` mean something for a label.
     ///
     /// This is done with explicit constraints rather than NSStackView's
     /// `.width` alignment, whose priority ties with content hugging: the tie
@@ -52,12 +67,116 @@ final class LedgeStackView: NSStackView {
     /// and simply sits at the leading edge.
     static let fillPriority = NSLayoutConstraint.Priority(500)
 
+    /// The ceiling a *placed* child is held under. Above every content priority
+    /// (a label's 750 compression resistance loses to it, so a long line
+    /// truncates instead of running off the panel) and below required, so a
+    /// child with a real width constraint of its own — a 500 pt canvas in a 440
+    /// pt panel — still wins rather than breaking the layout.
+    static let capPriority = NSLayoutConstraint.Priority(999)
+
+    /// **Does the column stretch its children, or place them?**
+    ///
+    /// `align="center"`/`"trailing"` used to be a silent no-op for anything that
+    /// stretches: the fill constraint pinned a label to the full column width
+    /// and `NSTextField` draws left inside it, so every app grew the same
+    /// spacer/text/spacer helper. A stack that names a cross-axis alignment is
+    /// asking for its children to be *placed*, so they are sized to what they
+    /// measure and NSStackView's own alignment puts them where the app said.
+    ///
+    /// The exception is `LedgeColumnFilling` — a divider or a chart has no width
+    /// of its own, and "centred" would resolve to zero.
+    private var placesChildren: Bool {
+        alignment == .centerX || alignment == .trailing
+    }
+
+    /// **Does a row stretch its children, or place them?**
+    ///
+    /// The column's question, asked of the other axis. NSStackView's `.fill`
+    /// distribution pins the first child to the leading edge, the last to the
+    /// trailing edge, and hands the slack to whichever child hugs least — so a
+    /// row of `[numeral, phrase]` came out with the numeral stretched to 357 pt
+    /// (its glyphs drawn flush left inside it) and the phrase pinned to the far
+    /// edge: two things meant to read as one sentence, at opposite ends of the
+    /// panel. D2 found it on Weather's temperature row; every app that hit it
+    /// worked around it with a trailing `spacer`.
+    ///
+    /// The rule, spec §5: **a row places its children unless one of them has no
+    /// width of its own.** That exception is not new — it is the column rule's
+    /// own exception, in the same words. A `spacer`, `divider`, `chart`,
+    /// `slider`, `progress`, `input` or nested scroller (every
+    /// `LedgeColumnFilling`) measures nothing, so a row holding one has
+    /// somewhere for its slack to go and keeps filling; a `spacer` is the app
+    /// saying exactly that, which is what it has always been for.
+    ///
+    /// **The row's own width does not change** — only what happens inside it —
+    /// so list rows, cards, washes and press targets still span their column.
+    /// And it keys off the children rather than off `align`, because on a row
+    /// `align` is the *cross* axis (top/middle/bottom) and always has been:
+    /// re-pointing it at the main axis would silently re-lay-out every app.
+    /// `distribute="equal"` is the third case and is untouched — an app that
+    /// asked for equal shares is asking to fill.
+    private var placesRowChildren: Bool {
+        orientation == .horizontal
+            && isStretchedByColumn
+            && declaredDistribution != .fillEqually
+            && !arrangedSubviews.contains { $0 is LedgeColumnFilling }
+    }
+
+    /// Told by the parent column: **this row's width is imposed, not measured.**
+    ///
+    /// The third condition, and the one that keeps the change narrow. A row only
+    /// has slack to mis-spend when something else decided how wide it is — a
+    /// column stretching it to its own width. A row that is *placed* (by a
+    /// centred or trailing column, by a `button` hosting it, by nothing at all)
+    /// is already the size of its contents, and switching its distribution there
+    /// would cost it that: `.gravityAreas` does not give a stack a
+    /// content-driven fitting width, so a centred transport pair would slide to
+    /// the left of a row suddenly as wide as the panel. Radio and Beacon both
+    /// look exactly like that, and both are why this flag exists.
+    var isStretchedByColumn = false {
+        didSet {
+            guard isStretchedByColumn != oldValue else { return }
+            syncFillWidths()
+        }
+    }
+
+    /// `distribute` as the app declared it (spec §5). The *live* `distribution`
+    /// may differ: a placing row runs on `.gravityAreas`, which is AppKit's own
+    /// "lay them side by side and stop there" — no edge pinning, no stretching,
+    /// and the leftover width simply left over.
+    var declaredDistribution: NSStackView.Distribution = .fill {
+        didSet {
+            guard declaredDistribution != oldValue else { return }
+            syncFillWidths()
+        }
+    }
+
     func syncFillWidths() {
         NSLayoutConstraint.deactivate(fillWidths)
         fillWidths = []
+        // Recomputed on every sync because it depends on the children, and
+        // `axis` is itself updatable — a column that becomes a row must not keep
+        // a column's distribution, and vice versa.
+        let wanted: NSStackView.Distribution =
+            placesRowChildren ? .gravityAreas : declaredDistribution
+        if distribution != wanted { distribution = wanted }
         guard orientation == .vertical else { return }
+        let places = placesChildren
         let inset = edgeInsets.left + edgeInsets.right
         fillWidths = arrangedSubviews.compactMap { child in
+            // A placed child keeps the width it measures — and is capped at the
+            // column's, because NSStackView's own `.centerX`/`.trailing`
+            // alignment does not contain anything: it centres a 1200 pt track
+            // title just as happily, half of it off each edge of the panel.
+            if places, !(child is LedgeColumnFilling) {
+                (child as? LedgeStackView)?.isStretchedByColumn = false
+                let cap = child.widthAnchor.constraint(
+                    lessThanOrEqualTo: widthAnchor,
+                    constant: -inset
+                )
+                cap.priority = Self.capPriority
+                return cap
+            }
             // A child that hugs harder than the fill *means* it — a `segment`
             // keeps its measured width, an icon-only `button` stays square — and
             // constraining it anyway is not merely redundant. The equality pulls
@@ -66,8 +185,12 @@ final class LedgeStackView: NSStackView {
             // collapse a whole page from 440 pt to 163, every sibling neatly
             // filling a column that had quietly shrunk to nothing.
             guard child.contentHuggingPriority(for: .horizontal) < Self.fillPriority else {
+                (child as? LedgeStackView)?.isStretchedByColumn = false
                 return nil
             }
+            // This is the one branch that imposes a width, so it is the one that
+            // gives a nested row slack to place its children in.
+            (child as? LedgeStackView)?.isStretchedByColumn = true
             let constraint = child.widthAnchor.constraint(equalTo: widthAnchor, constant: -inset)
             constraint.priority = Self.fillPriority
             return constraint
@@ -75,16 +198,71 @@ final class LedgeStackView: NSStackView {
         NSLayoutConstraint.activate(fillWidths)
     }
 
+    /// The `gradient` wash, if this stack declared one. Its own layer, below
+    /// every child: a wash is a material behind the content, not a fill the
+    /// content sits on top of — and keeping it off `backgroundColor` is what
+    /// lets `fill` and `gradient` be used together.
+    private var washLayer: CAGradientLayer?
+
     /// Semantic container styling (spec §5 proposal). `nil` clears.
-    func applyContainer(fill: NSColor?, stroke: NSColor?, radius: CGFloat?) {
-        guard fill != nil || stroke != nil || radius != nil || wantsLayer else { return }
+    func applyContainer(fill: NSColor?, stroke: NSColor?, radius: CGFloat?, gradient: NSColor? = nil) {
+        guard fill != nil || stroke != nil || radius != nil || gradient != nil || wantsLayer else {
+            return
+        }
         wantsLayer = true
         layer?.backgroundColor = (fill ?? .clear).cgColor
         layer?.borderColor = (stroke ?? .clear).cgColor
         layer?.borderWidth = stroke == nil ? 0 : LedgeMetrics.hairline
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = radius ?? 0
-        layer?.masksToBounds = (radius ?? 0) > 0
+        // A wash has to be clipped by the container's own corners, or it draws
+        // square shoulders past a rounded card.
+        layer?.masksToBounds = (radius ?? 0) > 0 || gradient != nil
+        applyWash(gradient)
+    }
+
+    /// The hue the wash was resolved to, or nil for no wash. Read by tests —
+    /// a `CAGradientLayer`'s own `colors` are `Any` and comparing them means
+    /// unwrapping CoreGraphics types by hand.
+    private(set) var washColor: NSColor?
+
+    private func applyWash(_ color: NSColor?) {
+        washColor = color
+        guard let color else {
+            washLayer?.removeFromSuperlayer()
+            washLayer = nil
+            return
+        }
+        let wash = washLayer ?? {
+            let layer = CAGradientLayer()
+            layer.startPoint = CGPoint(x: 0.5, y: 0)
+            layer.endPoint = CGPoint(x: 0.5, y: 1)
+            // Below the children (which are subviews, hence above every
+            // sublayer) and below nothing else — it is the bottom of the stack.
+            self.layer?.insertSublayer(layer, at: 0)
+            washLayer = layer
+            return layer
+        }()
+        // Disabled actions: a re-commit that happens to change the hue must not
+        // cross-fade a background while the panel is measuring itself.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        wash.colors = [
+            color.withAlphaComponent(LedgeTheme.washAlpha).cgColor,
+            color.withAlphaComponent(0).cgColor,
+        ]
+        wash.locations = [0, NSNumber(value: Double(LedgeMetrics.washEnd))]
+        wash.frame = bounds
+        CATransaction.commit()
+    }
+
+    override func layout() {
+        super.layout()
+        guard let washLayer else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        washLayer.frame = bounds
+        CATransaction.commit()
     }
 }
 
@@ -96,7 +274,7 @@ final class LedgeStackView: NSStackView {
 ///
 /// Horizontal elasticity is off: a vertical list that rubber-bands sideways reads
 /// as a bug, and nothing in the vocabulary is wider than its column.
-final class LedgeScrollStackView: NSView, LedgeContentHosting {
+final class LedgeScrollStackView: NSView, LedgeContentHosting, LedgeColumnFilling {
     let stack: LedgeStackView
     private let scrollView = NSScrollView()
     /// Ceiling from the panel limit — a stack cannot ask for more room than the
@@ -265,8 +443,16 @@ final class LedgeText: NSTextField {
     /// §5 `truncate`. True (default) ends an over-long line with an ellipsis;
     /// false clips it flush. Either way the app chose — nothing wraps silently.
     private(set) var truncates = true
+    /// The string as the app wrote it. `caps` is a *presentation*, so the raw
+    /// content is what accessibility reads, what a later `caps: false` restores,
+    /// and what a `caps`-only update re-renders from.
+    private(set) var rawContent: String
+    /// §5 `caps`. Uppercases and tracks out — the two always travel together,
+    /// because uppercase at natural spacing is a jam.
+    private(set) var caps = false
 
     init(_ content: String) {
+        rawContent = content
         super.init(frame: .zero)
         stringValue = content
         font = LedgeTheme.systemFont(LedgeMetrics.textDefaultPointSize)
@@ -304,6 +490,42 @@ final class LedgeText: NSTextField {
     /// will happily consume that press, which is how a ticker in a tappable row
     /// becomes the one part of the row that does nothing.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Set the content and its `caps` treatment together (spec §5).
+    ///
+    /// They are one call because they are one decision: tracking is not a font
+    /// trait, so caps has to be drawn as an attributed value built from the
+    /// field's *current* face — which means the renderer sets `font`/`textColor`
+    /// first and this reads them. `content: nil` means "unchanged", the same
+    /// contract every other partial-update prop has.
+    func applyContent(_ content: String?, caps newCaps: Bool) {
+        let wasCaps = caps
+        if let content { rawContent = content }
+        caps = newCaps
+        // Every commit re-runs `configure`, including a price tick that changed
+        // nothing here. Rebuilding an attributed string per tick is work the
+        // panel does not need to do.
+        guard caps || wasCaps || stringValue != rawContent else { return }
+        setAccessibilityLabel(rawContent)
+        guard caps else {
+            // Plain assignment drops any attributes a previous `caps: true` left
+            // behind, and the cell falls back to `font`/`textColor` — which is
+            // why dropping the prop really does restore the ordinary label.
+            stringValue = rawContent
+            invalidateIntrinsicContentSize()
+            return
+        }
+        let face = font ?? LedgeTheme.systemFont(LedgeMetrics.textDefaultPointSize)
+        attributedStringValue = NSAttributedString(
+            string: rawContent.uppercased(),
+            attributes: [
+                .font: face,
+                .foregroundColor: textColor ?? LedgeTheme.primary,
+                .kern: face.pointSize * LedgeMetrics.capsTracking,
+            ]
+        )
+        invalidateIntrinsicContentSize()
+    }
 
     /// Apply the §5 line props. `maxLines > 1` opts into wrapping up to N lines
     /// and then tail-truncating; 1 keeps the single-line law (L7).
@@ -430,10 +652,23 @@ final class LedgeText: NSTextField {
     }
 }
 
+/// The control ramp (principle 15: one control ramp, never forked).
+///
+/// The first three are what an *app* may ask for over the wire (§5
+/// `button.variant`). The last two are **shell** styles — the two tiers
+/// design.html §06 draws: a bead is a Ledge control, a ghost is a glyph in an
+/// app's own content well. `ProtocolRenderer.variant` deliberately does not map
+/// any wire string to them, so an app cannot dress its buttons as chrome.
 enum LedgeButtonVariant {
     case plain
     case glass
     case accent
+    /// A convex swelling of the glass: a top-lit vertical fill, a specular line
+    /// along the top edge, a shadow along the bottom. Ledge's own controls.
+    case bead
+    /// Bare pure-white glyph, no background at all until the cursor is on it.
+    /// Bigger and brighter than chrome, because it lives among content.
+    case ghost
 }
 
 /// Custom control instead of NSButton: the icon + label group is measured and
@@ -452,6 +687,14 @@ final class LedgeButton: NSControl {
     private var hovering = false
     private var size: LedgeMetrics.Size
     private var disabled = false
+    /// A bead is drawn from two sublayers rather than a background colour: the
+    /// gradient fill, and a one-point ring whose colour runs light at the top
+    /// and dark at the bottom. Built only for the `bead` variant, because every
+    /// other variant is genuinely one flat fill.
+    private var beadFill: CAGradientLayer?
+    private var beadEdge: CAGradientLayer?
+    private var beadEdgeMask: CAShapeLayer?
+    private var pressed = false
 
     /// Test/introspection accessors. `iconFrame`/`labelFrame` are what the
     /// centering law (L2) is actually asserted against — "the icon looks centered"
@@ -461,12 +704,24 @@ final class LedgeButton: NSControl {
     var labelFrame: CGRect { label.frame }
     var iconPointSize: CGFloat? {
         iconView?.image?.symbolConfiguration != nil
-            ? (isIconOnly ? LedgeMetrics.iconOnlyPointSize : LedgeMetrics.buttonIconPointSize)
+            ? (isIconOnly
+                ? LedgeMetrics.iconOnlyPointSize(variant: variant)
+                : LedgeMetrics.buttonIconPointSize)
             : nil
     }
     var contentAlpha: CGFloat { label.alphaValue }
     var currentSize: LedgeMetrics.Size { size }
     var isDisabled: Bool { disabled }
+    var currentVariant: LedgeButtonVariant { variant }
+    /// The bead's fill stops, top first — what "convex" actually reduces to,
+    /// and the only way to assert the hover brightening without a screenshot.
+    var beadFillColors: [NSColor]? {
+        beadFill?.colors?.compactMap { ($0 as! CGColor?).flatMap(NSColor.init(cgColor:)) }
+    }
+    var beadEdgeColors: [NSColor]? {
+        beadEdge?.colors?.compactMap { ($0 as! CGColor?).flatMap(NSColor.init(cgColor:)) }
+    }
+    var isPressed: Bool { pressed }
     /// A status hue for a `glass` button: the fill and the hairline take the
     /// colour, the content stays ink. Added for the Edit/Preview toggle, which
     /// has to carry "the app reloaded" / "the app crashed" without becoming a
@@ -546,8 +801,11 @@ final class LedgeButton: NSControl {
         self.symbolName = symbol
         label = makeLabel(
             title,
-            font: LedgeTheme.systemFont(11.5, weight: .semibold),
-            color: variant == .accent ? LedgeTheme.glassSolid : LedgeTheme.primary
+            font: LedgeTheme.systemFont(
+                LedgeMetrics.TypeSize.s.pointSize,
+                weight: .semibold
+            ),
+            color: Self.inkColor(variant: variant, filledTint: nil)
         )
         super.init(frame: .zero)
 
@@ -559,6 +817,7 @@ final class LedgeButton: NSControl {
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = LedgeMetrics.capsule(size.height)
         layer?.borderWidth = variant == .glass ? LedgeMetrics.hairline : 0
+        rebuildBeadLayers()
         refreshHugging()
         refreshAppearance()
     }
@@ -581,7 +840,10 @@ final class LedgeButton: NSControl {
         size newSize: LedgeMetrics.Size? = nil,
         disabled newDisabled: Bool? = nil
     ) {
-        let wasIconOnly = isIconOnly
+        // The glyph is *built* at a point size, so anything that changes the
+        // size has to rebuild it: the empty/non-empty label line, and — since
+        // ghosts are 18 pt and everything else is 14 — the variant too.
+        let wasGlyphSize = glyphPointSize
         if let newLabel {
             label.stringValue = newLabel
             setAccessibilityLabel(newLabel.isEmpty ? (symbolName ?? "") : newLabel)
@@ -589,15 +851,17 @@ final class LedgeButton: NSControl {
         if let newVariant {
             variant = newVariant
             layer?.borderWidth = variant == .glass ? LedgeMetrics.hairline : 0
+            rebuildBeadLayers()
         }
         if let newSize { size = newSize }
         if let newDisabled { disabled = newDisabled }
         if let symbol {
             symbolName = symbol
             rebuildIcon()
-        } else if wasIconOnly != isIconOnly {
-            // The label crossed the empty/non-empty line, so the glyph's point
-            // size and weight changed even though the symbol did not.
+        } else if wasGlyphSize != glyphPointSize {
+            // The label crossed the empty/non-empty line, or the button crossed
+            // the chrome/app tier line — either way the glyph's point size (and
+            // possibly its weight) changed even though the symbol did not.
             rebuildIcon()
         }
         refreshInk()
@@ -606,6 +870,16 @@ final class LedgeButton: NSControl {
         refreshAppearance()
         invalidateIntrinsicContentSize()
         needsLayout = true
+    }
+
+    /// The point size this button's glyph *should* be built at, right now.
+    /// `iconPointSize` is the same number but only once there is an icon —
+    /// this one is a pure function of the button's state, so it can be sampled
+    /// before and after a mutation.
+    private var glyphPointSize: CGFloat {
+        isIconOnly
+            ? LedgeMetrics.iconOnlyPointSize(variant: variant)
+            : LedgeMetrics.buttonIconPointSize
     }
 
     private func rebuildIcon() {
@@ -618,11 +892,13 @@ final class LedgeButton: NSControl {
         icon.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)?
             .withSymbolConfiguration(
                 NSImage.SymbolConfiguration(
-                    pointSize: isIconOnly ? LedgeMetrics.iconOnlyPointSize : LedgeMetrics.buttonIconPointSize,
+                    pointSize: isIconOnly
+                        ? LedgeMetrics.iconOnlyPointSize(variant: variant)
+                        : LedgeMetrics.buttonIconPointSize,
                     weight: isIconOnly ? LedgeMetrics.iconOnlyWeight : LedgeMetrics.buttonIconWeight
                 )
             )
-        icon.contentTintColor = variant == .accent ? LedgeTheme.glassSolid : LedgeTheme.primary
+        icon.contentTintColor = Self.inkColor(variant: variant, filledTint: filledTint)
         addSubview(icon)
         iconView = icon
         applyDisabledAlpha()
@@ -701,6 +977,7 @@ final class LedgeButton: NSControl {
         layer?.cornerRadius = hostedContent != nil
             ? LedgeMetrics.rCard
             : LedgeMetrics.capsule(bounds.height > 0 ? bounds.height : size.height)
+        layoutBeadLayers()
         CATransaction.commit()
 
         guard hostedContent == nil else {
@@ -767,8 +1044,7 @@ final class LedgeButton: NSControl {
     override func mouseDown(with event: NSEvent) {
         // Disabled means disabled: no press scale, no hover, no handler (D6).
         guard !disabled else { return }
-        let press = isIconOnly ? LedgeMetrics.pressScaleIcon : LedgeMetrics.pressScaleLabeled
-        layer?.setPressScale(press, duration: LedgeMetrics.pressDurationIn)
+        setPressed(true, duration: LedgeMetrics.pressDurationIn)
         var clickedInside = false
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
             if next.type == .leftMouseUp {
@@ -776,10 +1052,42 @@ final class LedgeButton: NSControl {
                 break
             }
         }
-        layer?.setPressScale(1, duration: LedgeMetrics.pressDurationOut)
+        setPressed(false, duration: LedgeMetrics.pressDurationOut)
         if clickedInside {
             handler()
         }
+    }
+
+    /// The press, for anything that is not a mouse. `mouseDown` runs its own
+    /// event loop, so VoiceOver (and a test) had no way in at all — the button
+    /// announced itself as a button and then did nothing when pressed.
+    override func accessibilityPerformPress() -> Bool {
+        guard !disabled else { return false }
+        handler()
+        return true
+    }
+
+    /// A bead does not shrink — it **sinks**. Scaling a convex swelling reads as
+    /// the control getting smaller; moving it half a point down while the inset
+    /// closes over the top reads as it being pushed into the glass, which is
+    /// what it is. Every other variant keeps the D5 press scale.
+    private func setPressed(_ down: Bool, duration: TimeInterval) {
+        pressed = down
+        guard variant == .bead else {
+            let press = isIconOnly ? LedgeMetrics.pressScaleIcon : LedgeMetrics.pressScaleLabeled
+            layer?.setPressScale(down ? press : 1, duration: duration)
+            return
+        }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        // Down is −y in an unflipped view's layer, +y in a flipped one.
+        let sink = isFlipped ? LedgeMetrics.beadPressSink : -LedgeMetrics.beadPressSink
+        layer?.setAffineTransform(
+            down ? CGAffineTransform(translationX: 0, y: sink) : .identity
+        )
+        CATransaction.commit()
+        refreshBead()
     }
 
     /// White over a filled tint, otherwise the variant's own ink.
@@ -787,19 +1095,110 @@ final class LedgeButton: NSControl {
     /// White rather than `glassSolid` (black): the amber send button in the
     /// existing surfaces already carries a white glyph, so a black-inked amber
     /// chip beside it would read as a different control family.
-    private func refreshInk() {
-        let contentColor: NSColor = if filledTint != nil {
-            .white
-        } else if variant == .accent {
-            LedgeTheme.glassSolid
-        } else {
-            LedgeTheme.primary
+    private static func inkColor(variant: LedgeButtonVariant, filledTint: NSColor?) -> NSColor {
+        if filledTint != nil { return .white }
+        switch variant {
+        case .accent:
+            return LedgeTheme.glassSolid
+        case .ghost:
+            // Pure white, not `primary`. A ghost sits in an app's content well
+            // with no background to lift it, so the 6% the chrome ink gives up
+            // to look calm is exactly what makes a bare glyph look switched off.
+            return .white
+        case .plain, .glass, .bead:
+            return LedgeTheme.primary
         }
+    }
+
+    private func refreshInk() {
+        let contentColor = Self.inkColor(variant: variant, filledTint: filledTint)
         label.textColor = contentColor
         iconView?.contentTintColor = contentColor
     }
 
+    /// Frame the bead's sublayers to the button. Called from `layout` inside the
+    /// action-disabled transaction, because a capsule that cross-fades its own
+    /// corner radius on every resize is the L6 defect.
+    private func layoutBeadLayers() {
+        guard let beadFill, let beadEdge, let beadEdgeMask else { return }
+        let radius = layer?.cornerRadius ?? LedgeMetrics.capsule(bounds.height)
+        beadFill.frame = bounds
+        beadFill.cornerCurve = .continuous
+        beadFill.cornerRadius = radius
+        beadFill.masksToBounds = true
+        beadEdge.frame = bounds
+        beadEdgeMask.frame = bounds
+        // Stroked *inside* the silhouette: half a line width in, so the ring is
+        // the button's own edge rather than a halo hanging off it.
+        let inset = LedgeMetrics.beadEdgeWidth / 2
+        beadEdgeMask.path = CGPath(
+            roundedRect: bounds.insetBy(dx: inset, dy: inset),
+            cornerWidth: max(0, radius - inset),
+            cornerHeight: max(0, radius - inset),
+            transform: nil
+        )
+    }
+
+    private var beadTopUnitPoint: CGPoint { CGPoint(x: 0.5, y: isFlipped ? 0 : 1) }
+    private var beadBottomUnitPoint: CGPoint { CGPoint(x: 0.5, y: isFlipped ? 1 : 0) }
+
+    /// The bead's two sublayers, built only when the variant needs them and torn
+    /// down when it stops. They go in *below* everything: a layer-backed view's
+    /// subviews are sublayers too, so an appended gradient would sit on top of
+    /// the label.
+    private func rebuildBeadLayers() {
+        guard variant == .bead else {
+            beadFill?.removeFromSuperlayer()
+            beadEdge?.removeFromSuperlayer()
+            beadFill = nil
+            beadEdge = nil
+            beadEdgeMask = nil
+            return
+        }
+        guard beadFill == nil else { return }
+        let fill = CAGradientLayer()
+        // A layer's coordinate system matches its view's, and an NSControl is
+        // not flipped — so unit y = 1 is the *top*. Saying it once here lets
+        // every colour list below read top-first, which is how they are written
+        // in design.html.
+        fill.startPoint = beadTopUnitPoint
+        fill.endPoint = beadBottomUnitPoint
+        layer?.insertSublayer(fill, at: 0)
+        beadFill = fill
+
+        // The specular top and the shadowed bottom are one ring, not two edges:
+        // a vertical gradient masked to a one-point capsule outline. That gets
+        // both inset shadows from design.html with a single layer, and the ring
+        // follows the capsule instead of cutting across its corners.
+        let edge = CAGradientLayer()
+        edge.startPoint = beadTopUnitPoint
+        edge.endPoint = beadBottomUnitPoint
+        let mask = CAShapeLayer()
+        mask.fillColor = nil
+        mask.strokeColor = NSColor.black.cgColor
+        mask.lineWidth = LedgeMetrics.beadEdgeWidth
+        edge.mask = mask
+        layer?.insertSublayer(edge, above: fill)
+        beadEdge = edge
+        beadEdgeMask = mask
+    }
+
+    /// Paint the bead for the current hover/press state. Colours only — the
+    /// frames are `layout`'s.
+    private func refreshBead() {
+        guard let beadFill, let beadEdge else { return }
+        let top = hovering ? LedgeTheme.beadFillTopHover : LedgeTheme.beadFillTop
+        let bottom = hovering ? LedgeTheme.beadFillBottomHover : LedgeTheme.beadFillBottom
+        beadFill.colors = [top.cgColor, bottom.cgColor]
+        beadEdge.colors = pressed
+            // Pressed, the inset closes over the top too — the swelling is being
+            // pushed into the glass, so there is no specular left to catch.
+            ? [LedgeTheme.beadEdgePressed.cgColor, LedgeTheme.beadEdgePressed.cgColor]
+            : [LedgeTheme.beadEdgeHighlight.cgColor, LedgeTheme.beadEdgeShadow.cgColor]
+    }
+
     private func refreshAppearance() {
+        refreshBead()
         if let filledTint {
             layer?.backgroundColor = (
                 hovering
@@ -828,6 +1227,15 @@ final class LedgeButton: NSControl {
             layer?.backgroundColor = (
                 hovering ? LedgeTheme.accent.blended(withFraction: 0.12, of: .white) ?? LedgeTheme.accent : LedgeTheme.accent
             ).cgColor
+        case .bead:
+            // The whole control is the two gradient sublayers `refreshBead`
+            // paints; a background colour underneath them would flatten the
+            // swelling back into a chip.
+            layer?.backgroundColor = NSColor.clear.cgColor
+        case .ghost:
+            // Nothing at all until the cursor arrives, and then only the wash —
+            // no border, no fill, no capsule the eye can find when idle.
+            layer?.backgroundColor = hovering ? LedgeTheme.raisedHover.cgColor : NSColor.clear.cgColor
         }
     }
 }
@@ -836,25 +1244,82 @@ final class LedgeButton: NSControl {
 /// the requested size. Deliberately unstyled — the box around an icon is a
 /// `stack` with a `fill`/`radius`, so the same view serves a 5 pt dot and a
 /// 54 pt artwork tile.
+extension NSView {
+    /// The `image` node's `stroke` (spec §5): the same 1 pt hairline ring a
+    /// `stack` draws, on the picture itself.
+    ///
+    /// It lives on the view rather than in the drawing code because both kinds
+    /// of `image` need it — a file bitmap and an SF Symbol — and because the
+    /// ring has to survive the aspect-fill crop and the missing-file placeholder
+    /// alike. `nil` clears it, which is what a deleted prop (null, §3.1) means.
+    func applyHairlineStroke(_ stroke: NSColor?) {
+        guard stroke != nil || wantsLayer else { return }
+        wantsLayer = true
+        // Implicit layer animations would fade the ring in on every commit.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.borderColor = (stroke ?? .clear).cgColor
+        layer?.borderWidth = stroke == nil ? 0 : LedgeMetrics.hairline
+        layer?.cornerCurve = .continuous
+        CATransaction.commit()
+    }
+}
+
 final class LedgeSymbolView: NSImageView {
+    /// The symbol this view is currently showing, without the `sf:` prefix —
+    /// `NSImage.name()` is unreliable once a symbol configuration has copied the
+    /// image, so the name is kept rather than read back (the same reason
+    /// `LedgeButton` keeps `symbolName`).
+    private(set) var symbol: String
+
     init(symbol: String, radius: CGFloat = 0) {
+        self.symbol = symbol
         super.init(frame: .zero)
-        image = NSImage(systemSymbolName: symbol, accessibilityDescription: symbol)
-            ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: symbol)
         imageScaling = .scaleProportionallyUpOrDown
         contentTintColor = LedgeTheme.primary
-        if radius > 0 {
-            wantsLayer = true
-            layer?.cornerRadius = radius
-            layer?.masksToBounds = true
-        }
+        applySymbol(symbol)
+        applyRadius(radius)
         setAccessibilityRole(.image)
-        setAccessibilityLabel(symbol)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Partial-update entry point (spec §3.1), the symbol twin of
+    /// `LedgeFileImageView.apply`: each argument nil = unchanged.
+    ///
+    /// This exists because it was missing. `configure`'s `.image` case guarded
+    /// `as? LedgeFileImageView`, so a `<image src="sf:…">` that changed its
+    /// symbol mid-life kept the first glyph forever — an app either lived with
+    /// a stale icon or forced a remount with a React `key`. A symbol node is an
+    /// ordinary node: it updates in place like every other kind.
+    func apply(symbol newSymbol: String?, radius: CGFloat?) {
+        if let newSymbol, newSymbol != symbol {
+            symbol = newSymbol
+            applySymbol(newSymbol)
+        }
+        if let radius {
+            applyRadius(radius)
+        }
+    }
+
+    private func applySymbol(_ name: String) {
+        image = NSImage(systemSymbolName: name, accessibilityDescription: name)
+            ?? NSImage(systemSymbolName: "questionmark.square.dashed", accessibilityDescription: name)
+        setAccessibilityLabel(name)
+    }
+
+    private func applyRadius(_ radius: CGFloat) {
+        guard radius > 0 || wantsLayer else { return }
+        wantsLayer = true
+        // Implicit layer animations would cross-fade the corner on every commit.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.cornerRadius = max(0, radius)
+        layer?.masksToBounds = radius > 0
+        CATransaction.commit()
     }
 }
 
@@ -948,7 +1413,7 @@ final class LedgeFileImageView: NSView {
 /// the separation is already `gap` and `spacer`, and a rule between two chips is
 /// decoration rather than structure. Dropped into an h-stack it is a 1 pt sliver
 /// and says nothing — which is the honest answer, not a guess at what was meant.
-final class LedgeDividerView: NSView {
+final class LedgeDividerView: NSView, LedgeColumnFilling {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
@@ -973,7 +1438,343 @@ final class LedgeDividerView: NSView {
     }
 }
 
-final class LedgeSpacerView: NSView {
+/// A list row — the shell's one list primitive.
+///
+/// Every list Ledge has drawn so far was assembled by hand out of a stack, a
+/// pair of labels and a divider, and each one picked its own inset, its own
+/// hover treatment and its own idea of where the rule goes. This is that row,
+/// stated once (principle 15).
+///
+/// Full-bleed by construction: the hover fill and the divider run edge to edge
+/// and only the *content* is inset, which is what makes a column of these read
+/// as one list rather than a stack of little cards. The trailing value is set
+/// in tabular figures — a column of numbers that shifts as it ticks is the
+/// defect this exists to prevent.
+@MainActor
+final class LedgeRowView: FlippedView, LedgeColumnFilling {
+    private let titleLabel: NSTextField
+    private let valueLabel: NSTextField?
+    private let chevron: NSImageView?
+    private let handler: (() -> Void)?
+    private let hoverLayer = CALayer()
+    private let dividerLayer = CALayer()
+    private var tracking: NSTrackingArea?
+    private var hovering = false
+
+    /// Whether this row draws the rule below it. The *owner* decides, because
+    /// only the owner knows which row is last — a row that guessed from its
+    /// superview would draw a rule under the bottom of the list.
+    var showsDivider = true {
+        didSet {
+            guard showsDivider != oldValue else { return }
+            refreshDivider()
+        }
+    }
+
+    /// Test/introspection accessors.
+    var isHovering: Bool { hovering }
+    var currentTitle: String { titleLabel.stringValue }
+    var currentValue: String? { valueLabel?.stringValue }
+    var hasChevron: Bool { chevron != nil }
+    var dividerIsVisible: Bool { !dividerLayer.isHidden }
+    var hoverFillIsVisible: Bool { (hoverLayer.backgroundColor?.alpha ?? 0) > 0 }
+
+    /// - Parameters:
+    ///   - title: the leading text. One or two words (principle 4).
+    ///   - value: the trailing slot, in tabular figures. nil leaves it out
+    ///     entirely rather than reserving an empty column.
+    ///   - chevron: whether the row goes somewhere. A row that does nothing
+    ///     must not carry one.
+    ///   - onClick: nil makes the row inert — no hover, no cursor, no press.
+    init(
+        title: String,
+        value: String? = nil,
+        chevron showsChevron: Bool = false,
+        onClick: (() -> Void)? = nil
+    ) {
+        handler = onClick
+        titleLabel = makeLabel(
+            title,
+            font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.m.pointSize),
+            color: LedgeTheme.primary
+        )
+        valueLabel = value.map { text in
+            let field = makeLabel(
+                text,
+                // Numeric, always: this column exists to be compared down the
+                // list, and proportional digits make that impossible.
+                font: LedgeTheme.numericFont(LedgeMetrics.TypeSize.m.pointSize),
+                color: LedgeTheme.secondary
+            )
+            field.alignment = .right
+            return field
+        }
+        chevron = showsChevron ? NSImageView() : nil
+        super.init(frame: .zero)
+
+        wantsLayer = true
+        hoverLayer.cornerCurve = .continuous
+        hoverLayer.cornerRadius = LedgeMetrics.rChip
+        hoverLayer.backgroundColor = NSColor.clear.cgColor
+        layer?.addSublayer(hoverLayer)
+        dividerLayer.backgroundColor = LedgeTheme.hairline.cgColor
+        layer?.addSublayer(dividerLayer)
+
+        addSubview(titleLabel)
+        if let valueLabel { addSubview(valueLabel) }
+        if let chevron {
+            chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)?
+                .withSymbolConfiguration(
+                    NSImage.SymbolConfiguration(
+                        pointSize: LedgeMetrics.rowChevronPointSize,
+                        weight: LedgeMetrics.rowChevronWeight
+                    )
+                )
+            chevron.contentTintColor = LedgeTheme.tertiary
+            chevron.imageScaling = .scaleProportionallyDown
+            addSubview(chevron)
+        }
+
+        setAccessibilityRole(onClick == nil ? .staticText : .button)
+        setAccessibilityLabel([title, value].compactMap { $0 }.joined(separator: ", "))
+        setContentHuggingPriority(.defaultLow, for: .horizontal)
+        setContentHuggingPriority(.defaultHigh, for: .vertical)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: LedgeMetrics.rowHeight)
+    }
+
+    override func layout() {
+        super.layout()
+        // Frames and radii are layout, never a cross-fade (L6).
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        hoverLayer.frame = bounds
+        dividerLayer.frame = CGRect(
+            x: 0,
+            y: bounds.height - LedgeMetrics.hairline,
+            width: bounds.width,
+            height: LedgeMetrics.hairline
+        )
+        CATransaction.commit()
+
+        var trailing = bounds.width - LedgeMetrics.rowPadX
+        if let chevron {
+            let glyph = chevron.image?.size ?? .zero
+            chevron.frame = CGRect(
+                x: trailing - glyph.width,
+                y: (bounds.height - glyph.height) / 2,
+                width: glyph.width,
+                height: glyph.height
+            )
+            trailing = chevron.frame.minX - LedgeMetrics.rowGap
+        }
+        if let valueLabel {
+            let measured = valueLabel.attributedStringValue.size()
+            let width = ceil(measured.width) + LedgeMetrics.textMeasureSlack
+            valueLabel.frame = CGRect(
+                x: trailing - width,
+                y: (bounds.height - ceil(measured.height)) / 2,
+                width: width,
+                height: ceil(measured.height)
+            )
+            trailing = valueLabel.frame.minX - LedgeMetrics.rowGap
+        }
+        let titleHeight = ceil(titleLabel.attributedStringValue.size().height)
+        titleLabel.frame = CGRect(
+            x: LedgeMetrics.rowPadX,
+            y: (bounds.height - titleHeight) / 2,
+            width: max(0, trailing - LedgeMetrics.rowPadX),
+            height: titleHeight
+        )
+        syncHover()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let next = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(next)
+        tracking = next
+        syncHover()
+    }
+
+    override func mouseEntered(with event: NSEvent) { syncHover() }
+    override func mouseExited(with event: NSEvent) { syncHover() }
+
+    /// Enter/exit pairs go stale whenever the panel morphs under a stationary
+    /// cursor — the same defect `LedgeButton` guards against, and the same fix.
+    private func syncHover() {
+        let inside = handler != nil && (window.map { window in
+            bounds.contains(convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
+        } ?? false)
+        guard inside != hovering else { return }
+        hovering = inside
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(LedgeMotion.fast)
+        hoverLayer.backgroundColor = hovering
+            ? LedgeTheme.raisedHover.cgColor
+            : NSColor.clear.cgColor
+        CATransaction.commit()
+        refreshDivider()
+        // A hovered row's fill has to meet its neighbour cleanly, and it cannot
+        // if the neighbour is still drawing a rule into it.
+        previousSibling()?.refreshDivider()
+    }
+
+    /// The rule is suppressed on a hovered row *and* on the row above it: a
+    /// hairline crossing a lit fill reads as a seam through the highlight.
+    fileprivate func refreshDivider() {
+        let nextIsHovered = nextSibling()?.hovering ?? false
+        dividerLayer.isHidden = !showsDivider || hovering || nextIsHovered
+    }
+
+    private func siblingRows() -> (rows: [LedgeRowView], index: Int)? {
+        guard let siblings = superview?.subviews else { return nil }
+        let rows = siblings.compactMap { $0 as? LedgeRowView }
+        guard let index = rows.firstIndex(of: self) else { return nil }
+        return (rows, index)
+    }
+
+    private func previousSibling() -> LedgeRowView? {
+        guard let (rows, index) = siblingRows(), index > 0 else { return nil }
+        return rows[index - 1]
+    }
+
+    private func nextSibling() -> LedgeRowView? {
+        guard let (rows, index) = siblingRows(), index + 1 < rows.count else { return nil }
+        return rows[index + 1]
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let handler else { return }
+        var clickedInside = false
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp {
+                clickedInside = bounds.contains(convert(next.locationInWindow, from: nil))
+                break
+            }
+        }
+        if clickedInside { handler() }
+    }
+}
+
+/// An empty state — a glyph, one quiet line, and at most one thing to do.
+///
+/// There is no "No data" anywhere in Ledge and there never will be: an empty
+/// surface is not an error report, it is a surface with nothing in it yet, and
+/// the line's job is to say what would put something there. One sentence is the
+/// single place principle 4 allows one.
+@MainActor
+final class LedgeEmptyState: FlippedView {
+    private let glyphView = NSImageView()
+    private let lineLabel: NSTextField
+    private let action: LedgeButton?
+
+    /// Test/introspection accessors.
+    var line: String { lineLabel.stringValue }
+    var actionButton: LedgeButton? { action }
+
+    /// - Parameters:
+    ///   - symbol: an SF Symbol name. Drawn at the display tier in `tertiary` —
+    ///     furniture, not an alarm.
+    ///   - line: one line, in `secondary`. Not a paragraph.
+    ///   - actionTitle: at most one. nil means the surface fills itself in on
+    ///     its own and there is nothing to press.
+    init(
+        symbol: String,
+        line: String,
+        actionTitle: String? = nil,
+        onAction: (() -> Void)? = nil
+    ) {
+        lineLabel = makeLabel(
+            line,
+            font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.m.pointSize),
+            color: LedgeTheme.secondary
+        )
+        lineLabel.alignment = .center
+        action = actionTitle.map { title in
+            LedgeButton(title, variant: .bead, size: .s, handler: onAction ?? {})
+        }
+        super.init(frame: .zero)
+
+        glyphView.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+            .withSymbolConfiguration(
+                NSImage.SymbolConfiguration(
+                    pointSize: LedgeMetrics.emptyGlyphPointSize,
+                    weight: LedgeMetrics.emptyGlyphWeight
+                )
+            )
+        glyphView.contentTintColor = LedgeTheme.tertiary
+        glyphView.imageScaling = .scaleProportionallyDown
+        glyphView.translatesAutoresizingMaskIntoConstraints = false
+        lineLabel.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(glyphView)
+        addSubview(lineLabel)
+
+        // Pinned on all four edges: the shell asks this view for its size, and a
+        // view the shell measures that is not fully pinned measures as nothing.
+        var constraints: [NSLayoutConstraint] = [
+            glyphView.topAnchor.constraint(equalTo: topAnchor, constant: LedgeMetrics.emptyPad),
+            glyphView.centerXAnchor.constraint(equalTo: centerXAnchor),
+            lineLabel.topAnchor.constraint(
+                equalTo: glyphView.bottomAnchor,
+                constant: LedgeMetrics.emptyGlyphGap
+            ),
+            lineLabel.leadingAnchor.constraint(
+                greaterThanOrEqualTo: leadingAnchor,
+                constant: LedgeMetrics.emptyPad
+            ),
+            lineLabel.trailingAnchor.constraint(
+                lessThanOrEqualTo: trailingAnchor,
+                constant: -LedgeMetrics.emptyPad
+            ),
+            lineLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
+        ]
+        if let action {
+            action.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(action)
+            constraints += [
+                action.topAnchor.constraint(
+                    equalTo: lineLabel.bottomAnchor,
+                    constant: LedgeMetrics.emptyActionGap
+                ),
+                action.centerXAnchor.constraint(equalTo: centerXAnchor),
+                action.bottomAnchor.constraint(
+                    equalTo: bottomAnchor,
+                    constant: -LedgeMetrics.emptyPad
+                ),
+            ]
+        } else {
+            constraints.append(
+                lineLabel.bottomAnchor.constraint(
+                    equalTo: bottomAnchor,
+                    constant: -LedgeMetrics.emptyPad
+                )
+            )
+        }
+        NSLayoutConstraint.activate(constraints)
+        setAccessibilityLabel(line)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+final class LedgeSpacerView: NSView, LedgeColumnFilling {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         // Hugs weaker than anything else in a row, so a row's slack always
@@ -989,7 +1790,7 @@ final class LedgeSpacerView: NSView {
     }
 }
 
-final class LedgeChartView: NSView {
+final class LedgeChartView: NSView, LedgeColumnFilling {
     var points: [CGFloat] {
         didSet { needsDisplay = true }
     }
@@ -1041,7 +1842,7 @@ final class LedgeChartView: NSView {
     }
 }
 
-final class LedgeSlider: NSControl {
+final class LedgeSlider: NSControl, LedgeColumnFilling {
     private let trackLayer = CALayer()
     private let fillLayer = CALayer()
     private let knobLayer = CALayer()
@@ -1240,7 +2041,7 @@ final class LedgeSlider: NSControl {
     }
 }
 
-final class LedgeInput: FlippedView, NSTextFieldDelegate {
+final class LedgeInput: FlippedView, NSTextFieldDelegate, LedgeColumnFilling {
     private let textField = NSTextField()
     private let submit: (String) -> Void
 

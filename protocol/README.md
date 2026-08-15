@@ -33,13 +33,36 @@ commit and asks for a fresh one.
   forwards ops verbatim and the shell's own tests generate a real sheet.
 - `chrome-expand.json` — a worker-requested presentation change (§3.3).
 - `chrome-wing.json` / `chrome-wing-width.json` / `chrome-wing-clear.json` — the
-  three **collapsed**-wing shapes (§3.3 extension, proposed below): content, bare
-  width, and release. Not to be confused with `commit-wing.json` — see
-  "Two things called a wing" below.
+  first three **collapsed**-wing shapes (§3.3 extension, proposed below):
+  content, bare width, and release. Not to be confused with `commit-wing.json`
+  — see "Two things called a wing" below.
+- `chrome-wing-meter.json` / `chrome-wing-meter-clamp.json` — the fourth: the
+  shell-drawn **meter**, and a `value` deliberately outside `0…1`. The clamp
+  fixture is the interesting one — the host clamps on the way out and the shell
+  clamps again on the way in, and a fixture is the only place both halves of
+  that can be proved from the same bytes.
 - `commit-wing.json` / `commit-wing-update.json` — a **panel** wing (§5 `wing`):
   a left-zone node mounted as a direct child of the root, and an update on its
   children. The pair proves a wing is an ordinary container on the wire — where
   its view goes is the shell's business.
+- `commit-app-controls.json` / `commit-app-controls-update.json` — the app tier
+  (proposed below): `variant="ghost"` on two glyph buttons, a `variant="bead"`
+  an app must *not* get, and `image.stroke` on a file bitmap and on an SF
+  Symbol. The update moves a variant in each direction across the tier line and
+  both deletes and adds a stroke, which is what pins the props as resolved from
+  the merged set rather than create-only. It also swaps the **symbol node's own
+  `src`** (`sf:waveform` → `sf:waveform.badge.mic`): an `sf:` image is an
+  ordinary node and updates in place, which the shell used to get wrong — it
+  re-applied `src` only on the file-image kind, so a symbol that changed mid-life
+  kept the first glyph until the app forced a remount.
+- `lifecycle-reduce-motion.json` — the §4.2 envelope carrying `reduceMotion`
+  beside the phase. Its pair is `lifecycle-expanded.json`, which deliberately
+  carries no such key: absent is "unchanged", not "motion is fine".
+- `commit-align.json` / `commit-align-update.json` — `stack.align` (§5) in the
+  spec's own words: a centred column, a row aligned on its (vertical) cross
+  axis, a nested column left flush, and a `divider` riding along as the child
+  that spans the column whatever the alignment says. The update re-aligns two
+  of them in place — `center → leading` and `leading → trailing`.
 - `commit-rate.json` / `commit-rate-update.json` — `slider.rate` and
   `progress.rate`, with a third control that never mentions the prop (which is
   how every app that has never heard of it looks on the wire), then pausing with
@@ -54,12 +77,12 @@ commit and asks for a fresh one.
 - `event-platform.json` — an observed notification arriving as the id-0 app
   event, with its `userInfo` already reduced to scalars.
 - `platform-observe-workspace.json` / `-pasteboard` / `-power` / `-reachability`
-  / `-audio` — one request per ratified observe kind (§6 extension, proposed
+  / `-audio` / `-focus` — one request per ratified observe kind (§6 extension, proposed
   below). Between them and `platform-observe.json` every `kind` on the wire has
   a golden example, and the names are the *translated* vocabulary
   (`screenLocked`, not `com.apple.screenIsLocked`).
 - `event-platform-workspace.json` / `-pasteboard` / `-power` / `-reachability` /
-  `-audio` — the event each kind produces. All five are ordinary §4.1 events at
+  `-audio` / `-focus` — the event each kind produces. All are ordinary §4.1 events at
   id 0 with a scalar-only payload; the pasteboard one is the privacy line made
   concrete — a change count, the readable UTIs, and never the contents.
 - `platform-calendar.json`, `platform-workspace.json`, `platform-location.json`,
@@ -87,6 +110,15 @@ commit and asks for a fresh one.
 - `invalid-commit-duplicate-create.json` — id created twice.
 - `invalid-commit-bad-props.json` — `text` with a non-string `content`.
 - `event-click.json` — Swift → host click on a button id (§4.1).
+- `commit-gradient.json` / `draw-gradient.json` — the two gradient shapes (§5,
+  §3.4, proposed below): container `gradient` tokens (one beside a `fill`, one
+  naming a token this shell does not know, which must degrade to no wash), and
+  the free-form canvas op with and without `angle`/`radius`.
+- `commit-canvas-drag.json` / `event-drag.json` — the drag pair (§4.1, proposed
+  below): a scrubber canvas that declared `onDrag` next to one that did not, and
+  one `move` phase on the wire. The second canvas is the point of the pair —
+  `onDrag` is what makes the shell emit at all, so "absent" has to be a golden
+  case too.
 - `lifecycle-expanded.json` — Swift → host panel state (§4.2).
 - `selection-app.json` — Swift → host strip selection (§4.3).
 - `resync-request.json` — Swift → host per-app resync (§4.3).
@@ -102,6 +134,9 @@ commit and asks for a fresh one.
 - `event-drop.json` — Swift → host drop-shelf event. It is an ordinary §4.1
   `event` at **id 0**, which is the app-level convention (below), so the drop
   shelf costs the protocol no new envelope type at all.
+- `event-swipe.json` — Swift → host: a horizontal swipe across the collapsed
+  pill, addressed to the app that owns the wing. Also an id-0 event, for the
+  same reason — there is no node under a gesture made on the pill.
 
 Envelope `seq` values in fixtures are deliberately arbitrary; tests that
 exercise seq/gen scoping construct their own sequences.
@@ -111,44 +146,60 @@ exercise seq/gen scoping construct their own sequences.
 One folder per app, `app.jsx` as the entry — the §6 layout, but in the repo
 rather than in `~/.ledge/apps`, so `scripts/e2e-smoke.sh` and
 `scripts/snapshot-demos.sh` can point a host at `--apps-root protocol/demo-apps`
-without touching the user's real installation. `stocks`, `deals` and `alarm` are
-live — real HTTP in a `monitor`, real state pushed through `ctx.update`; `music`
-and `play` are inert recreations of the design mockups, which is what makes them
-useful as a rendering baseline. `settings` is the real thing (spec §8): the host
-boots it `privileged`, and its switches turn other apps off for good (see
-`host/README.md`, "Settings").
+without touching the user's real installation.
 
-- **`stocks`** — a 2×3 grid of live cards (AAPL / NVDA / GOOG / MSFT / BTC / ETH)
-  off Yahoo Finance's keyless chart endpoint, refreshed once a minute, per-symbol
-  error isolation.
-- **`deals`** — scrapes `books.toscrape.com` with `cheerio` every ten minutes and
-  notifies the first time a watched title drops under its target price.
-- **`alarm`** — the multi-state showcase: a wing while collapsed, an editor when
-  expanded, and a compact ringing tree it puts on screen itself with
-  `ctx.expand()`. Which tree it renders is its own `ringing` flag arriving as a
-  prop — there is no protocol for "show a different view", and none is needed.
+There are four, and their job is to make the interaction machine (flow.md)
+**feel-testable on device** — every surface the shell can raise is held by one
+of them. They are written against `docs/design/principles.md`; read that before
+copying their taste.
 
-The three live ones share two rules worth copying into any app that touches the
-network: **a `monitor` must never throw** (a throw is an app crash with backoff,
-spec §6 rule 2 — a flaky network would take the UI down with it), so every
-failure path ends in cached-or-placeholder data plus an "offline" marker; and
-their **mount render must be meaningful without the network**, because
-`scripts/snapshot-demos.sh` dumps exactly that state and never runs the monitor.
-They persist their last-known data next to `app.jsx` (write-temp-then-`rename`,
-spec §6); the watcher only reloads on `app.jsx`, so writing there is free.
+- **`timer`** — the summary and the alert. Declares `<summary>`, so a rested
+  pointer shows a line instead of opening it; holds a wing **meter** (a
+  `<canvas>` node drawn once and mirrored into the right wing); at zero it
+  raises an **alert-class** `ctx.peek` whose `<mini>` carries one action, and an
+  alert does not auto-retract.
+- **`radio`** — the other half of the same law: it declares **no** `<summary>`,
+  so the same rested pointer must open the visit directly. Holds a wing
+  **canvas** animating at ~8 fps off `ctx.draw`, released the moment it stops.
+- **`beacon`** — the notification exerciser: an **ambient** peek (glyph, one
+  line, no action, retracts on Ti) and an **alert** peek (one action, holds),
+  both armed on a delay so you can watch them arrive while collapsed. The three
+  clicks on a swell — the action, elsewhere → visit, and nothing — are all
+  reachable from it.
+- **`settings`** — the real thing (spec §8): the host boots it `privileged`, and
+  its switches turn other apps off for good (see `host/README.md`, "Settings").
+
+The nine apps that used to live here predate the design reset and were moved to
+`protocol/demo-apps-archive/` — reference only. That folder is not an apps root:
+nothing scans it, and its dependencies (`cheerio`, `chess.js`, `stockfish`) were
+dropped from the apps root's `package.json` with them.
+
+Two rules worth copying into any app that touches the network: **a `monitor`
+must never throw** (a throw is an app crash with backoff, spec §6 rule 2 — a
+flaky network would take the UI down with it), so every failure path ends in
+cached-or-placeholder data plus an "offline" marker; and the **mount render must
+be meaningful without a monitor**, because `scripts/snapshot-demos.sh` dumps
+exactly that state and never runs one. Persist next to `app.jsx`
+(write-temp-then-`rename`, spec §6); the watcher only reloads on source files,
+so writing there is free.
+
+**Frame rate is not the monitor's job.** The monitor loop has a 1 s spin floor
+(spec §6 rule 1), so anything that has to move — `radio`'s meter, `timer`'s
+clock, `beacon`'s one-second delay — owns its own `setInterval`/`setTimeout` and
+the monitor parks on `await new Promise(() => {})`.
 
 Each renders the whole panel between the cutout exclusion row and the app strip
 — the shell draws the notch shape, the strip and the two panel-wing zones, the
-app draws its content (see `shell/README.md`). None of them has a title row any
-more: the shell names the app in the left zone, and every one of those rows used
-to put its status under the camera housing. What survived moved into a
-`<wing side="left">`, or (tetris's key hints) to the bottom of the panel.
+app draws its content (see `shell/README.md`). None of them has a title row: the
+shell names the app in the left zone, and the middle of a title row is the
+camera housing. Status that has to be on the panel goes in a
+`<wing side="left">`.
 
 **The apps root is a real package.** `protocol/demo-apps/package.json` +
 `bun.lock` (committed, per §6's "always ship the lockfile") are the repo
-analogue of the shared `~/.ledge/node_modules`: `cheerio`, `chess.js` and
-`stockfish` are there for apps to import bare. `bun install` in that folder is
-all a fresh checkout needs; both scripts do it for you if `node_modules` is
+analogue of the shared `~/.ledge/node_modules`: `react` and `react-reconciler`
+are there for apps to import bare, and nothing else is — every entry is paid for
+in the .app bundle. `bun install` in that folder is all a fresh checkout needs; both scripts do it for you if `node_modules` is
 missing. It replaces the old convention where the scripts symlinked
 `host/node_modules` in and deleted it on exit — a convention that quietly did
 one more thing than it looked like, which is the next paragraph.
@@ -162,6 +213,47 @@ copies of 18.3.1 is not "fine", it is `dispatcher.useState of null` on the app's
 first `useState`. The old symlink satisfied this by accident; the `file:` link
 states it. (`stockfish`'s postinstall script stays blocked by Bun's default
 trust policy — nothing in this phase needs it to have run.)
+
+## Proposal: the type ramp grows two sizes, a weight, and `caps` (spec §5)
+
+The ramp stopped at `xl`/30, and `xl` is already spoken for — §3.1's own example
+is a headline price at that size. So the genre this platform exists for (a
+temperature, a score, a clock, one numeral owning the well) had no size to ask
+for, and `weight` bottomed out at `regular`, which at 40-odd points is a wall
+rather than a numeral. Four additions, no version bump — **implemented**:
+
+| prop | added | means |
+|------|-------|-------|
+| `size` | `display` · 36 | a single number that *is* the content |
+| `size` | `hero` · 48 | the largest thing Ledge draws; one per surface |
+| `weight` | `light` | the display tier's natural weight (design.html draws every big numeral at 300) |
+| `caps` | `true` | uppercase **and** +6% tracking, together |
+
+```jsx
+<text size="hero" weight="light">72°</text>
+<text size="xs" weight="semibold" color="secondary" caps>Feels like</text>
+```
+
+- **`xs..xl` are untouched.** 10 · 11.5 · 12.5 · 15 · 30, exactly as before;
+  every existing fixture renders identically. The ramp itself moved out of
+  `ProtocolRenderer.font` into `LedgeMetrics.TypeSize`/`TypeWeight`, so the
+  shell's own chrome and an app's `text` node now read the same numbers — the
+  point of principle 15, not a behaviour change.
+- **`caps` is one prop, not two.** Uppercase at natural letter spacing is a jam,
+  so an app that could ask for the uppercasing without the tracking would ship
+  the half that looks wrong. +6% of the point size is design.html's own eyebrow
+  tracking (`.sec-eyebrow`, `.mark`).
+- **The raw string survives.** `caps` is a presentation: the accessibility label
+  and a later `caps: false` both read the content as the app wrote it, so
+  dropping the prop restores the original casing rather than leaving a shouted
+  label behind.
+- **Degrades like every other token.** An older shell that has never heard of
+  `hero` resolves it to the default `m` (the same fallback `xs..xl` always had),
+  and `caps` is an unknown bool it ignores — no error, no resync.
+
+Fixtures: `commit-type-ramp.json` (mount, all four additions plus an unchanged
+`xl`/`bold` price) and `commit-type-ramp-update.json` (drops `caps` on one node,
+adds it to another, and moves `display` → `hero`), replayed by both suites.
 
 ## Proposal: container styling on `stack` (spec §5)
 
@@ -240,7 +332,7 @@ only attachable kinds), so none of them can grow into a layout system.
 | `toggle`   | `on` (bool), `disabled?`                                          | `change` `{on}` |
 | `segment`  | `options` (`{id,label}[]`), `value` (an option's `id`)             | `change` `{value}` |
 | `stepper`  | `value`, `min?`, `max?`, `step?` (1), `format?` (string)           | `change` `{value}` |
-| `progress` | `value` (0…1)                                                     | — |
+| `progress` | `value` (0…1), `color?` (a hue family: `accent`, `green`, `red`, `violet`, `cyan` — default ink) | — |
 | `spinner`  | —                                                                 | — |
 | `pill`     | `label`, `tone?` (`accent`, `green`, `red`, `violet`, `cyan`, `neutral`) | — |
 
@@ -282,6 +374,17 @@ Four things the shapes above are deliberately *not*:
   `slider`, and the two looking alike is exactly why the distinction has to live
   in the kind rather than in whether the app happened to pass a handler.
   Indeterminate work is `spinner`, not `progress` without a `value`.
+- **`progress.color` names a hue family too, and defaults to ink.** Same five
+  words as `pill.tone` minus `neutral` (`accent`, `green`, `red`, `violet`,
+  `cyan`), never a hex string — the shell owns the exact ink, so two apps'
+  accent meters are the same accent. Absent, unknown, and the ink shades
+  (`primary`/`secondary`/`tertiary`, which are *type* colours) all resolve to
+  the default, so an older shell and a future token both degrade to a quiet
+  bar. It exists because design.html §01 draws Focus's session meter in accent:
+  the working moment is the one thing on that panel, and a meter is the only
+  control that could carry it. **Quiet unless asked** is still the rule — a
+  panel where every bar is coloured has told you nothing.
+
 - **`pill.tone` names a hue *family*, not a color.** The shell derives the
   tint + stroke + ink triple from it, which is the whole reason the kind exists:
   an app that assembles those three itself can pick two of them from one family
@@ -444,6 +547,91 @@ Two rendering rules the shell owns, not the app:
 No envelope change either way: `src` is an existing prop on an existing kind, and
 `image` is an ordinary §3.4 op.
 
+## Proposal: gradients — a container wash and a canvas op (spec §5, §3.4)
+
+Flat fills were the platform's whole material vocabulary, and the soft wash half
+this genre leans on (album-art bloom, a sky behind a world clock, a weather
+ramp) was unexpressible. Two additive pieces, and they answer the same question
+in deliberately opposite directions — **implemented**:
+
+| where | shape | colors |
+|-------|-------|--------|
+| `stack.gradient` | a **standardized wash**: hue at the top, transparent by 60% of the height, behind the children | a token: `accent`, `green`, `red`, `violet`, `cyan` |
+| `{ "op": "gradient" }` | an axial ramp filling one rect, `x`/`y`/`w`/`h`, optional `angle` and `radius` | `from`/`to`, hex |
+
+```jsx
+<stack axis="v" pad={14} gradient="violet">      // the wash behind the track
+  <stack axis="h" gap={8} fill="raised" radius={12} gradient="cyan">…</stack>
+</stack>
+```
+```json
+{ "op": "gradient", "x": 0, "y": 0, "w": 416, "h": 60,
+  "from": "#0B1B3A", "to": "#F4A24C", "angle": 0, "radius": 8 }
+```
+
+- **A container names a hue; the shell owns the recipe.** One alpha, one stop,
+  one direction, for every app. A prop that took two colors, an angle and two
+  stops would let each app invent its own material, and a row of panels would
+  stop reading as one system by the second app. It is the same "tokens only,
+  never a raw color" rule `fill`, `stroke` and `text.color` already have, and an
+  unrecognized token degrades the same way: no wash, not an error.
+- **A canvas names real colors.** Pixels are the app's — a palette token inside
+  a draw op would silently draw white, which is the rule the op vocabulary has
+  always had. `angle` is degrees clockwise from top-to-bottom, so it counts the
+  way the y-down op space does; `radius` rounds the rect like `rect`.
+- **A wash composes with a fill**, because they are different materials: the
+  fill is the background, the wash is a layer behind the children. That is also
+  why it is a separate prop rather than a `fill` token — `fill="violetWash"`
+  would have made the two mutually exclusive for no reason.
+
+No envelope change and no version bump either way: `gradient` is an ordinary
+prop on an existing kind (§3.1 type-checks it as a string), and the op joins
+`image` under §3.4's "unknown ops are skipped" rule — an older shell draws the
+rest of the frame and leaves the wash out.
+
+## Proposal: `canvas` drag — press, move, release (spec §4.1, §5)
+
+A `canvas` could be clicked and typed into, and that was all: `mouseDown` became
+a §4.1 `click` with a local point, and press-drag-release was invisible. Every
+scrub, knob and sketch interaction in this genre is that gesture — a world
+clock's time ruler, a seek bar drawn as pixels, a dial — so each of them was
+unbuildable with the shipped vocabulary. One additive prop and one event name
+fix it — **implemented**:
+
+| prop     | type | event |
+|----------|------|-------|
+| `onDrag` | bool | `drag` `{ phase: "down" \| "move" \| "up", x, y }` |
+
+```jsx
+<canvas w={416} h={44} onDrag={({ phase, x }) => {
+  if (phase === "down") setScrubbing(true);
+  if (phase === "up") { setScrubbing(false); commit(timeAt(x)); }
+  setPreview(timeAt(x));
+}} />
+```
+
+Four decisions, all of them about where the policy lives:
+
+- **`move` is throttled in the shell (~30 Hz), `down` and `up` never are.** A
+  trackpad emits moves faster than the panel redraws, and each one would be a
+  frame on the socket. The phases an app builds a state machine out of are the
+  two ends, so those are exact; the middle is a sampling of a continuous
+  gesture and coalescing it changes nothing an app can perceive.
+- **`up` carries the final position.** That is what makes coalescing safe: a
+  dropped `move` can never be the last word on where the user let go.
+- **The point is not clamped to the canvas.** A knob dragged past the edge keeps
+  reporting, so the app can decide whether its own track saturates or wraps. A
+  shell that clamped would silently make every scrubber sticky at both ends.
+- **`click` and `drag` are independent.** A canvas that declares both gets both
+  on press; neither is synthesized from the other, because the movement
+  threshold that separates a tap from a drag is app policy, not shell policy.
+
+`onDrag` is what makes the shell emit at all — a canvas that never declared it
+costs nothing per mouse-moved event, which is the same "unknown props are
+forward-compatible" rule §3.1 already has, read from the other side. Round-trip
+per point is UDS → worker render → commit, a few milliseconds; an app that needs
+better than that is what the `"use native"` transducer path (§3.5) is for.
+
 ## Proposal: app-declared panel size (spec §5, §3.6)
 
 §5 fixes the expanded panel at 440 pt and says "apps don't choose widths", with
@@ -539,13 +727,14 @@ the one surface an app could not address. This adds a fourth `chrome` request:
 
 ```json
 { "request": "wing", "wing": { "text": "AAPL ▲ 1.2%", "canvas": { "id": 12, "w": 64 } } }
+{ "request": "wing", "wing": { "text": "12:04", "meter": { "value": 0.42 } } }
 { "request": "wing", "wing": { "width": 286 } }
 { "request": "wing", "wing": null }
 ```
 
 ```js
-ctx.wing({ text, width, canvas: { id, w } })   // own the notch
-ctx.wing(null)                                 // give it back
+ctx.wing({ text, width, canvas: { id, w }, meter: { value } })   // own the notch
+ctx.wing(null)                                                   // give it back
 ```
 
 - **`text`** renders as a left-aligned label in the **left** wing.
@@ -555,6 +744,18 @@ ctx.wing(null)                                 // give it back
   frames arrive through the ordinary `ctx.draw` path — the shell mirrors that
   node's frames into the wing, so a canvas can be drawn collapsed and expanded
   from one call.
+- **`meter`** is the right wing's **stock bar** — flow.md enumerates the wing
+  forms as glyph / ticker / meter / canvas, and this is the third of them made a
+  wire form. `value` is a fraction of the whole, `0…1`, clamped at both ends of
+  the wire rather than rejected: a progress dividing by a total it just changed
+  reads 1.02 for one frame, and that is a full bar, not a wing that blinks out.
+  Every other number belongs to the shell — 64 × 3 pt, capsule ends, track plus
+  an `ink-2` fill (design.html §02), never the accent, because a meter is the
+  state of a thing rather than a thing worth interrupting for. That split is the
+  point: before it, every app hand-drew a bar into a canvas and no two of them
+  matched. `canvas` and `meter` both claim the right wing; the canvas wins,
+  because those are the app's own pixels and this is a shape the shell can
+  always draw somewhere else.
 - **`width`** is the **total** collapsed pill width in points, clamped to
   [notch width, notch width + 2 × 160]. With content, it is a floor: any surplus
   over what the content needs is split evenly between the wings. Alone — no text,
@@ -798,8 +999,8 @@ battery does not post a notification an app can name. "Am I online" is not an
 edge at all, it is a state. And a calendar app cannot read the calendar from a
 worker thread no matter how many notifications it subscribes to.
 
-So the same envelope grows two things, and no third one: **five more `kind`s**
-for `observe`, and **seven `call`s** that produce a value.
+So the same envelope grows two things, and no third one: **more `kind`s** for
+`observe`, and **seven `call`s** that produce a value.
 
 ```js
 // observe — the same two calls, five more sources
@@ -808,6 +1009,7 @@ await ctx.platform.observe("pasteboard",   "changed");
 await ctx.platform.observe("power",        "changed");
 await ctx.platform.observe("reachability", "changed");
 await ctx.platform.observe("audio",        "changed");
+await ctx.platform.observe("focus",        "changed");   // do not disturb
 
 // call — request/reply, every one a Promise
 const events = await ctx.platform.calendar({ from, to });     // ISO strings
@@ -843,7 +1045,7 @@ rather than leaving the app's Promise hanging.
   `data` entirely rather than sending a null, the same rule `appleResult`
   follows, so a golden fixture can assert an exact object.
 
-### The five new observe kinds
+### The new observe kinds
 
 | kind | names | payload |
 | --- | --- | --- |
@@ -852,6 +1054,7 @@ rather than leaving the app's Promise hanging.
 | `power` | `changed` | `{level: 0…1, charging, onAC, lowPowerMode}` |
 | `reachability` | `changed` | `{satisfied, expensive, constrained, interface}` |
 | `audio` | `changed` | `{deviceName, volume, muted, transportType, batteryPercent?, reason}` |
+| `focus` | `changed` | `{active, modeName?}` |
 
 - **The name vocabulary is translated, not passed through.** An app writes
   `observe("workspace", "screenLocked")`, never `"com.apple.screenIsLocked"`.
@@ -873,8 +1076,8 @@ rather than leaving the app's Promise hanging.
   down at zero. Six apps watching the battery cost one run-loop source. The
   teardown direction is the one that matters: a pasteboard poll left running is a
   timer firing twice a second, forever, for nobody.
-- **State kinds fire immediately on registration.** `power`, `reachability` and
-  `audio` describe a state, and an app that had to wait for the *next* change to
+- **State kinds fire immediately on registration.** `power`, `reachability`,
+  `audio` and `focus` describe a state, and an app that had to wait for the *next* change to
   learn the current one would show a blank battery until the machine happened to
   cross a percent — which on AC power is never. So registering delivers the
   current value, and no app needs a separate read call for what it just
@@ -888,6 +1091,18 @@ rather than leaving the app's Promise hanging.
   An app that genuinely wants the clipboard shells out to `pbpaste`, which is a
   visible, greppable act in that app's own source. This event is the
   *invalidation signal*, which is the job it does for every other kind too.
+- **`focus` is a file read, and it is quiet rather than wrong.** macOS
+  broadcasts nothing when Do Not Disturb changes and offers no public API to ask
+  — but the user's own Focus database at `~/.../DoNotDisturb/DB` is a JSON file,
+  which is the mechanism every third-party menu-bar tool already uses and
+  specifically *not* a private framework. Two things can go wrong with that: the
+  undocumented format can shift under a macOS update, and the path is
+  TCC-protected so a Ledge without Full Disk Access reads nothing. Both produce
+  **no events at all**, never `active: false` — a wrong state is acted on, a
+  missing one is not. (The shell searches the decoded JSON for the keys it needs
+  rather than walking a fixed path, so a re-nesting is survivable; and it
+  watches the *directory*, because the file is replaced rather than edited.)
+  Payloads are deduped: that file is rewritten for more than mode changes.
 - **Scalars only, still.** The §6 reduction rule binds every kind, not just the
   first: strings, numbers, bools (and, for `pasteboard.types`, an array of
   strings). Nothing nested, so no app has to guess and no frame is unbounded.
@@ -1029,6 +1244,7 @@ and means exactly this:
 ```json
 { "id": 0, "name": "drop",         "data": { "paths": ["/Users/you/x.pdf"] } }
 { "id": 0, "name": "notification", "data": { "id": 7, "action": "execute" } }
+{ "id": 0, "name": "swipe",        "data": { "direction": "left" } }
 { "id": 0, "name": "platform",     "data": { "kind": "distributedNotification",
                                              "name": "com.apple.Music.playerInfo",
                                              "userInfo": { … } } }
@@ -1039,6 +1255,162 @@ app's optional **`onEvent(name, data, ctx)`** export instead of to a prop
 handler, the same shape and the same "no export, quietly ignored" contract as
 `onLifecycle`. No envelope change, no version bump: a shell that never sends one
 and an app that never exports the handler both behave exactly as before.
+
+### `swipe` — withdrawn (Phase F2)
+
+A horizontal flick used to mean two things: an id-0 `swipe` event addressed to
+whichever app owned the wing, and "put this peek away" on a mini. Both are gone.
+
+Principle 9 gives the whole product three gestures — a click, a horizontal swipe
+that **walks the session strip**, and a drag that parks the panel — and all
+three are the shell's. An app-defined swipe made a fixed vocabulary
+app-extensible; a swipe that dismissed a notification taught a gesture nothing
+else in the product has, in the one place a user is least able to experiment.
+
+So: a horizontal flick across the **visit** walks the strip, which is the same
+code path `‹|›` uses. A flick across the collapsed pill or a swell does nothing.
+`SwipeRecognizer`'s policy is unchanged — 28 pt of travel, at least 1.5× more
+horizontal than vertical, once per gesture, momentum ignored — only its
+destination is. Apps that still export a `swipe` handler never hear from it; the
+event is simply no longer emitted, so nothing breaks and nothing fires.
+
+## Proposal: `summary` — the hover's glance surface (spec §5, §3.3)
+
+flow.md gives the notch two swells, not one. The **notification** is the app
+interrupting (`ctx.peek`, the `mini` node); the **summary** is the user asking —
+a hover that rests on the notch past **Th** — and it needs its own node.
+
+```json
+{ "op": "create", "id": 2, "kind": "summary", "props": {} }
+{ "op": "insert", "parent": 1, "id": 2, "before": null }
+```
+
+Everything about the shape is `mini`'s, deliberately: a root-level zone, one row
+tall, children only, no props, rejected by §3.1 validation if it is nested
+anywhere but the root (`invalid-commit-nested-summary.json`). The two swells
+share a geometry, so a summary that could measure itself differently would make
+the notch grow to two different heights for the same one line.
+
+**A sibling node rather than a prop on `mini`,** because the difference between
+the two is *who raises the surface*, and that is entirely the shell's decision.
+An app cannot ask for a summary and cannot refuse one; it can only declare what
+one would say. Declaring one is what makes a session **heavy**: hover ≥ Th shows
+it. A session that declares none is its own summary (principle 8) and the same
+hover opens the visit directly — which is why this is a node and not a flag, as
+"has content" and "wants the behaviour" must not be able to disagree.
+
+**The chevron is not the app's.** flow.md: "The summary always shows a quiet open
+affordance — it must be obvious that a click opens the full thing." The shell
+draws it, outside the app's node, in `ink-3`, and pays for it out of the
+surface's own width so the app's content never shrinks to make room for
+something it did not ask for. An affordance an app could forget to draw is an
+affordance half the sessions would not have.
+
+Fixtures: `commit-summary.json` (mount), `commit-summary-update.json` (an
+ordinary in-place update of a summary child), `invalid-commit-nested-summary.json`.
+
+## Proposal: `variant="ghost"` and `image.stroke` — the app tier (spec §5)
+
+Two small additions, both surfaced by building Now Playing (F2.3), and both the
+same shape of gap: a rule design.html states that no app could obey.
+
+**`variant="ghost"`.** §06 gives Ledge two control tiers — the shell's convex
+**beads** on the wing bar, and, among app content, **bare pure-white glyphs**
+with no background at all and a capsule only under the cursor. The shell had
+`LedgeButtonVariant.ghost` from F2; the wire did not, so `ProtocolRenderer`
+mapped no string to it and every app's transport pair came out as a plain chip.
+
+```json
+{ "op": "create", "id": 5, "kind": "button",
+  "props": { "icon": "sf:play.fill", "variant": "ghost", "onClick": true } }
+```
+
+The wire vocabulary becomes four words: `plain`, `glass`, `accent`, `ghost`.
+**`bead` stays shell-only** — an unknown variant falls back to `plain`, and
+`bead` is deliberately left unknown, because an app that could name it would
+make its own buttons indistinguishable from Ledge's controls. That is a ruling
+about *meaning*, so it lives in the renderer rather than in `ShadowTree`: the
+wire's job is types, and `"bead"` is a perfectly good string.
+
+**`image.stroke`.** The same hairline token set as `stack.stroke` (`hairline`,
+`accent`, `green`, `red`, `violet`), drawn as a 1 pt ring on the image view
+itself. Artwork letterboxes — an album sleeve is square, an artist photo is not —
+and a well whose frame disappeared the moment the bitmap failed to fill it is
+not a well. The alternative an app has today is wrapping the picture in a
+stroked `stack`, which double-frames it whenever a bitmap *does* fill the box.
+It applies to both kinds of `image`: a file bitmap and an SF Symbol.
+
+Both are **resolved from the merged prop set** rather than read as optional, so
+`stroke: null` really does take the ring away (§3.1) instead of reading as
+"unchanged" — the create-only-prop bug that `button.disabled` already paid for.
+
+Fixtures: `commit-app-controls.json` (two ghosts, a `bead` an app should not
+get, a stroked file image, a stroked symbol, an unframed image) and
+`commit-app-controls-update.json` (bead → ghost, ghost → plain, a stroke deleted
+and a stroke added, all in place).
+
+## Proposal: Reduce Motion on `lifecycle` (spec §4.2)
+
+Principle 10 was unobeyable from a worker. `accessibilityDisplayShouldReduceMotion`
+is an AppKit preference; a Bun process cannot read it, and every animating app in
+the demo set — two level meters and a progress bar — animated regardless of what
+the user had asked for.
+
+It rides the existing envelope rather than getting one of its own:
+
+```json
+{ "phase": "collapsed", "reduceMotion": true,
+  "screen": { "notchWidth": 189, "menubarHeight": 32, "scale": 2 } }
+```
+
+**Why `lifecycle` and not a new envelope, or a `platform` observe kind.** It is
+the same *kind* of fact `phase` is: an instruction about how hard to work,
+delivered on the channel an app already reads to decide exactly that. An app
+that honours "stop animating while collapsed" and an app that honours "stop
+animating because the user asked" are the same three lines in the same function.
+A `platform` observe kind would have made it opt-in, and an accessibility
+preference that an app must remember to subscribe to is one most apps will not.
+
+**Absent means unchanged, not false.** A shell that predates the flag must not
+read as "motion is fine" on every phase change.
+
+**Two deliveries, so the value is always current.** The shell re-sends a
+`lifecycle` — same phase, new flag — to every running app the moment the setting
+changes; and it sends one to each app as it *starts*, which is §4.2's "once on
+connect" finally implemented, on the side that actually knows the phase.
+
+On the host it lands as **`ctx.reduceMotion`**: a plain read-only boolean,
+updated in place *before* `onLifecycle(phase, ctx)` is called. A property rather
+than a callback argument because the code that has to obey it is a draw loop —
+`if (ctx.reduceMotion) return;` inside a `setInterval` is the shape apps
+actually need, and a flag captured once at boot is a flag that goes stale the
+first time the user flips the switch.
+
+The law, in REFERENCE.md's words: *a canvas that animates must go still when
+this is true.* Still — not slower, and not blank.
+
+Fixture: `lifecycle-reduce-motion.json`. `lifecycle-expanded.json` keeps no such
+key on purpose, so both suites replay the absent case too.
+
+## Proposal: `class` on `peek` — ambient and alert (spec §3.3)
+
+```json
+{ "v": 1, "app": "alarm", "seq": 13, "type": "chrome",
+  "payload": { "request": "peek", "class": "alert" } }
+```
+
+flow.md's Ti knob has two halves: "**Ti** ≈ 6 s for ambient-class, alert-class
+holds". One field carries the whole of it. An **ambient** notification retracts
+on its dwell; an **alert** holds until it is acted on or dismissed, because the
+one thing an alarm must not do is time out while the user is looking away.
+
+Absent is ambient, and so is any value the shell has not heard of — a
+forward-compatible wire must never be able to produce a swell that never goes
+away. Urgency stays *ink*, never geometry (flow.md, Edges): an alert and an
+ambient notification are the same silhouette for the same duration of arrival,
+and only the retract differs.
+
+Fixture: `chrome-peek-alert.json`.
 
 ## Proposal: `apple` — AppleScript and Shortcuts, executed by the shell (spec §6)
 

@@ -139,7 +139,7 @@ final class PermissionsCardView: FlippedView {
         content.addSubview(header)
 
         let intro = NSTextField(wrappingLabelWithString: Self.intro)
-        intro.font = LedgeTheme.systemFont(11.5)
+        intro.font = LedgeTheme.systemFont(LedgeMetrics.TypeSize.s.pointSize)
         intro.textColor = LedgeTheme.secondary
         intro.isSelectable = false
         // Measured, not guessed: the copy is three lines at 440 pt and a fixed
@@ -343,7 +343,7 @@ fileprivate final class PermissionRowView: RoundedBoxView {
         let titleX = Self.padX + Self.iconColumn
         let title = makeLabel(
             row.permission.title,
-            font: LedgeTheme.systemFont(12.5, weight: .semibold),
+            font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.m.pointSize, weight: .semibold),
             color: LedgeTheme.primary
         )
         title.frame = CGRect(

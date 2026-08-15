@@ -79,14 +79,74 @@ final class ProtocolCanvasView: NSView {
     /// Click with canvas-local coordinates (same y-down space as draw ops).
     var onClick: ((CGPoint) -> Void)?
 
+    /// Press-drag-release with a phase and canvas-local coordinates (spec §4.1
+    /// `drag`). `phase` is `down` / `move` / `up`; the point is in the same
+    /// y-down space as `onClick` and the draw ops.
+    ///
+    /// **The point is not clamped to the view.** A scrubber the user drags past
+    /// the edge of the canvas has to keep tracking — that is what makes a knob
+    /// feel held rather than dropped — so a `move` may report a negative x or
+    /// one past the width, and the app decides what its own edges mean.
+    var onDrag: ((_ phase: String, _ point: CGPoint) -> Void)?
+
+    /// Shell-side throttle for `move` (spec §4.1): a fast wiggle across a
+    /// trackpad produces events far faster than the panel can redraw, and every
+    /// one of them would be a frame on the socket. `down` and `up` are never
+    /// throttled — they are the phases an app builds state machines out of.
+    static let dragMoveInterval: CFTimeInterval = 1.0 / 30
+    /// Per-view override of the throttle, for tests that want every move.
+    var dragMoveInterval: CFTimeInterval = ProtocolCanvasView.dragMoveInterval
+
+    /// Whether the app declared `onDrag` (spec §5). Resolved from the merged
+    /// prop set on every commit, like every other prop — so a canvas that starts
+    /// passing a handler mid-session starts getting the phases, and one that
+    /// stops paying attention stops paying for the traffic.
+    var dragEnabled = false
+
+    private var lastMoveTime: CFTimeInterval = 0
+
     override func mouseDown(with event: NSEvent) {
         if focusable { window?.makeFirstResponder(self) }
-        guard let onClick else { return }
+        let point = localPoint(for: event)
+        // Both, when both are asked for: a canvas that only wants the scrub
+        // simply passes no `onClick`, and one that only wants taps passes no
+        // `onDrag`. Synthesizing one from the other would make the shell guess
+        // at a gesture threshold on the app's behalf.
+        onClick?(point)
+        guard dragEnabled, let onDrag else { return }
+        lastMoveTime = 0
+        onDrag("down", point)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragEnabled, let onDrag else {
+            super.mouseDragged(with: event)
+            return
+        }
+        let now = CACurrentMediaTime()
+        guard now - lastMoveTime >= dragMoveInterval else { return }
+        lastMoveTime = now
+        onDrag("move", localPoint(for: event))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard dragEnabled, let onDrag else {
+            super.mouseUp(with: event)
+            return
+        }
+        // Always sent, and it carries the final position — so a coalesced
+        // `move` is never the last word on where the gesture ended.
+        lastMoveTime = 0
+        onDrag("up", localPoint(for: event))
+    }
+
+    /// Window coordinates → canvas-local, y-down (§3.4).
+    private func localPoint(for event: NSEvent) -> CGPoint {
         var point = convert(event.locationInWindow, from: nil)
         if !isFlipped {
             point.y = bounds.height - point.y
         }
-        onClick(point)
+        return point
     }
 
     override func keyDown(with event: NSEvent) {
@@ -134,6 +194,8 @@ final class ProtocolCanvasView: NSView {
             path.lineWidth = object["width"]?.asDouble.map { CGFloat($0) } ?? 1
             (Self.color(object["stroke"]?.asString) ?? .white).setStroke()
             path.stroke()
+        case "gradient":
+            drawGradient(object)
         case "image":
             drawImage(object)
         case "text":
@@ -150,6 +212,44 @@ final class ProtocolCanvasView: NSView {
         default:
             break                               // unknown ops are skipped (§3.4)
         }
+    }
+
+    /// `{ "op": "gradient", "x", "y", "w", "h", "from", "to", "angle"?, "radius"? }`
+    /// — an axial gradient filling one rect (spec §3.4).
+    ///
+    /// Free-form on purpose, unlike `stack.gradient`: a canvas is pixels the app
+    /// owns, so it names real colors (hex, like every other op) and a real
+    /// direction. `angle` is **degrees clockwise from top-to-bottom**, matching
+    /// the y-down op space — 0 washes downward, 90 to the right — and defaults
+    /// to 0. `radius` rounds the rect exactly as it does for `rect`.
+    private func drawGradient(_ object: [String: JSONValue]) {
+        let rect = CGRect(
+            x: number(object["x"]), y: number(object["y"]),
+            width: number(object["w"]), height: number(object["h"])
+        )
+        guard rect.width > 0, rect.height > 0,
+              let from = Self.color(object["from"]?.asString),
+              let to = Self.color(object["to"]?.asString),
+              let gradient = NSGradient(starting: from, ending: to),
+              let context = NSGraphicsContext.current?.cgContext else { return }
+
+        let radians = (object["angle"]?.asDouble ?? 0) * .pi / 180
+        let direction = CGVector(dx: sin(radians), dy: cos(radians))
+        // Half the rect's extent *along the gradient's own axis*, so the ramp
+        // spans exactly the rect however it is angled — a 45° wash that stopped
+        // at half the width would leave a hard band in the far corner.
+        let half = (abs(rect.width * direction.dx) + abs(rect.height * direction.dy)) / 2
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+
+        context.saveGState()
+        let radius = number(object["radius"])
+        NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius).setClip()
+        gradient.draw(
+            from: CGPoint(x: center.x - direction.dx * half, y: center.y - direction.dy * half),
+            to: CGPoint(x: center.x + direction.dx * half, y: center.y + direction.dy * half),
+            options: [.drawsBeforeStartingLocation, .drawsAfterEndingLocation]
+        )
+        context.restoreGState()
     }
 
     /// `{ "op": "image", "src", "x", "y", "w", "h", "sx"?, "sy"?, "sw"?, "sh"? }`

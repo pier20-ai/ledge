@@ -33,6 +33,7 @@ import type {
   AppleRequest,
   CaptureRequest,
   ChromeRequest,
+  NotificationClass,
   HostToWorker,
   LifecyclePhase,
   NotifyRequest,
@@ -293,7 +294,16 @@ export class Router implements SupervisorSink {
       case "lifecycle": {
         const phase = String(envelope.payload.phase ?? "") as LifecyclePhase;
         const screen = envelope.payload.screen as ScreenInfo | undefined;
-        this.supervisors.get(envelope.app)?.post({ type: "lifecycle", phase, screen });
+        // Reduce Motion rides the lifecycle envelope (spec §4.2). Forwarded only
+        // when the shell actually said something: a shell that predates the flag
+        // must not read as "motion is fine" on every phase change.
+        const reduceMotion = envelope.payload.reduceMotion;
+        this.supervisors.get(envelope.app)?.post({
+          type: "lifecycle",
+          phase,
+          screen,
+          ...(typeof reduceMotion === "boolean" ? { reduceMotion } : {}),
+        });
         break;
       }
       case "selection": {
@@ -304,6 +314,28 @@ export class Router implements SupervisorSink {
         // than re-deriving lifecycle (which would double-deliver to the worker).
         const app = envelope.payload.app;
         this.presentedApp = typeof app === "string" ? app : null;
+        break;
+      }
+      case "appControl": {
+        // **The ledge's ✕** (flow.md, "The strip": "the only ✕ in the product
+        // lives here"; spec §4.3 extension). A CONTROL-PLANE frame like
+        // `selection` and `builderInput`: the envelope's own `app` is `""` and
+        // the target is in the payload, because the shell is speaking *about* an
+        // app rather than for one.
+        //
+        // It lands on `setAppEnabled(false)` — the same path Settings' switch
+        // takes — rather than on a stop of its own: the worker goes, the app
+        // stays installed, and "is this app running" keeps having one answer in
+        // one place (the settings file). Turning it back on is Settings, which
+        // is the only surface that lists an app that is not running.
+        const payload = envelope.payload as { app?: string; action?: string };
+        const app = String(payload.app ?? "");
+        const action = String(payload.action ?? "");
+        if (app === "" || action !== "stop") break;
+        this.hostLog(`[ledge-host] stop '${app}' <- the ledge`);
+        void this.setAppEnabled(app, false).catch((error: unknown) => {
+          this.hostLog(`[ledge-host] stop '${app}' failed: ${String(error)}`);
+        });
         break;
       }
       case "resyncRequest": {
@@ -491,7 +523,12 @@ export class Router implements SupervisorSink {
     this.session?.send("", "builder", { app, turn, ...event });
   }
 
-  chrome(app: string, request: ChromeRequest, ms?: number): void {
+  chrome(
+    app: string,
+    request: ChromeRequest,
+    ms?: number,
+    cls?: NotificationClass,
+  ): void {
     // The shell gates this too, and deliberately: two locks on a door that
     // opens onto a permission dialog. Refused here rather than forwarded so the
     // reason lands in the host log, where an app author will look for it.
@@ -499,9 +536,17 @@ export class Router implements SupervisorSink {
       this.hostLog(`[ledge-host] chrome <- ${app} permissions REFUSED (Settings-only)`);
       return;
     }
-    this.hostLog(`[ledge-host] chrome <- ${app} ${request}${ms === undefined ? "" : ` ${ms}ms`}`);
-    // `ms` rides along only for `peek`; the shell reads what its verb names.
-    this.session?.send(app, "chrome", ms === undefined ? { request } : { request, ms });
+    this.hostLog(
+      `[ledge-host] chrome <- ${app} ${request}` +
+        `${ms === undefined ? "" : ` ${ms}ms`}${cls === undefined ? "" : ` ${cls}`}`,
+    );
+    // `ms` and `class` ride along only for `peek`; the shell reads what its verb
+    // names. `class` on the wire, `cls` in the worker message — see messages.ts.
+    this.session?.send(app, "chrome", {
+      request,
+      ...(ms === undefined ? {} : { ms }),
+      ...(cls === undefined ? {} : { class: cls }),
+    });
   }
 
   /**

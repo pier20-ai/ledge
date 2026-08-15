@@ -57,19 +57,67 @@ struct PanelGeometryTests {
     @Test("The surface draws an app's declared width, not always 440")
     func surfaceHonorsWidth() {
         let surface = ShellSurfaceView(callbacks: .inert)
+        surface.metrics = .fallback
         surface.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
 
+        // Past the bar's own width the shape *is* the panel; under it the bar is
+        // the floor and the panel hangs beneath (see `visitBarIsInvariant`).
+        let bar = surface.visitBarWidth
+        let wide = surface.shapeSize(expanded: true, width: bar + 80, height: 300)
+        #expect(wide.width == bar + 80 + ShellSurfaceView.fillet * 2)
         let narrow = surface.shapeSize(expanded: true, width: 360, height: 300)
-        let wide = surface.shapeSize(expanded: true, width: 520, height: 300)
-        #expect(narrow.width == 360 + ShellSurfaceView.fillet * 2)
-        #expect(wide.width == 520 + ShellSurfaceView.fillet * 2)
+        #expect(narrow.width == bar + ShellSurfaceView.fillet * 2)
 
         surface.present(.expanded(app: "chess"), content: nil, width: 520, height: 300, animated: false)
         #expect(surface.expandedWidth == 520)
         // Collapsing keeps the hardware notch's width — the panel width is only
-        // ever consulted when expanded.
+        // ever consulted when expanded, and the bar is a *visit* control.
         #expect(surface.shapeSize(expanded: false, height: 0).width
                 == surface.metrics.closedWidth + ShellSurfaceView.fillet * 2)
+    }
+
+    /// **The bar is an invariant** (principle 8, and defect 4 on device: the
+    /// controls hugged the cutout instead of sitting at the black bar's outer
+    /// edges). design.html §01 draws a *fixed-width* bar — 470 over a 168 pt
+    /// cutout — with the two controls at its far ends, and a 336 pt panel
+    /// hanging beneath it. So the bar's frame must be the same rect for every
+    /// session, whatever width that session asked for.
+    @Test("The visit bar is one frame, identical across sessions of every width")
+    func visitBarIsInvariant() {
+        var bars: [CGRect] = []
+        var shapes: [CGFloat] = []
+        for width in [PanelLimits.minWidth, 360, PanelLimits.defaultWidth, 520, 640] as [CGFloat] {
+            let surface = ShellSurfaceView(callbacks: .inert)
+            surface.metrics = .fallback                          // 210 × 34
+            surface.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
+            surface.present(
+                .expanded(app: "app-\(width)"),
+                content: FlippedView(),
+                width: width,
+                height: 300,
+                animated: false
+            )
+            surface.layoutSubtreeIfNeeded()
+            let bar = surface.panelWingBarView
+            bars.append(surface.convert(bar.bounds, from: bar))
+            shapes.append(surface.currentShapeRect.width)
+
+            // The width itself: cutout + a fixed reach each side, and centred on
+            // the cutout so the controls straddle the camera symmetrically.
+            #expect(surface.visitBarWidth
+                    == surface.metrics.closedWidth + LedgeMetrics.visitBarWing * 2)
+            #expect(abs(surface.visitBarRect.midX - surface.hardwareCutoutRect.midX) < 0.01)
+            // …and noticeably wider than the cutout, which is the whole
+            // complaint: 210 → 510 on the mockup's own proportion.
+            #expect(surface.visitBarWidth > surface.metrics.closedWidth + 200)
+        }
+        #expect(Set(bars.map { "\($0)" }).count == 1, "the bar moved: \(bars)")
+
+        // The silhouette still grows with the session — the bar is a floor, not
+        // a cap. A panel wider than the bar meets its edges; a narrower one
+        // hangs beneath it, and the shape stays bar-width.
+        #expect(shapes.first == shapes[1])                       // both under the bar
+        #expect(shapes.last! > shapes.first!)                    // 640 is past it
     }
 
     @Test("A catalog panel declaration drives the session's panel size (§3.6 → §5)")
@@ -121,42 +169,25 @@ struct PanelGeometryTests {
         #expect(resolved.height <= 560)
     }
 
-    @Test("The app strip is built from the catalog's real names and icons (§3.6)")
-    func stripUsesCatalogIdentity() throws {
-        // The user-visible bug this phase fixes: before `meta` extraction the
-        // catalog carried a placeholder icon for every app, so the strip showed
-        // five identical dashed squares. The strip has always read the catalog —
-        // what changed is that the catalog now carries the truth.
-        #expect(AppBarView.symbol(from: "sf:chart.line.uptrend.xyaxis") == "chart.line.uptrend.xyaxis")
-        #expect(AppBarView.symbol(from: "crown") == "crown")
+    /// **Panel height = content fit** (flow.md — there is no bottom bar any
+    /// more, so there is nothing below the app's tree to pay for).
+    ///
+    /// This used to be `fitting + 42 pt strip + 34 pt cutout row`. The strip is
+    /// deleted; the cutout row is not optional, because it is the exclusion zone
+    /// that keeps an app's first row out from under the camera (principle 7).
+    @Test("A panel is the app's measured height plus the cutout row, and nothing else")
+    func panelHeightIsContentFit() throws {
+        let session = HostSession()
+        session.limits = limits
+        session.cutoutRowHeight = 34
+        session.openReplay()
+        session.inject(try Fixtures.envelope("commit-mount.json"))
 
-        let apps = try Fixtures.envelope("catalog.json").decodePayload(CatalogPayload.self).apps
-        let bar = AppBarView(callbacks: .inert)
-        bar.setApps(apps)
-
-        // The app icons live inside the strip's scrolling area now, so the walk
-        // is recursive — [+] and Settings are still direct children, because
-        // they are the two controls that must never scroll away.
-        let icons = allButtons(in: bar)
-        let labels = icons.compactMap { $0.accessibilityLabel() }
-        // Enabled, non-Settings apps in catalog order, then [+], then Settings.
-        #expect(labels.contains("Stocks"))
-        #expect(labels.contains("Chess"))
-        #expect(labels.contains("New app"))
-        #expect(!labels.contains("Deal Watch"))          // disabled apps are dropped
-
-        let symbols = icons.map(\.symbolName)
-        #expect(symbols.contains("chart.line.uptrend.xyaxis"))
-        #expect(symbols.contains("crown"))
-        #expect(!symbols.contains("square.dashed"))      // no placeholder survives
-    }
-}
-
-/// Every strip icon in a view subtree. The strip's app icons sit in a scroll
-/// view's document view, so a one-level `subviews` walk stopped finding them.
-@MainActor
-func allButtons(in view: NSView) -> [HoverIconButton] {
-    view.subviews.flatMap { child -> [HoverIconButton] in
-        (child as? HoverIconButton).map { [$0] } ?? allButtons(in: child)
+        #expect(session.chromeHeight == 34)
+        let resolved = try #require(session.content(for: "stocks"))
+        // The tree's own fitting height is whatever is left once the one row of
+        // chrome is taken off — stated as a derivation, not a magic number, so
+        // a bar sneaking back in would fail here rather than look plausible.
+        #expect(resolved.height - session.chromeHeight > 0)
     }
 }

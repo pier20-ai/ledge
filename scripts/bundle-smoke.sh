@@ -76,7 +76,7 @@ HOST_PID="$(pgrep -P "$SHELL_PID" || true)"
 
 # The real test. SIGKILL skips applicationWillTerminate entirely, so nothing but
 # the host's own stdin-EOF watchdog can save us from an orphan holding the
-# socket (and, through the workers, an app's subprocesses — chess runs Stockfish).
+# socket (and, through the workers, any subprocess an app has spawned).
 log "SIGKILLing the shell (no cleanup callback runs)…"
 kill -9 "$SHELL_PID"; SHELL_PID=""
 for _ in $(seq 1 20); do

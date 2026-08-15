@@ -91,6 +91,14 @@ public struct CatalogApp: Codable, Sendable, Equatable {
         self.running = running
         self.panel = panel
     }
+
+    /// The icon as a **symbol name**. The wire spells it `"sf:<symbol>"` (spec
+    /// §3.6, and §5's `icon` prop); every surface that draws one wants the name
+    /// without the scheme, and three places in the renderer were each dropping
+    /// the first three characters by hand.
+    public var symbolName: String {
+        icon.hasPrefix("sf:") ? String(icon.dropFirst(3)) : icon
+    }
 }
 
 public struct CatalogPayload: Codable, Sendable, Equatable {
@@ -126,22 +134,52 @@ public struct WingCanvasSpec: Codable, Sendable, Equatable {
     }
 }
 
+/// A shell-drawn bar in the right wing (spec §3.3 extension) — flow.md's
+/// **meter**, the third of the four wing forms. The app supplies a fraction and
+/// nothing else: width, thickness, radius and ink belong to the shell, which is
+/// the difference between a vocabulary and every app drawing its own bar.
+public struct WingMeterSpec: Codable, Sendable, Equatable {
+    /// `0…1`. Clamped on read (`fraction`) as well as by the host, because a
+    /// fill wider than its own track is the one thing this must never draw.
+    public var value: Double
+
+    public init(value: Double) {
+        self.value = value
+    }
+
+    /// The value as something safe to multiply a width by. A non-finite value
+    /// reads as empty rather than as a NaN frame.
+    public var fraction: Double {
+        value.isFinite ? Swift.min(1, Swift.max(0, value)) : 0
+    }
+}
+
 /// What an app wants the collapsed notch to look like (spec §3.3 extension):
-/// a label in the left wing, a canvas strip in the right wing, and/or a bare
-/// total-width request for shape-only animation.
+/// a label in the left wing, a canvas strip or a meter in the right wing,
+/// and/or a bare total-width request for shape-only animation.
 public struct WingSpec: Codable, Sendable, Equatable {
     public var text: String?
     public var width: Double?
     public var canvas: WingCanvasSpec?
+    /// The right wing's stock form. A spec carrying both this and a `canvas` is
+    /// two claims on one wing: the canvas wins, because those are the app's own
+    /// pixels and this is a shape the shell could always draw somewhere else.
+    public var meter: WingMeterSpec?
 
-    public init(text: String? = nil, width: Double? = nil, canvas: WingCanvasSpec? = nil) {
+    public init(
+        text: String? = nil,
+        width: Double? = nil,
+        canvas: WingCanvasSpec? = nil,
+        meter: WingMeterSpec? = nil
+    ) {
         self.text = text
         self.width = width
         self.canvas = canvas
+        self.meter = meter
     }
 
     /// A wing with nothing in it at all is indistinguishable from no wing.
-    public var isEmpty: Bool { text == nil && width == nil && canvas == nil }
+    public var isEmpty: Bool { text == nil && width == nil && canvas == nil && meter == nil }
 }
 
 /// `chrome` (spec §3.3): `expand`/`collapse`/`attention`, plus the `wing` and
@@ -155,11 +193,49 @@ public struct ChromePayload: Codable, Sendable, Equatable {
     /// Peek dwell in milliseconds. Absent means the shell's own default; the
     /// host has already clamped anything an app asked for.
     public var ms: Double?
+    /// `class` on the wire (a Swift keyword here, hence the rename): which
+    /// priority class a notification belongs to — `"ambient"` or `"alert"`.
+    ///
+    /// It is the whole of flow.md's "Ti ≈ 6 s for ambient-class, alert-class
+    /// holds". An ambient notification retracts on its dwell; an alert holds
+    /// until it is acted on or dismissed, because the one thing an alert must
+    /// not do is time out while the user is looking away. Absent is ambient —
+    /// an app that says nothing is not raising an alarm.
+    public var priority: NotificationClass?
 
-    public init(request: String, wing: WingSpec? = nil, ms: Double? = nil) {
+    enum CodingKeys: String, CodingKey {
+        case request
+        case wing
+        case ms
+        case priority = "class"
+    }
+
+    public init(
+        request: String,
+        wing: WingSpec? = nil,
+        ms: Double? = nil,
+        priority: NotificationClass? = nil
+    ) {
         self.request = request
         self.wing = wing
         self.ms = ms
+        self.priority = priority
+    }
+}
+
+/// The two notification classes (flow.md, "Knobs"). Urgency is *ink*, never
+/// geometry (flow.md, Edges: "the holder's content turns red and pulses twice")
+/// — so the only thing this changes is how long the swell stays up.
+public enum NotificationClass: String, Codable, Sendable, Equatable {
+    /// Retracts on `Ti`.
+    case ambient
+    /// Holds until acted on or dismissed.
+    case alert
+
+    /// An unknown class is ambient. A forward-compatible wire never turns a
+    /// value the shell has not heard of into a swell that never goes away.
+    public init(token: String?) {
+        self = NotificationClass(rawValue: token ?? "") ?? .ambient
     }
 }
 
@@ -168,6 +244,13 @@ public struct ChromePayload: Codable, Sendable, Equatable {
 public struct DrawPayload: Codable, Sendable, Equatable {
     public var id: Int
     public var ops: [JSONValue]
+
+    /// Only decoded in the live path; constructed by the snapshot replay, which
+    /// synthesises the frames a monitor drew during its capture window.
+    public init(id: Int, ops: [JSONValue]) {
+        self.id = id
+        self.ops = ops
+    }
 }
 
 /// `native` transducer install (§3.5). Only `install` arrives from the host;
@@ -631,6 +714,12 @@ public enum EnvelopeType: String, Sendable {
     case lifecycle
     case selection
     case builderInput
+    /// The shell asking the host to stop a session (spec §4.3 extension) — the
+    /// ledge's ✕, and nothing else sends it. A control-plane frame like
+    /// `selection`: the envelope's `app` is `""` and the target is in the
+    /// payload, because it is a statement *about* an app rather than one made by
+    /// it.
+    case appControl
     case resyncRequest
     case appleResult
     case notifyAction

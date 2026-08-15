@@ -55,6 +55,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         host.onStatus = { [weak self] status in
             self?.panelController?.hostDetail = Self.hostDetail(for: status)
         }
+        // The one action on the one error card (flow.md, Errors): restart the
+        // whole host. Worst case is a fresh visit.
+        session.onReloadHost = { [weak host] in host?.restart() }
         host.start()
 
         NotificationCenter.default.addObserver(

@@ -352,19 +352,15 @@ struct PermissionsTests {
 
     /// The same card in the real panel, because the card on its own cannot show
     /// the two things that go wrong at the seams: content starting *behind* the
-    /// camera housing (every surface reserves the cutout row), and the 42 pt app
-    /// strip drawing over the last row (spec §8 — apps render above it and can
-    /// never cover it, and neither may shell chrome).
-    @Test("It composes inside the panel: below the cutout, above the app strip")
+    /// camera housing — every surface reserves the cutout row. (The 42 pt app
+    /// strip this also used to guard against is gone with the bottom bar; the
+    /// panel is content fit plus the exclusion row and nothing else.)
+    @Test("It composes inside the panel, below the cutout")
     func composesInThePanel() throws {
         let card = PermissionsCardView(probe: FakePermissionProbe())
         let surface = ShellSurfaceView(callbacks: .inert)
-        surface.setCatalog([
-            CatalogApp(id: "stocks", name: "Stocks", icon: "sf:chart.line.uptrend.xyaxis",
-                       order: 0, enabled: true, running: true, panel: nil),
-        ])
-        // No app name and no Edit: there is no app behind this surface.
-        surface.setPanelWing(name: nil, content: nil, canEdit: false)
+        // No glass to lower: there is no session behind this surface.
+        surface.setPanelWing(mode: .stage, canToggleGlass: false)
         let height = card.panelHeight + surface.panelWingRowHeight
         surface.frame = CGRect(
             origin: .zero,

@@ -237,6 +237,30 @@ describe("events", () => {
 // kind updates in place — a kind that silently remounted would look identical in
 // a mount-only test and destroy toggle state on every render.
 describe("new kinds (D6)", () => {
+  test("canvas onDrag serializes as true and dispatches the phase (§4.1)", () => {
+    const sink = new InMemorySink();
+    const phases: string[] = [];
+    const renderer = makeRenderer(sink);
+    renderer.render(
+      <stack>
+        <canvas
+          w={416}
+          h={44}
+          onDrag={({ phase, x }) => phases.push(`${phase}@${x}`)}
+        />
+      </stack>,
+    );
+
+    const create = created(sink, "canvas");
+    expect(create.props).toEqual({ w: 416, h: 44, onDrag: true });
+
+    // "drag" — the wire name eventName() derives from onDrag. The shell has
+    // already throttled `move`; the host only routes what it is handed.
+    expect(renderer.dispatchEvent(create.id, "drag", { phase: "down", x: 10, y: 4 })).toBe(true);
+    expect(renderer.dispatchEvent(create.id, "drag", { phase: "up", x: 214, y: 6 })).toBe(true);
+    expect(phases).toEqual(["down@10", "up@214"]);
+  });
+
   test("toggle creates with on/disabled and serializes onChange as true", () => {
     const sink = new InMemorySink();
     const changes: boolean[] = [];

@@ -7,6 +7,32 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
+    /// **The visit's horizontal swipe, read before anything else sees it.**
+    ///
+    /// Set by the panel controller to `ShellSurfaceView.translateScroll`. A
+    /// scroll event is delivered to the deepest view under the cursor, so in a
+    /// visit it lands in the app's tree — an NSScrollView, a focusable canvas,
+    /// or the editor's WKWebView — and those consume it. The surface therefore
+    /// never saw the gesture and the strip never walked, while `‹` and `›`, which
+    /// are ordinary clicks, worked fine.
+    ///
+    /// Intercepting here is the only place that is *above* every one of those
+    /// views. A flick that is not a horizontal walk is forwarded untouched, so
+    /// an app's list and the transcript still scroll exactly as they did.
+    var translateScroll: ((NSEvent) -> Bool)?
+
+    /// True when this event is the visit's walk and must go no further. Split
+    /// out from `sendEvent` because *what is consumed* is the decision worth
+    /// asserting, and a test cannot watch `super.sendEvent` from outside.
+    func consumesForWalk(_ event: NSEvent) -> Bool {
+        event.type == .scrollWheel && translateScroll?(event) == true
+    }
+
+    override func sendEvent(_ event: NSEvent) {
+        guard !consumesForWalk(event) else { return }
+        super.sendEvent(event)
+    }
+
     /// Standard editing shortcuts, by hand.
     ///
     /// `LSUIElement` + a borderless non-activating panel means there is **no
@@ -18,9 +44,22 @@ final class NotchPanel: NSPanel {
     /// Routed through the responder chain by selector, so the web view's text
     /// field, an `input` node in an app's tree, and anything else that edits
     /// text all get them for free.
+
+    /// ⌘, during a visit (flow.md, Edges). Set by the panel controller.
+    ///
+    /// Reachable only while this panel holds key — it is a *non-activating*
+    /// panel, so a ⌘, typed while another app is frontmost belongs to that app,
+    /// and no amount of local monitoring changes that. The right-click menu is
+    /// the path that always works; both triggers are in flow.md, and this one is
+    /// the convenience.
+    var onSettingsShortcut: (() -> Bool)?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else {
             return super.performKeyEquivalent(with: event)
+        }
+        if event.charactersIgnoringModifiers == ",", onSettingsShortcut?() == true {
+            return true
         }
         let selector: Selector? = switch event.charactersIgnoringModifiers {
         case "a": #selector(NSText.selectAll(_:))
@@ -51,29 +90,56 @@ final class NotchPanelController {
 
     private let panel: NotchPanel
     private let surface: ShellSurfaceView
+    /// The gestures the surface reports upward, kept because the **parked**
+    /// body needs exactly the same set: it is the same surface, so its wings
+    /// walk the same strip and open the same ledge.
+    private let callbacks: ShellCallbacks
     private var shellState = ShellState()
     private let session: HostSession
+
+    /// **The interaction machine** (flow.md's Transitions table). This object
+    /// owns the timers and turns effects into presentations; the machine owns
+    /// the table. Everything that changes what is on screen goes through
+    /// `send(_:)` or is followed by `machine.sync(to:)`, so the two can never
+    /// disagree about which of the six states we are in.
+    private var machine = InteractionMachine()
+
+    /// Th — armed on pointer-in, disarmed on pointer-out or on any surface
+    /// arriving. Fires exactly once per hover.
+    private var thresholdTimer: DispatchWorkItem?
+    /// Ti — an ambient notification's dwell. Never armed for an alert-class one.
+    private var dwellTimer: DispatchWorkItem?
+    /// Texit — the walk-away timeout. Re-armed on every change to the inhibitor
+    /// state, so a keystroke or a drag genuinely stops it rather than merely
+    /// making its expiry a no-op.
+    private var exitTimer: DispatchWorkItem?
+    /// A click anywhere outside Ledge closes the visit (flow.md). The panel is a
+    /// non-activating borderless panel, so those clicks never reach a view of
+    /// ours — a global monitor is the only place they exist.
+    private var outsideClickMonitor: Any?
 
     /// The app that currently owns the collapsed notch (spec §3.3 extension).
     /// One notch, one wing: the latest app to ask wins, and only the owner can
     /// give it back.
     private var wingOwner: String?
+    /// Ta — the wing holder's idleness timer (see `scheduleWingIdle`).
+    private var wingIdleTimer: DispatchWorkItem?
 
     /// Chrome surfaces are rebuilt only when their app changes, so re-presenting
     /// one is a re-measure rather than a cross-fade.
-    /// The peek surface. One instance reused across apps — there is one notch,
-    /// so there is one mini, and the content is swapped rather than rebuilt.
-    private let miniSurface = MiniContentView()
-    /// Pending auto-dismiss for the mini currently on screen.
-    private var miniDismiss: DispatchWorkItem?
+    /// The swell surface — both swells. One instance reused across apps and
+    /// across the notification/summary distinction: there is one notch, so there
+    /// is one swell, and the content (and the chevron) is swapped rather than
+    /// rebuilt.
+    private let swellSurface = MiniContentView()
 
-    /// The editor (spec §8). **One instance, reused across apps** — there is one
-    /// panel, so there is one editor, and a web view per app would mean a web
-    /// content process per app for surfaces the user is not looking at.
-    /// Switching apps is a message on the bridge (`EditorSurfaceView.present`).
-    /// Created lazily: a shell that is never asked for the editor never pays for
-    /// WebKit.
-    private var editorSurface: EditorSurfaceView?
+    /// Chat mode (spec §8, flow.md "Visit modes"). **One instance, reused across
+    /// sessions** — there is one panel, so there is one conversation on screen,
+    /// and a web view per app would mean a web content process per app for
+    /// surfaces the user is not looking at. Switching sessions is a message on
+    /// the bridge (`ChatSurfaceView.focus`). Created lazily: a shell that is
+    /// never asked for chat never pays for WebKit.
+    private var chatSurface: ChatSurfaceView?
     /// Session-global capability sent once when the host binds. The editor is
     /// lazy, so the event routinely arrives before there is a bridge to receive
     /// it; replay it when that bridge is eventually created.
@@ -87,18 +153,118 @@ final class NotchPanelController {
     /// the editor is: a shell nobody ever asks should not build one.
     private var permissionsSurface: PermissionsCardView?
 
+    /// **The ledge** (flow.md, "The strip"). One instance, like the chat pane:
+    /// there is one strip, so there is one shelf, and its slabs are rebuilt from
+    /// the catalog on every present.
+    private var overviewSurface: OverviewSurfaceView?
+    /// What **Back** returns to: the surface the overview was zoomed out of.
+    /// Held here rather than derived, because "the session that was showing"
+    /// includes which *mode* it was in — walking out of a chat and back into a
+    /// stage would be the overview quietly changing something.
+    private var overviewOrigin: ShellPresentation?
+
+    /// **Parked** (flow.md, States). The window and its body, or nil when the
+    /// surface is where it belongs. Everything that asks "is the visit on the
+    /// notch or in a window" asks this.
+    private var parked: (window: ParkedWindow, view: ParkedSurfaceView)?
+    /// **One position for Ledge, not one per session.** The corner the user
+    /// dropped the window at, held for as long as the window exists: walking the
+    /// strip inside it changes the session and the size, never the place. It is
+    /// deliberately not persisted across launches — the only way to park is to
+    /// pull the surface off the notch, and that gesture always puts the window
+    /// under the pointer, so a remembered corner would never be consulted.
+    private var parkedCorner: CGPoint?
+    /// The parked window's own dwell timer. The notch's `dwellTimer` belongs to
+    /// a swell that is a *presentation*; the parked band is not one (see
+    /// `notifyParked`), so it cannot share the machine's timer.
+    private var parkedSwellTimer: DispatchWorkItem?
+
+    /// The two-item menu (flow.md, Edges: "right-click any Ledge glass → native
+    /// menu (Settings…, Quit Ledge)"). Built once and kept: it is the same menu
+    /// on the pill, on a wing and on the panel's chrome, and an NSMenu rebuilt
+    /// per right-click loses its highlight mid-track.
+    private lazy var ledgeMenu: NSMenu = {
+        let menu = NSMenu()
+        let settings = NSMenuItem(
+            title: "Settings…",
+            action: #selector(menuOpenSettings),
+            keyEquivalent: ","
+        )
+        settings.keyEquivalentModifierMask = .command
+        settings.target = self
+        menu.addItem(settings)
+        menu.addItem(.separator())
+        let quit = NSMenuItem(title: "Quit Ledge", action: #selector(menuQuit), keyEquivalent: "")
+        quit.target = self
+        menu.addItem(quit)
+        return menu
+    }()
+
+    /// Settings opens as an ordinary visit for now. flow.md wants a **native
+    /// macOS window** ("configuration doesn't belong on glass") and that is a
+    /// later phase; the trigger is final, the destination is not.
+    @objc private func menuOpenSettings() { openSettings() }
+    @objc private func menuQuit() { NSApp.terminate(nil) }
+
+    /// ⌘, during a visit (flow.md, Edges). Reachable only while the panel holds
+    /// key — it is a non-activating panel, so a ⌘, typed into another app
+    /// belongs to that app. The right-click menu is the path that always works,
+    /// and the native Settings window will make this moot.
+    func handleSettingsShortcut() -> Bool {
+        guard shellState.isExpanded else { return false }
+        openSettings()
+        return true
+    }
+
+    private func openSettings() {
+        shellState.selectApp(LedgeApps.settings, reselectOpensChat: false)
+        machine.sync(to: shellState.presentation)
+        refresh(animated: true)
+    }
+
+    // MARK: - Test seams
+
+    /// The menu, for the assertion that it is exactly two items. Built lazily,
+    /// so asking for it is also what proves it can be built at all.
+    var contextMenuForTesting: NSMenu { ledgeMenu }
+    func openSettingsForTesting() { openSettings() }
+    /// The real window, so the swipe's *routing* can be asserted end to end —
+    /// the bug was never in the recognizer, it was in who saw the event first.
+    var panelForTesting: NSPanel { panel }
+    var surfaceForTesting: ShellSurfaceView { surface }
+    /// The parked window's body, or nil while the surface is on the notch. The
+    /// tear itself needs a live drag, so the seam is one step in: tests park
+    /// through `parkForTesting`, which is the same call the drag makes once it
+    /// has crossed the threshold.
+    var parkedSurfaceForTesting: ParkedSurfaceView? { parked?.view }
+    var parkedWindowForTesting: NSWindow? { parked?.window }
+    func parkForTesting(at topLeft: CGPoint = CGPoint(x: 400, y: 400)) {
+        tearOff(to: topLeft)
+    }
+
+    var overviewForTesting: OverviewSurfaceView? { overviewSurface }
+
     init(session: HostSession) {
         self.session = session
         var selectApp: ((String) -> Void)!
         var selectNewApp: (() -> Void)!
         var selectSettings: (() -> Void)!
         var toggleChat: (() -> Void)!
+        var walkStrip: ((Int) -> Void)!
+        var showOverview: (() -> Void)!
         let callbacks = ShellCallbacks(
             selectApp: { app in selectApp(app) },
             selectNewApp: { selectNewApp() },
             selectSettings: { selectSettings() },
-            toggleChat: { toggleChat() }
+            toggleChat: { toggleChat() },
+            walkStrip: { steps in walkStrip(steps) },
+            showOverview: { showOverview() },
+            // Quit is the shell's, not a session's: it terminates the whole
+            // process, host and all (the app delegate tears the host down in
+            // `applicationWillTerminate`).
+            quit: { NSApp.terminate(nil) }
         )
+        self.callbacks = callbacks
         surface = ShellSurfaceView(callbacks: callbacks)
         panel = NotchPanel(
             contentRect: CGRect(origin: .zero, size: windowSize),
@@ -109,6 +275,7 @@ final class NotchPanelController {
         selectApp = { [weak self] app in
             guard let self else { return }
             self.shellState.selectApp(app)
+            self.machine.sync(to: self.shellState.presentation)
             self.refresh(animated: true)
         }
         selectNewApp = { [weak self] in self?.present(.newApp) }
@@ -118,25 +285,46 @@ final class NotchPanelController {
             // keeps the settings controls on screen instead of applying the
             // ordinary app shortcut that toggles into chat/edit mode.
             self.shellState.selectApp(
-                AppBarView.settingsAppID,
+                LedgeApps.settings,
                 reselectOpensChat: false
             )
+            self.machine.sync(to: self.shellState.presentation)
             self.refresh(animated: true)
         }
         toggleChat = { [weak self] in
             guard let self else { return }
+            // One bead, three words (`PanelWingBarView.Mode`). In the overview
+            // it reads **Back** and it goes back; everywhere else it lowers the
+            // glass onto the conversation or raises it again.
+            guard self.shellState.presentation != .overview else {
+                self.leaveOverview()
+                return
+            }
             self.shellState.toggleChat()
+            self.machine.sync(to: self.shellState.presentation)
             self.refresh(animated: true)
         }
-        surface.requestOpen = { [weak self] in self?.openFromCollapsed() }
-        surface.requestClose = { [weak self] in self?.present(.collapsed) }
+        walkStrip = { [weak self] steps in self?.walk(steps) }
+        // The `|` between `‹` and `›`: **the ledge** (flow.md, "The strip").
+        showOverview = { [weak self] in self?.enterOverview() }
+
+        surface.onPointerInside = { [weak self] inside in self?.pointerChanged(inside: inside) }
+        surface.onClick = { [weak self] in self?.clicked() }
+        surface.onEscape = { [weak self] in self?.send(.escape) }
+        // "Visit | drag the panel down off the notch | Parked". The machine says
+        // whether it parks; these three say *where*.
+        surface.onTearBegan = { [weak self] topLeft in self?.tearOff(to: topLeft) }
+        surface.onTearMoved = { [weak self] topLeft in self?.moveParked(to: topLeft) }
+        surface.onTearEnded = { [weak self] in self?.settleParked() }
+        surface.onSwipe = { [weak self] direction in self?.handleSwipe(direction) }
+        surface.contextMenu = { [weak self] in self?.ledgeMenu }
 
         // The drop shelf (INTAKE): a file dropped on the open panel becomes an
         // app-level `drop` event for whatever app is on screen. Presentation
         // decides the addressee, so the answer lives here rather than in the
         // surface — the surface only knows it is expanded.
         surface.canAcceptDrop = { [weak self] in
-            guard let self, !self.shellState.presentation.isMini else { return false }
+            guard let self, !self.shellState.presentation.isSwell else { return false }
             guard let app = self.shellState.presentation.app else { return false }
             return self.session.content(for: app) != nil
         }
@@ -151,7 +339,6 @@ final class NotchPanelController {
 
         session.onCatalog = { [weak self] apps in
             guard let self else { return }
-            self.surface.setCatalog(apps)
             self.shellState.rememberIfUnset(
                 apps.filter { $0.enabled }.sorted { $0.order < $1.order }.first?.id
             )
@@ -170,8 +357,14 @@ final class NotchPanelController {
             guard self.shellState.isExpanded else { return }
             self.refresh(animated: true)
         }
-        session.onChrome = { [weak self] app, request, wing, ms in
-            self?.handleChrome(app: app, request: request, wing: wing, ms: ms)
+        session.onChrome = { [weak self] app, request, wing, ms, priority in
+            self?.handleChrome(
+                app: app,
+                request: request,
+                wing: wing,
+                ms: ms,
+                priority: priority
+            )
         }
         // The builder stream (spec §3.6) has exactly one destination: the editor
         // surface for the app it names. Events for any other app are dropped by
@@ -180,7 +373,7 @@ final class NotchPanelController {
         session.onBuilder = { [weak self] payload in
             guard let self else { return }
             if payload.event == "agent" { self.latestAgentStatus = payload }
-            self.editorSurface?.bridge.deliver(payload)
+            self.chatSurface?.bridge.deliver(payload)
         }
         // The honest answer to "did that edit work" is the worker's, not the
         // agent's: an agent can finish a turn cleanly and leave an app that no
@@ -198,8 +391,18 @@ final class NotchPanelController {
             // because the worker hasn't committed (or crashed) is worse than
             // leaving the notch closed — the app still hears "opened" either way.
             guard let self, self.session.content(for: app) != nil else { return }
-            self.shellState.present(.expanded(app: app))
-            self.refresh(animated: true)
+            self.present(.expanded(app: app))
+        }
+        // "Interruption | click the action | the action runs" — and then the
+        // swell goes away. The action is an ordinary `button` in the app's
+        // borrowed node, so AppKit has already given it the click and the
+        // renderer has already put the §4.1 event on the wire; all the shell
+        // learns is that one left. That is enough to tell this row of the table
+        // apart from "click elsewhere", which reaches the surface instead.
+        session.onNodeEvent = { [weak self] app, name in
+            guard let self, name == "click" else { return }
+            guard case .mini(let owner) = self.shellState.presentation, owner == app else { return }
+            self.send(.click(.notificationAction))
         }
 
         panel.contentView = surface
@@ -219,6 +422,11 @@ final class NotchPanelController {
         ]
         panel.animationBehavior = .none
         panel.acceptsMouseMovedEvents = true
+        panel.onSettingsShortcut = { [weak self] in self?.handleSettingsShortcut() ?? false }
+        // Ahead of the app's own views: see `NotchPanel.translateScroll`.
+        panel.translateScroll = { [weak self] event in
+            self?.surface.translateScroll(event) ?? false
+        }
     }
 
     func start() {
@@ -268,13 +476,25 @@ final class NotchPanelController {
 
     func present(_ presentation: ShellPresentation, animated: Bool = true) {
         shellState.present(presentation)
+        machine.sync(to: presentation)
         refresh(animated: animated)
     }
 
+    /// What the notch is showing. A read-only window onto state this object
+    /// owns — the shell state itself stays private, because everything that
+    /// *changes* it goes through `present`/`refresh` so the surface is never
+    /// left describing a presentation that is no longer on screen.
+    var presentation: ShellPresentation { shellState.presentation }
+
     func toggleExpansion() {
         shellState.toggleExpansion()
+        machine.sync(to: shellState.presentation)
         refresh(animated: true)
     }
+
+    /// Which of the six states the machine believes it is in. Read by tests and
+    /// by the log line; nothing changes it from outside.
+    var interactionState: InteractionMachine.State { machine.state }
 
     /// Push the current state to the surface: resolve the content view and the
     /// panel height for whatever is presented, and report the presented app to
@@ -292,6 +512,11 @@ final class NotchPanelController {
         let content: NSView?
         let width: CGFloat
         let height: CGFloat
+        // Who drew the well, which is what decides whether a right-click there
+        // is Ledge's or somebody else's (`ShellSurfaceView.contextMenu(at:)`).
+        // Shell by default: the menu is the only route to Settings and to Quit,
+        // so anything the shell painted itself answers.
+        var owner = ShellSurfaceView.ContentOwner.shell
         switch presentation {
         case .collapsed:
             content = nil
@@ -302,6 +527,7 @@ final class NotchPanelController {
                 content = resolved.view
                 width = resolved.width
                 height = resolved.height
+                owner = .app
             } else {
                 // The placeholder is shell chrome, so it keeps the shell's own
                 // default width even when the app it stands in for wants more.
@@ -310,36 +536,64 @@ final class NotchPanelController {
                 width = PanelLimits.defaultWidth
                 height = HostPlaceholderView.panelHeight + surface.panelWingRowHeight
             }
-        case .mini(let app):
-            // Borrow the app's live `<mini>` node. Nothing is rebuilt and the
-            // worker is never asked anything, which is what makes a peek — and
-            // a hover promoting one — instant.
-            miniSurface.adopt(session.miniView(for: app))
-            content = miniSurface
-            let size = miniSurface.preferredSize(
+        case .mini(let app), .summary(let app):
+            // Borrow the app's live `<mini>` / `<summary>` node. Nothing is
+            // rebuilt and the worker is never asked anything, which is what
+            // makes a swell — and a click promoting one — instant.
+            //
+            // The chevron is the shell's, and only the summary gets one: a
+            // notification promises nothing (flow.md, §03).
+            swellSurface.setShowsOpenAffordance(presentation.isSummary)
+            swellSurface.adopt(
+                presentation.isSummary
+                    ? session.summaryView(for: app)
+                    : session.miniView(for: app)
+            )
+            content = swellSurface
+            let size = swellSurface.preferredSize(
                 cutoutWidth: surface.metrics.closedWidth,
                 maxWidth: surface.limits.maxWidth
             )
             width = size.width
             // Plus the cutout row: the surface hangs from the top of the screen,
-            // so its first row is behind the camera like any other.
+            // so its payload sits strictly below the camera (principle 7).
             height = size.height + surface.panelWingRowHeight
         case .chat(let app):
-            content = editorView(for: app)
-            width = PanelLimits.defaultWidth
-            // Chrome surfaces are laid out at a fixed height, so the exclusion
-            // row is added on rather than measured — every surface starts below
-            // the camera, not only the ones with an app behind them.
-            height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
+            // **The stage stays mounted.** Chat is a mode of the visit, not
+            // another page: the session's live tree goes on rendering behind the
+            // pane, one step back and untouchable, and the conversation about it
+            // floats over it (flow.md, "Visit modes").
+            let stage = session.content(for: app)
+            let chat = chatView(for: app)
+            chat.setStage(stage?.view, height: max(0, (stage?.height ?? 0) - session.chromeHeight))
+            content = chat
+            // The pane is a web view with a composer in it: right-clicking a
+            // half-typed sentence must give you Cut/Copy/Paste, not Quit Ledge.
+            owner = .app
+            // The session's own width, not the shell's default: the stage behind
+            // is that app's tree, and squeezing it into 440 would misrepresent
+            // the thing the conversation is about.
+            let size = session.panelSize(for: app)
+            width = size.width
+            // Measured like the stage's own panel: the pane's height plus the
+            // cutout exclusion row, capped by what the screen allows.
+            height = min(
+                ChatSurfaceView.panelHeight(
+                    stageHeight: stage.map { max(0, $0.height - session.chromeHeight) },
+                    collapsed: chat.collapsed
+                ) + session.chromeHeight,
+                size.maxHeight
+            )
         case .newApp:
-            // The SAME editor, with no app behind it yet (spec §8: "`app` may
-            // name a not-yet-existing id when coming from the [+] surface").
-            // Two chat surfaces for one job would drift apart immediately, and
-            // the old hand-drawn one had an inert composer and a preview box
-            // that never previewed anything.
-            content = editorView(for: "")
+            // The SAME surface, with no session behind it yet (spec §8: "`app`
+            // may name a not-yet-existing id when coming from the [+] surface").
+            // A blank slot has no stage: chat only, full pane (flow.md).
+            let chat = chatView(for: "")
+            chat.setStage(nil, height: 0)
+            content = chat
+            owner = .app
             width = PanelLimits.defaultWidth
-            height = EditorSurfaceView.panelHeight + surface.panelWingRowHeight
+            height = ChatSurfaceView.panelHeight(stageHeight: nil) + surface.panelWingRowHeight
         case .permissions:
             // The one chrome surface that measures itself: a row grows a line
             // when its status has something to say, so the panel's height is a
@@ -348,41 +602,108 @@ final class NotchPanelController {
             content = card
             width = PanelLimits.defaultWidth
             height = card.panelHeight + surface.panelWingRowHeight
+        case .overview:
+            // **The ledge**: the strip, all of it, standing on a shelf. Shell
+            // chrome — so the shell's own width, and a fixed height, whatever
+            // the session it was zoomed out of happened to be.
+            let shelf = overviewView()
+            // The shelf opens centred on the session it was zoomed out of — the
+            // one slab you are certain to want to see once the strip is longer
+            // than the panel. `overviewOrigin` is where Back points, so this is
+            // the same fact asked a second way rather than a second copy of it.
+            shelf.apply(slabs: overviewSlabs(), current: overviewOrigin?.app)
+            content = shelf
+            width = PanelLimits.defaultWidth
+            height = OverviewSurfaceView.panelHeight + surface.panelWingRowHeight
         }
 
-        // Before `present`, so the first layout of a newly-shown surface already
-        // has the right zone content instead of flashing the previous app's.
-        // The peek surface carries no chrome — no app name, no Edit (see
-        // `PanelWingBarView`); its row is reserved but empty.
-        surface.setPanelWing(
-            name: presentation.isMini ? nil : presentation.app.map { session.name(for: $0) },
-            content: presentation.isMini ? nil : session.panelWing(for: presentation.app),
-            // Settings is the shell's own surface wearing an app's clothes — it
-            // is in the catalog so the strip can show it, but there is no app
-            // folder for an agent to edit. Offering Edit there promises
-            // something that cannot work.
-            canEdit: !presentation.isMini
-                && presentation.app != nil
-                && presentation.app != AppBarView.settingsAppID,
-            showingEditor: presentation.isChat
+        let mode: PanelWingBarView.Mode = if presentation == .overview {
+            .overview
+        } else if presentation.isChat {
+            .editor
+        } else {
+            .stage
+        }
+        // No glass to lower on a surface with no stage behind it: the blank slot
+        // is chat-only (flow.md), the placeholder and the permission card have
+        // no session, and Settings is the shell wearing an app's clothes — in
+        // the catalog so the strip can reach it, but with no folder for an agent
+        // to edit. The overview always shows the bead, because there it is Back.
+        let canToggleGlass = presentation == .overview
+            || (presentation.app != nil && presentation.app != LedgeApps.settings)
+
+        // **Whichever body is on screen.** Parked, the visit lives in a window
+        // and the notch shows the bare pill; everything above this line is the
+        // same either way, because what is presented does not depend on where.
+        if let parked {
+            parked.view.rowHeight = surface.panelWingRowHeight
+            parked.view.setBodyMaterial(presentation.isConversation ? .chatGlass : .solid)
+            parked.view.setPanelWing(mode: mode, canToggleGlass: canToggleGlass)
+            parked.view.present(presentation, content: content, animated: animated)
+            resizeParked(width: width, height: height)
+            surface.setContentOwner(.shell)
+            surface.present(.collapsed, content: nil, height: 0, animated: animated)
+        } else {
+            // Before `present`, so the first layout of a newly-shown surface
+            // already has the right controls instead of flashing the previous
+            // mode's. A swell carries no chrome at all — its row is reserved but
+            // empty.
+            surface.setContentOwner(owner)
+            // Chat lowers the glass onto the stage, and the body says so: opaque
+            // at the top, all but clear at the bottom (flow.md, Material).
+            surface.setBodyMaterial(presentation.isConversation ? .chatGlass : .solid)
+            surface.setPanelWing(mode: mode, canToggleGlass: canToggleGlass)
+            surface.present(
+                presentation,
+                content: content,
+                width: width,
+                height: height,
+                animated: animated
+            )
+        }
+        NSLog(
+            "[ledge] presenting %@ (%@)",
+            String(describing: presentation),
+            machine.state.rawValue
         )
-        surface.present(
-            presentation,
-            content: content,
-            width: width,
-            height: height,
-            animated: animated
-        )
-        NSLog("[ledge] presenting %@", String(describing: presentation))
         // The permission surface watches the system while it is up — a status
         // can change in System Settings behind our back — and must stop the
         // moment it is not, or it polls TCC forever for a panel nobody sees.
         permissionsSurface?.setActive(presentation == .permissions)
-        if presentation.isExpanded {
+        if let parked {
+            // The window is where the keyboard lives now: the notch behind it is
+            // a bare pill with nothing in it to type into.
+            parked.window.orderFrontRegardless()
+            if presentation.isConversation, let chatSurface {
+                parked.window.makeKeyAndOrderFront(nil)
+                parked.window.makeFirstResponder(chatSurface.keyboardResponder)
+            } else if
+                let app = presentation.app,
+                let canvas = session.protocolRenderer.focusableCanvas(for: app),
+                parked.window.firstResponder !== canvas
+            {
+                parked.window.makeKeyAndOrderFront(nil)
+                parked.window.makeFirstResponder(canvas)
+            }
+        } else if presentation.isExpanded {
             panel.orderFrontRegardless()
-            focusCanvasIfNeeded(for: presentation.app)
+            // Never in chat: "keyboard: in chat it is always in the pill"
+            // (flow.md). A focusable canvas behind the pane is part of the
+            // inert stage, and handing it first responder — even for the
+            // instant before `setEditorFocus` takes it back — is the same bug
+            // as letting it take a click.
+            if !presentation.isConversation {
+                focusCanvasIfNeeded(for: presentation.app)
+            }
         }
-        setEditorFocus(presentation.isChat)
+        // Never while parked: the notch panel taking key for a surface that is
+        // not in it would put the insertion point in an empty pill.
+        setEditorFocus(parked == nil && presentation.isConversation)
+        // Every arrival changes at least one of the inhibitors (the editor came
+        // or went; a swell replaced the visit), so the walk-away timer is
+        // re-decided here rather than only when the pointer moves.
+        rearmExitTimer()
+        updateOutsideClickMonitor()
     }
 
     /// Hold — or give back — key focus for the editor's text box.
@@ -399,7 +720,7 @@ final class NotchPanelController {
         holdsEditorFocus = wanted
         if wanted {
             panel.makeKeyAndOrderFront(nil)
-            if let editorSurface { panel.makeFirstResponder(editorSurface.keyboardResponder) }
+            if let chatSurface { panel.makeFirstResponder(chatSurface.keyboardResponder) }
             return
         }
         // Dropping first responder is not enough — the panel would still be the
@@ -430,29 +751,504 @@ final class NotchPanelController {
         panel.makeFirstResponder(canvas)
     }
 
-    /// Hover or click on the collapsed notch: reopen the last app — or, if a
-    /// mini is on screen, open *that* app. Reaching for a peek means "tell me
-    /// more about this", not "reopen whatever I had before".
-    private func openFromCollapsed() {
-        guard !shellState.isExpanded else { return }
-        if shellState.presentation.isMini {
-            miniDismiss?.cancel()
-            miniDismiss = nil
-            shellState.promoteMini()
+    // MARK: - The interaction machine (flow.md's Transitions table)
+
+    /// Feed one event to the machine and carry out whatever it decides.
+    ///
+    /// The single door. Nothing below this line changes what is on screen by
+    /// hand; every path either calls this or calls `machine.sync(to:)` right
+    /// after presenting something the table has no row for (an app's
+    /// `ctx.expand`, the first-run permission card).
+    private func send(_ event: InteractionMachine.Event) {
+        for effect in machine.apply(event) { perform(effect) }
+    }
+
+    private func perform(_ effect: InteractionMachine.Effect) {
+        switch effect {
+        case .promise:
+            surface.setPromise(true)
+        case .unpromise:
+            surface.setPromise(false)
+
+        case .showSummary(let app):
+            cancelDwell()
+            shellState.present(.summary(app: app))
             refresh(animated: true)
+
+        case .showNotification(let app, let dwell):
+            shellState.present(.notification(app: app))
+            refresh(animated: true)
+            // Ti, and only for ambient class: an alert holds until it is acted
+            // on (flow.md). Not arming the timer is the implementation of that
+            // sentence; the machine refuses a stray one as well.
+            guard let dwell else {
+                cancelDwell()
+                return
+            }
+            scheduleDwell(app: app, after: dwell)
+
+        case .retractSwell:
+            cancelDwell()
+            shellState.present(.collapsed)
+            refresh(animated: true)
+
+        case .openVisit(let app):
+            cancelDwell()
+            surface.setPromise(false)
+            if let app {
+                shellState.selectApp(app, reselectOpensChat: false)
+            } else {
+                shellState.present(.expanded(app: shellState.lastPresentedApp))
+            }
+            refresh(animated: true)
+
+        case .runNotificationAction:
+            // The action itself is an ordinary `button` in the app's borrowed
+            // node, so it has already run by the time this lands — AppKit gave
+            // the click to that button and the renderer put a §4.1 event on the
+            // wire. What is left is to get out of the way.
+            break
+
+        case .closeVisit:
+            shellState.present(.collapsed)
+            refresh(animated: true)
+
+        case .walkStrip(let steps):
+            walk(steps)
+
+        case .park:
+            // The window is stood up by `tearOff`, which is the only thing that
+            // knows where the pointer is. This is everything else that changes
+            // when the surface leaves the notch.
+            break
+
+        case .flyHome(let app):
+            flyHome(app: app)
+
+        case .leaveOverview:
+            leaveOverview()
+        }
+    }
+
+    // MARK: - The ledge (flow.md, "The strip")
+
+    /// Zoom out: the strip becomes slabs on a shelf. Remembers what it zoomed
+    /// out *of*, because that is what **Back** means.
+    func enterOverview() {
+        guard shellState.presentation != .overview else { return }
+        overviewOrigin = shellState.presentation
+        present(.overview)
+    }
+
+    /// **Back** — the left wing's bead, and Esc. Returns to the session that was
+    /// showing, in the mode it was showing in; falls back to the last app when
+    /// the overview was entered from somewhere that no longer exists (its
+    /// session was stopped from the shelf, say).
+    func leaveOverview() {
+        guard shellState.presentation == .overview else { return }
+        let origin = overviewOrigin
+        overviewOrigin = nil
+        guard let origin, origin != .overview, isStillReachable(origin) else {
+            present(.expanded(app: shellState.lastPresentedApp))
             return
         }
-        toggleExpansion()
+        present(origin)
+    }
+
+    /// Whether a remembered surface is still somewhere to go back to. Only the
+    /// app-bearing ones can go stale, and they go stale exactly when the ✕ on
+    /// the shelf stopped them.
+    private func isStillReachable(_ presentation: ShellPresentation) -> Bool {
+        guard let app = presentation.app else { return true }
+        return session.strip.apps.contains(app)
+    }
+
+    /// The shelf's contents: the strip, in strip order, with the one blank slot
+    /// last (`SessionStrip.slots`). The icons are the catalog's, which are SF
+    /// Symbol names already (spec §3.6).
+    private func overviewSlabs() -> [OverviewSurfaceView.Slab] {
+        session.strip.slots.map { slot in
+            switch slot {
+            case .app(let app):
+                OverviewSurfaceView.Slab(
+                    app: app,
+                    name: session.name(for: app),
+                    icon: session.icon(for: app)
+                )
+            case .blank:
+                .blank
+            }
+        }
+    }
+
+    private func overviewView() -> OverviewSurfaceView {
+        if let overviewSurface { return overviewSurface }
+        let shelf = OverviewSurfaceView()
+        shelf.onSelect = { [weak self] app in
+            guard let self else { return }
+            // "Click jumps": that session takes the stage, and the zoom-out is
+            // over — so the origin goes with it.
+            self.overviewOrigin = nil
+            if let app {
+                self.shellState.selectApp(app, reselectOpensChat: false)
+                self.machine.sync(to: self.shellState.presentation)
+                self.refresh(animated: true)
+            } else {
+                self.present(.newApp)
+            }
+        }
+        shelf.onStop = { [weak self] app in self?.stopSession(app) }
+        overviewSurface = shelf
+        return shelf
+    }
+
+    /// **The only ✕ in the product** (flow.md, "The strip"). It stops the app's
+    /// session — the worker is torn down by the host — and leaves the app
+    /// installed: the same path Settings' switch takes, because "this app is not
+    /// running" is one fact and it must not have two answers.
+    func stopSession(_ app: String) {
+        NSLog("[ledge] stop session '%@' <- the ledge", app)
+        session.stopApp(app)
+        // Back must not aim at a session that is being torn down.
+        if overviewOrigin?.app == app { overviewOrigin = nil }
+        shellState.forget(app)
+    }
+
+    // MARK: - Parked (flow.md, States: the window)
+
+    /// Whether the surface is currently a window rather than the notch's panel.
+    var isParked: Bool { parked != nil }
+
+    /// **The tear.** The drag crossed the threshold: the machine parks, and the
+    /// body stands up under the pointer at exactly the size the panel was.
+    private func tearOff(to topLeft: CGPoint) {
+        guard parked == nil, shellState.isExpanded else { return }
+        let shape = surface.currentShapeRect
+        // The panel's own body, not the bar it hangs from: what tears off is the
+        // surface the user was looking at, and the bar's overhang is notch
+        // furniture that has no meaning once the body has left the notch.
+        let size = CGSize(
+            width: max(PanelLimits.minWidth, min(shape.width, surface.expandedWidth)),
+            height: max(PanelLimits.minHeight, shape.height)
+        )
+        send(.dragOffNotch)
+        guard machine.state == .parked else { return }
+
+        let view = ParkedSurfaceView(callbacks: callbacks)
+        view.onFlyHome = { [weak self] in self?.send(.flyHome) }
+        let window = ParkedWindow(
+            contentRect: CGRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = view
+        window.isFloatingPanel = true
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        // The glass casts its own shadow (`LedgeShadow.window`), drawn into the
+        // body's layer like every other Ledge surface. AppKit's window shadow
+        // would be a rectangle around a rounded body.
+        window.hasShadow = false
+        window.hidesOnDeactivate = false
+        window.isReleasedWhenClosed = false
+        // "Fixed size, any position" (flow.md, §04): moved by dragging its glass,
+        // never resized — there are no handles, and the size is the session's.
+        window.isMovableByWindowBackground = true
+        window.level = panel.level
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        window.animationBehavior = .none
+        window.acceptsMouseMovedEvents = true
+        parked = (window, view)
+
+        // Wings pause the moment the surface leaves (flow.md: "wings pause").
+        surface.setWing(nil, animated: false)
+        setParkedFrame(topLeft: topLeft, size: size)
+        window.orderFrontRegardless()
+        refresh(animated: false)
+        NSLog("[ledge] parked at %@", NSStringFromPoint(topLeft))
+    }
+
+    private func moveParked(to topLeft: CGPoint) {
+        guard let parked else { return }
+        setParkedFrame(topLeft: topLeft, size: parked.window.frame.size)
+    }
+
+    private func setParkedFrame(topLeft: CGPoint, size: CGSize) {
+        guard let parked else { return }
+        parkedCorner = topLeft
+        parked.window.setFrame(
+            CGRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height),
+            display: true
+        )
+    }
+
+    /// The fingers let go. Whatever corner they left it at is the window's
+    /// position from now on — except a corner that is off the screen, which is
+    /// a window the user cannot reach: it slides back into view rather than
+    /// being left where a slip put it.
+    private func settleParked() {
+        guard let parked, let screen = parked.window.screen ?? NSScreen.main else { return }
+        let frame = parked.window.frame
+        let visible = screen.visibleFrame
+        let x = min(max(frame.minX, visible.minX), max(visible.minX, visible.maxX - frame.width))
+        let y = min(max(frame.minY, visible.minY), max(visible.minY, visible.maxY - frame.height))
+        guard abs(x - frame.minX) > 0.5 || abs(y - frame.minY) > 0.5 else {
+            parkedCorner = CGPoint(x: frame.minX, y: frame.maxY)
+            return
+        }
+        setParkedFrame(topLeft: CGPoint(x: x, y: y + frame.height), size: frame.size)
+    }
+
+    /// A session with a panel of its own size walked into the window: the
+    /// window is fixed-size *per session*, so it takes that size — growing
+    /// downward from `parkedCorner`, the corner the user put it at, which is the
+    /// one thing about a parked window that never changes (flow.md: "fixed
+    /// size, any position").
+    private func resizeParked(width: CGFloat, height: CGFloat) {
+        guard let parked else { return }
+        let frame = parked.window.frame
+        guard abs(frame.width - width) > 0.5 || abs(frame.height - height) > 0.5 else { return }
+        setParkedFrame(
+            topLeft: parkedCorner ?? CGPoint(x: frame.minX, y: frame.maxY),
+            size: CGSize(width: width, height: height)
+        )
+    }
+
+    /// **Fly home** (flow.md: "Parked | ⌃, or click the bare notch | Visit").
+    ///
+    /// The window travels back into the notch — shrinking and arcing toward it
+    /// on `LedgeMotion.travel` with the settle character, because a return never
+    /// overshoots — and the visit lands where it left. Reduce Motion fades it.
+    private func flyHome(app: String?) {
+        guard let parked else { return }
+        self.parked = nil
+        parkedSwellTimer?.cancel()
+        parkedSwellTimer = nil
+
+        // The visit re-presents in the notch *first*, so the surface the window
+        // is flying toward is already the one that will be there when it lands.
+        if let app {
+            shellState.selectApp(app, reselectOpensChat: false)
+        } else if !shellState.isExpanded {
+            shellState.present(.expanded(app: shellState.lastPresentedApp))
+        }
+        refresh(animated: true)
+
+        let window = parked.window
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        guard !reduceMotion else {
+            NSAnimationContext.runAnimationGroup({ context in
+                context.duration = LedgeMotion.fast
+                window.animator().alphaValue = 0
+            }, completionHandler: { window.orderOut(nil) })
+            return
+        }
+        // Where it is going: the notch, on whichever screen the surface lives.
+        let notch = panel.frame
+        let target = CGRect(
+            x: notch.midX - window.frame.width * 0.18,
+            y: notch.maxY - window.frame.height * 0.36,
+            width: window.frame.width * 0.36,
+            height: window.frame.height * 0.36
+        )
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = LedgeMotion.travel
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.33, 1, 0.45, 1)
+            window.animator().setFrame(target, display: true)
+            window.animator().alphaValue = 0
+        }, completionHandler: { window.orderOut(nil) })
+    }
+
+    /// The pointer crossed the shape's edge.
+    ///
+    /// In: arm Th. Out: disarm it, take back the promise, and — if a summary is
+    /// up — retract it, because a summary is the hover's surface and lives
+    /// exactly as long as the hover ("Summary | pointer exit | whence it came").
+    private func pointerChanged(inside: Bool) {
+        rearmExitTimer()
+        guard inside else {
+            cancelThreshold()
+            send(.pointerExit)
+            return
+        }
+        guard !shellState.isExpanded else { return }
+        send(.hoverBegan)
+        scheduleThreshold()
+    }
+
+    /// Th elapsed with the pointer still on the notch. Which surface that means
+    /// is the *session's* answer — a `<summary>` node in its tree makes it heavy
+    /// (principle 8) — so it is resolved here, once, and handed to the machine.
+    private func thresholdReached() {
+        let app = shellState.lastPresentedApp
+        send(.hoverThreshold(
+            app: app,
+            declaresSummary: app.map { session.declaresSummary(for: $0) } ?? false
+        ))
+    }
+
+    private func scheduleThreshold() {
+        cancelThreshold()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.surface.isHovered, !self.shellState.isExpanded else { return }
+            self.thresholdReached()
+        }
+        thresholdTimer = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + LedgeInteraction.hoverThreshold,
+            execute: work
+        )
+    }
+
+    private func cancelThreshold() {
+        thresholdTimer?.cancel()
+        thresholdTimer = nil
+    }
+
+    /// A click on Ledge's own glass. Which of the table's five clicks it is
+    /// depends only on what is on screen — the notification's *action* is a
+    /// button inside the app's node and never reaches here, so a click that does
+    /// is "elsewhere" by construction.
+    private func clicked() {
+        // **The bare notch, while parked, is the way home** (flow.md: "clicking
+        // it, or the window's ⌃, flies the surface home"). Nothing else the
+        // notch could mean applies: there is no swell on it and no visit in it.
+        guard !isParked else {
+            send(.click(.pill))
+            return
+        }
+        switch shellState.presentation {
+        case .summary:
+            send(.click(.summary))
+        case .mini:
+            send(.click(.notificationElsewhere))
+        case .collapsed:
+            send(.click(surface.wing == nil ? .pill : .wing))
+        case .expanded, .chat, .newApp, .permissions, .overview:
+            break
+        }
+    }
+
+    /// A horizontal swipe. One meaning now (principle 9): **it walks the session
+    /// strip**, and only in a visit.
+    ///
+    /// It used to have two others. On a mini it dismissed the peek — a gesture
+    /// the rest of the product does not have, taught in the one place a user is
+    /// least able to experiment. On the pill it became an app-level `swipe`
+    /// event, which made a fixed gesture vocabulary app-defined. Both are gone.
+    @discardableResult
+    func handleSwipe(_ direction: SwipeRecognizer.Direction) -> Bool {
+        guard shellState.isExpanded else { return false }
+        // A finger moving left walks *forward*, the way a page turns.
+        send(.walkStrip(steps: direction == .left ? 1 : -1))
+        return true
+    }
+
+    /// Walk the strip (flow.md, "The strip"): installed apps in registry order,
+    /// plus one blank slot reachable past either end.
+    private func walk(_ steps: Int) {
+        let strip = session.strip
+        switch strip.step(from: strip.slot(for: shellState.presentation), by: steps) {
+        case .app(let app):
+            // `reselectOpensChat: false`: walking onto a session shows the
+            // session, never its transcript. Lowering the glass is the left
+            // wing's job and nothing else's.
+            shellState.selectApp(app, reselectOpensChat: false)
+        case .blank:
+            shellState.present(.newApp)
+        }
+        machine.sync(to: shellState.presentation)
+        refresh(animated: true)
+    }
+
+    // MARK: - Texit, and the three things that stop it
+
+    /// What is currently stopping the walk-away timer. The pointer half is the
+    /// surface's; the rest is this object's, because only it knows whether the
+    /// editor is up or where first responder went.
+    var exitInhibitor: ExitInhibitor {
+        ExitInhibitor(
+            pointerAway: !surface.isHovered,
+            keyboardHeld: holdsKeyboard,
+            dragging: surface.isDragInFlight,
+            editorShowing: shellState.presentation.isConversation
+        )
+    }
+
+    /// Whether anything in the shell holds the keyboard: the editor's composer,
+    /// an `input` node in an app's tree, a focusable `canvas`. All three are
+    /// "the user is mid-sentence", and the panel must not evaporate under any of
+    /// them (flow.md: the timer "never runs while the pill or the app holds the
+    /// keyboard").
+    private var holdsKeyboard: Bool {
+        if holdsEditorFocus { return true }
+        guard let responder = panel.firstResponder else { return false }
+        if responder is NSText || responder is NSTextField { return true }
+        return responder is ProtocolCanvasView
+    }
+
+    /// Re-decide the walk-away timer from scratch. Called on every pointer
+    /// change and every presentation change, because an inhibitor that merely
+    /// made the timer's expiry a no-op would still close the panel the moment
+    /// the user stopped typing.
+    private func rearmExitTimer() {
+        exitTimer?.cancel()
+        exitTimer = nil
+        // **Texit does not run while parked.** A window is deliberate: the user
+        // pulled it off the notch and put it somewhere, and a surface that
+        // evaporated 2.5 seconds after they looked away would be undoing that
+        // decision for them. Only the ⌃ and the bare notch put it away.
+        guard !isParked,
+              shellState.isExpanded,
+              shellState.presentation.allowsPassiveCollapse,
+              exitInhibitor.mayRunExitTimer else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.exitInhibitor.mayRunExitTimer else { return }
+            self.send(.exitTimeout)
+        }
+        exitTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + LedgeInteraction.exitDelay, execute: work)
+    }
+
+    /// A click anywhere outside Ledge closes the visit (flow.md). Installed only
+    /// while a visit is up, so the shell is not watching every click in the
+    /// session for no reason.
+    private func updateOutsideClickMonitor() {
+        // Parked, for the same reason as the walk-away timer: a click somewhere
+        // else is not a dismissal of a window.
+        let wanted = !isParked
+            && shellState.isExpanded
+            && shellState.presentation.allowsPassiveCollapse
+        if wanted, outsideClickMonitor == nil {
+            // `@Sendable`: a main-actor object handing a closure to a system
+            // framework, which is the trap that only shows up in the bundled
+            // .app (build-plan, Conventions).
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { @Sendable [weak self] _ in
+                Task { @MainActor in self?.send(.clickOutside) }
+            }
+        } else if !wanted, let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
     }
 
     // MARK: - Chrome requests (spec §3.3)
 
     /// An app asked for something of the shell. Denials are silent, per §3.3 —
     /// an app cannot tell whether it was refused, so it cannot build on it.
-    private func handleChrome(app: String, request: String, wing: WingSpec?, ms: Double?) {
+    private func handleChrome(
+        app: String,
+        request: String,
+        wing: WingSpec?,
+        ms: Double?,
+        priority: NotificationClass?
+    ) {
         switch request {
         case "peek":
-            peek(app: app, ms: ms)
+            notify(app: app, ms: ms, priority: priority ?? .ambient)
         case "expand":
             // The one genuine reason to refuse: there is nothing to show. An app
             // whose worker has not committed a tree (or crashed into an error
@@ -460,14 +1256,13 @@ final class NotchPanelController {
             // opening at all — a monitor pinging expand at boot must not steal
             // the notch before the app can draw.
             guard session.content(for: app) != nil else { return }
-            shellState.present(.expanded(app: app))
-            refresh(animated: true)
+            present(.expanded(app: app))
         case "collapse":
             // Only the presented app may put the panel away; anything else would
-            // let a background app close the panel out from under the user.
-            guard shellState.presentedApp == app, shellState.isExpanded else { return }
-            shellState.present(.collapsed)
-            refresh(animated: true)
+            // let a background app close the panel out from under the user. And
+            // never a parked window: the user put that there.
+            guard !isParked, shellState.presentedApp == app, shellState.isExpanded else { return }
+            present(.collapsed)
         case "attention":
             surface.flashAttention()
         case "wing":
@@ -479,63 +1274,117 @@ final class NotchPanelController {
             // is precisely the ambush the surface exists to prevent. Settings is
             // already the shell wearing an app's clothes (spec §8), so it is the
             // one caller whose ask is the user's own.
-            guard app == AppBarView.settingsAppID else { return }
+            guard app == LedgeApps.settings else { return }
             presentPermissions()
         default:
             break                                   // unknown request → ignored
         }
     }
 
-    /// Default dwell when an app peeks without naming one. Matches the host's
+    /// Default dwell when an app notifies without naming one. Matches the host's
     /// `DEFAULT_PEEK_MS`; duplicated rather than shared because the host clamps
     /// (policy about apps) and the shell defaults (policy about the surface).
     private static let defaultPeekSeconds: TimeInterval = 4
 
-    /// `ctx.peek` (spec §3.3 extension): show the app's mini view for a moment.
+    /// `ctx.peek` (spec §3.3 extension) — **the notification** (flow.md,
+    /// Interruption): swell the notch with the app's `<mini>` node.
     ///
-    /// Refused, silently and in this order, when there is nothing to show, when
-    /// the panel is already open, or when the app is not the one on screen.
-    /// The second two matter most: a peek interrupting a panel the user is
-    /// actively reading — or worse, replacing another app's panel — is a
-    /// background app taking the screen, which is the thing the notch must never
-    /// do. A peek is only ever an *escalation from collapsed*.
-    private func peek(app: String, ms: Double?) {
-        guard session.miniView(for: app) != nil else { return }
-        switch shellState.presentation {
-        case .collapsed:
-            break
-        case .mini:
-            // Latest asker wins, exactly as with wings — the newest thing that
-            // happened is the one worth showing.
-            break
-        case .expanded, .chat, .newApp, .permissions:
+    /// Refused, silently and in this order, when there is nothing to show and
+    /// when a visit is already open. The second matters most: a notification
+    /// interrupting a panel the user is actively reading — or worse, replacing
+    /// another session's panel — is a background app taking the screen, which is
+    /// the thing the notch must never do. It is only ever an escalation from
+    /// Resting or Ambient (or a swap of the swell already up).
+    private func notify(app: String, ms: Double?, priority: NotificationClass) {
+        guard let mini = session.miniView(for: app) else { return }
+        // **Parked: the swell comes out of the window's top edge** (flow.md).
+        guard !isParked else {
+            notifyParked(app: app, mini: mini, ms: ms, priority: priority)
             return
         }
-
-        shellState.present(.mini(app: app))
-        refresh(animated: true)
-
-        let seconds = ms.map { $0 / 1000 } ?? Self.defaultPeekSeconds
-        scheduleMiniDismiss(app: app, after: seconds)
+        switch shellState.presentation {
+        case .collapsed, .mini, .summary:
+            break
+        case .expanded, .chat, .newApp, .permissions, .overview:
+            return
+        }
+        // The machine raises the swell and arms **Ti**, the shell's default.
+        send(.notificationArrived(app: app, priority: priority))
+        // `ms` still means what it always meant, and it is the app's opinion
+        // about its own moment — so it replaces Ti when there is one. An alert
+        // ignores both: it holds until it is acted on.
+        guard priority != .alert, let ms else { return }
+        scheduleDwell(app: app, after: ms / 1000)
     }
 
-    /// Put the mini away when its dwell elapses — unless the user reached for it
-    /// first, or another app took the surface (both checked in `dismissMini`).
-    private func scheduleMiniDismiss(app: String, after seconds: TimeInterval) {
-        miniDismiss?.cancel()
-        let work = DispatchWorkItem { [weak self] in
+    /// A notification while the surface is parked (flow.md: "Notifications swell
+    /// from the parked window's top edge").
+    ///
+    /// **The compromise, stated.** On the notch a notification is a whole
+    /// presentation: the shape becomes the swell, and the machine goes to
+    /// Interruption. A parked window is a fixed size that the user placed, so it
+    /// cannot deform outward without moving itself out from under their pointer
+    /// — and a window that resized itself because an app had something to say
+    /// would be the worst version of this surface. So the band grows *down from
+    /// the window's own top edge* instead, carrying the same borrowed `<mini>`
+    /// node, dismissed by the same dwell, and clicking it walks the window to
+    /// that session exactly as clicking the notch swell opens it. Same content,
+    /// same timings, same meaning; a rectangle instead of a deformation.
+    private func notifyParked(
+        app: String,
+        mini: NSView,
+        ms: Double?,
+        priority: NotificationClass
+    ) {
+        guard let parked else { return }
+        let width = parked.window.frame.width
+        let height = parked.view.swellView.preferredHeight(width: width)
+        parked.view.showSwell(mini, height: height, animated: true) { [weak self] in
             guard let self else { return }
-            // Hovering holds it open: the user is looking at it, and pulling it
-            // out from under them to then reopen on hover would flicker.
-            guard !self.surface.isHovered else {
-                self.scheduleMiniDismiss(app: app, after: 1)
-                return
-            }
-            self.shellState.dismissMini(app: app)
+            self.dismissParkedSwell()
+            self.shellState.selectApp(app, reselectOpensChat: false)
+            self.machine.sync(to: self.shellState.presentation)
             self.refresh(animated: true)
         }
-        miniDismiss = work
+        parkedSwellTimer?.cancel()
+        // "alert-class holds until acted" — the one rule that survives the
+        // change of geometry unchanged, because it is about attention and not
+        // about shape.
+        guard priority != .alert else { return }
+        let dwell = ms.map { $0 / 1000 } ?? LedgeInteraction.notificationDwell
+        let work = DispatchWorkItem { [weak self] in self?.dismissParkedSwell() }
+        parkedSwellTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + dwell, execute: work)
+    }
+
+    private func dismissParkedSwell() {
+        parkedSwellTimer?.cancel()
+        parkedSwellTimer = nil
+        parked?.view.hideSwell(animated: true)
+    }
+
+    /// Retract the notification when its dwell elapses — unless the user is
+    /// looking straight at it, or it is no longer the swell that is up (checked
+    /// by the machine, which knows both).
+    private func scheduleDwell(app: String, after seconds: TimeInterval) {
+        dwellTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            // Hovering holds it open: the user is reading it, and pulling it out
+            // from under them would be the rudest possible timing.
+            guard !self.surface.isHovered else {
+                self.scheduleDwell(app: app, after: 1)
+                return
+            }
+            self.send(.notificationTimeout)
+        }
+        dwellTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    private func cancelDwell() {
+        dwellTimer?.cancel()
+        dwellTimer = nil
     }
 
     /// Wing arbitration (spec §3.3 extension). There is one collapsed notch, so
@@ -544,6 +1393,16 @@ final class NotchPanelController {
     /// otherwise a background app clearing its own wing would blank the wing of
     /// whichever app took over.
     private func setWing(app: String?, spec: WingSpec?) {
+        // **Wings pause while parked** (flow.md, Parked). Arbitration is
+        // suspended rather than queued: a wing is a *live* activity, and the one
+        // an app asked for while the notch was bare is stale by the time the
+        // surface flies home. The next update from a live holder takes the wing
+        // then, which is what "paused" has to mean for something that is only
+        // ever the present tense.
+        guard !isParked else {
+            if spec != nil { NSLog("[ledge] wing '%@' refused — parked", app ?? "?") }
+            return
+        }
         if let spec, let app {
             wingOwner = app
             surface.setWing(spec)
@@ -552,26 +1411,57 @@ final class NotchPanelController {
                 id: spec.canvas?.id,
                 view: surface.wingCanvasView
             )
+            // "Resting | wing granted | Ambient". Every update from the holder
+            // is also proof it is alive, which re-arms Ta.
+            send(.wingGranted)
+            scheduleWingIdle(app: app)
             return
         }
         // A release. `app == nil` is the shell's own (disconnect); an app's own
         // release only counts if it is the owner.
         if let app, wingOwner != app { return }
         wingOwner = nil
+        wingIdleTimer?.cancel()
+        wingIdleTimer = nil
         surface.setWing(nil)
         session.protocolRenderer.setWingTarget(app: nil, id: nil, view: surface.wingCanvasView)
+        // "Ambient | holder idle > Ta, or released | Resting".
+        send(.wingReleased)
+    }
+
+    /// **Ta** — how long a wing holder may go quiet before the shell takes the
+    /// wing back (flow.md). Holder-declared in the eventual design; this is the
+    /// shell's default, re-armed by every `wing` request the holder sends, so a
+    /// live activity that is actually live never trips it and one whose worker
+    /// has stopped talking does not sit on the notch forever.
+    private func scheduleWingIdle(app: String) {
+        wingIdleTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.wingOwner == app else { return }
+            self.setWing(app: app, spec: nil)
+        }
+        wingIdleTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + LedgeInteraction.ambientIdle, execute: work)
     }
 
     // MARK: - Chrome surfaces
 
-    private func editorView(for app: String) -> EditorSurfaceView {
-        let view: EditorSurfaceView
+    private func chatView(for app: String) -> ChatSurfaceView {
+        let view: ChatSurfaceView
         let created: Bool
-        if let editorSurface {
-            view = editorSurface
+        if let chatSurface {
+            view = chatSurface
             created = false
         } else {
-            view = EditorSurfaceView()
+            view = ChatSurfaceView()
+            // Esc in chat closes the visit — flow.md's Transitions table has
+            // exactly one row for it and chat is a mode of the visit, not a
+            // sheet over it. The page keeps the one exception it already had:
+            // while a turn is running, Esc interrupts the turn and never
+            // reaches here.
+            view.onEscape = { [weak self] in self?.send(.escape) }
+            // ⌄ / ⌃: the panel is a different height with no transcript in it.
+            view.onPaneChange = { [weak self] in self?.refresh(animated: true) }
             view.bridge.onInput = { [weak self] bridgeApp, text, cancel in
                 guard let self else { return }
                 // The one case where the bridge's answer wins: on the [+]
@@ -598,11 +1488,11 @@ final class NotchPanelController {
             }
             // A new turn makes the last one's outcome stale: the toggle goes
             // back to neutral glass until the worker reloads or crashes again.
-            view.onActivity = { [weak self] in self?.surface.setBuildStatus(.neutral) }
-            editorSurface = view
+            view.editor.onActivity = { [weak self] in self?.surface.setBuildStatus(.neutral) }
+            chatSurface = view
             created = true
         }
-        view.present(app: app)
+        view.focus(app: app)
         // Focus first: `focus` deliberately clears another app's pending queue,
         // while this event belongs to every app and must survive that boundary.
         if created, let latestAgentStatus {
@@ -662,8 +1552,11 @@ final class NotchPanelController {
         session.cutoutRowHeight = surface.panelWingRowHeight
         windowSize = limits.windowSize(for: metrics)
         NSLog(
-            "[ledge] screen %@ safeTop %.1f metrics %.1f x %.1f panel max %.0f x %.0f window %.0f x %.0f",
+            "[ledge] screen %@ %@ safeTop %.1f metrics %.1f x %.1f panel max %.0f x %.0f window %.0f x %.0f",
             NSStringFromRect(screen.frame),
+            // Which kind of cutout this is, because "the pill is in the wrong
+            // place" and "this display has no notch" look identical otherwise.
+            metrics.isSynthesized ? "synthesized" : "hardware",
             screen.safeAreaInsets.top,
             metrics.closedWidth,
             metrics.closedHeight,
@@ -685,9 +1578,8 @@ final class NotchPanelController {
         )
     }
 
+    /// See `NotchScreen`: a notched display if there is one, else the primary.
     private func preferredScreen() -> NSScreen {
-        NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 })
-            ?? NSScreen.main
-            ?? NSScreen.screens[0]
+        NotchScreen.preferred() ?? NSScreen.screens[0]
     }
 }

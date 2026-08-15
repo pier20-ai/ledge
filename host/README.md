@@ -275,17 +275,18 @@ codebase, and the adapter is the only agent-specific code, as §8 requires.
 
 ## Demo apps + end-to-end smoke (`../protocol/demo-apps`, `../scripts/e2e-smoke.sh`)
 
-`protocol/demo-apps/` holds the hand-written apps. `stocks` (a 2×3 grid off
-Yahoo Finance), `deals` (a `cheerio` scrape of books.toscrape.com) and `alarm`
-(wing + self-expand + a compact ringing tree) are **live** — real HTTP and real
-state through `ctx.update`; `music`, `play` and `settings` are inert recreations
-of the design mockups. They are **not** installed in `~/.ledge`; they live in the
-repo so the host can be pointed at them. See `../protocol/README.md` for what
-each proves.
+`protocol/demo-apps/` holds the hand-written apps: `timer`, `radio`, `beacon`
+and `settings`. The first three are **exercise** apps — between them they hold
+every surface the shell can raise (summary, no-summary, wing meter, wing canvas,
+ambient and alert notifications), so the interaction machine can be felt on a
+real notch. `settings` is the privileged one. They are **not** installed in
+`~/.ledge`; they live in the repo so the host can be pointed at them. See
+`../protocol/README.md` for what each proves. The pre-design-reset set was moved
+to `protocol/demo-apps-archive/` — reference only, never scanned.
 
-The apps root is now a **real package**: `protocol/demo-apps/package.json` plus a
+The apps root is a **real package**: `protocol/demo-apps/package.json` plus a
 committed `bun.lock` (spec §6: always ship the lockfile), holding what apps
-import bare — `cheerio`, `chess.js`, `stockfish`. It is the repo analogue of the
+import bare — `react` and `react-reconciler`, and nothing else. It is the repo analogue of the
 shared `~/.ledge/node_modules`, and it replaces the old convention where the
 scripts symlinked `host/node_modules` in and deleted it on exit. Both scripts run
 `bun install --frozen-lockfile` there if `node_modules` is missing. (Test files

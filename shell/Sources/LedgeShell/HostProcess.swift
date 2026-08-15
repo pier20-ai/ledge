@@ -211,6 +211,36 @@ final class HostProcess {
         }
     }
 
+    /// Restart the host now, at the user's request — the error card's one action
+    /// (flow.md, Errors: "one action — Reload — which restarts the entire host").
+    ///
+    /// Distinct from the automatic backoff in two ways that both matter. The
+    /// attempt counter resets, because a person pressing a button is new
+    /// information and a host that gave up after five crashes must be reachable
+    /// again. And there is no delay: the whole point of the card is that the
+    /// worst case is a fresh visit, which a fifteen-second wait would not be.
+    func restart() {
+        guard !stopping else { return }
+        NSLog("[ledge] host restart requested")
+        // Clear the termination handler *before* terminating. Otherwise the
+        // child's exit lands after the new one has started, and `hostExited`
+        // nils out the process we just launched and schedules a third.
+        if let process, process.isRunning {
+            process.terminationHandler = nil
+            // Closing stdin is still the graceful ask (`--exit-on-stdin-eof`);
+            // terminate() is the follow-up.
+            stdinPipe?.fileHandleForWriting.closeFile()
+            process.terminate()
+        }
+        stdinPipe = nil
+        process = nil
+        environmentTask?.cancel()
+        environmentTask = nil
+        attempts = 0
+        startedAt = nil
+        start()
+    }
+
     /// Terminate the child and stop restarting. Called from
     /// `applicationWillTerminate` — belt to the stdin-EOF braces, because that
     /// callback does not run on SIGKILL.

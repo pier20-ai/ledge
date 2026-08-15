@@ -109,13 +109,32 @@ describe("catalog fixture (golden, shared with the Swift shell)", () => {
 });
 
 describe("sanitizeWing (spec §3.3 extension)", () => {
-  test("the three wing shapes round-trip", () => {
+  test("the four wing shapes round-trip", () => {
     expect(sanitizeWing({ text: "AAPL ▲ 1.2%", canvas: { id: 12, w: 64 } })).toEqual({
       text: "AAPL ▲ 1.2%",
       canvas: { id: 12, w: 64 },
     });
     expect(sanitizeWing({ width: 286 })).toEqual({ width: 286 });
+    // The meter (flow.md's third wing form): the app names a fraction and the
+    // shell owns every other number.
+    expect(sanitizeWing({ text: "12:04", meter: { value: 0.42 } })).toEqual({
+      text: "12:04",
+      meter: { value: 0.42 },
+    });
     expect(sanitizeWing({})).toEqual({});
+  });
+
+  test("a meter value is clamped to 0…1, never dropped for being out of range", () => {
+    // A progress dividing by a total it just changed reads 1.02 for one frame;
+    // that is a full bar, not a wing that blinks out.
+    expect(sanitizeWing({ meter: { value: 1.8 } })).toEqual({ meter: { value: 1 } });
+    expect(sanitizeWing({ meter: { value: -3 } })).toEqual({ meter: { value: 0 } });
+    expect(sanitizeWing({ meter: { value: 0 } })).toEqual({ meter: { value: 0 } });
+    // NaN is the one value with no reading at all, and a meter is not a wing on
+    // its own account here — the whole field goes.
+    expect(sanitizeWing({ meter: { value: NaN } })).toEqual({});
+    expect(sanitizeWing({ meter: { value: "half" } })).toEqual({});
+    expect(sanitizeWing({ meter: 0.5 })).toEqual({});
   });
 
   test("null and non-objects clear the wing", () => {
@@ -139,6 +158,10 @@ describe("sanitizeWing (spec §3.3 extension)", () => {
       ["chrome-wing.json", { text: "AAPL ▲ 1.2%", canvas: { id: 12, w: 64 } }],
       ["chrome-wing-width.json", { width: 286 }],
       ["chrome-wing-clear.json", null],
+      ["chrome-wing-meter.json", { text: "12:04", meter: { value: 0.42 } }],
+      // The wire may carry an out-of-range value (a fixture proving the shell
+      // clamps too); the host's own sanitizer never lets one past.
+      ["chrome-wing-meter-clamp.json", { meter: { value: 1 } }],
     ] as const) {
       const envelope = parseEnvelope(await Bun.file(join(FIXTURES, file)).json());
       expect(envelope.type).toBe("chrome");

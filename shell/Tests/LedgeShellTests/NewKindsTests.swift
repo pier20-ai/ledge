@@ -290,7 +290,7 @@ struct NewKindsTests {
 
         // Below the cap the wrapper is exactly its content: scroll is invisible
         // until it is needed.
-        let cap = PanelLimits.fallback.maxHeight - HostSession.stripHeight
+        let cap = PanelLimits.fallback.maxHeight - NotchMetrics.fallback.closedHeight
         #expect(root.intrinsicContentSize.height <= cap)
         #expect(root.intrinsicContentSize.height == ceil(root.stack.fittingSize.height))
     }

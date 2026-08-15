@@ -1,0 +1,12 @@
+{ "v": 1, "app": "worldclock", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "pad": 12, "gap": 8 } },
+  { "op": "create", "id": 2, "kind": "text",
+    "props": { "content": "18:42", "size": "xl", "weight": "bold" } },
+  { "op": "create", "id": 3, "kind": "canvas",
+    "props": { "w": 416, "h": 44, "onDrag": true, "onClick": true } },
+  { "op": "create", "id": 4, "kind": "canvas", "props": { "w": 416, "h": 20 } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

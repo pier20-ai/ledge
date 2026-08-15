@@ -1,0 +1,8 @@
+{ "v": 1, "app": "worldclock", "seq": 9, "type": "draw", "payload": { "id": 5, "ops": [
+  { "op": "clear" },
+  { "op": "gradient", "x": 0, "y": 0, "w": 416, "h": 60,
+    "from": "#0B1B3A", "to": "#F4A24C" },
+  { "op": "gradient", "x": 12, "y": 8, "w": 64, "h": 44, "radius": 8,
+    "from": "#FFFFFF33", "to": "#FFFFFF00", "angle": 90 },
+  { "op": "line", "points": [[0, 44], [416, 44]], "stroke": "#FFFFFF22", "width": 1 }
+] } }

@@ -33,9 +33,37 @@ let creating = arguments.contains("--new")
 /// thing anyone sees, and it is the one screen no scripted turn ever shows.
 let restingOnly = arguments.contains("--empty")
 let rich = arguments.contains("--rich")
+/// Keep the page's own transparency instead of flattening it onto black — for
+/// when the PNG is going to be laid over the native chat snapshot rather than
+/// looked at on its own.
+let keepAlpha = arguments.contains("--transparent")
+/// The pill mid-compose: a multi-line draft, typed and NOT sent. Its second
+/// state (20 pt corners, the send bead) is otherwise unreachable in a snapshot.
+let composing = arguments.contains("--draft")
+/// The pill's third state: ⌄ pressed, the transcript cleared to watch the stage.
+let collapsedPane = arguments.contains("--collapsed")
+/// Chat mode over a stage: how many points of the pane the session's live tree
+/// occupies at the top. The transcript leaves that much room and the newest
+/// bubble floats back over its bottom edge — which is only reviewable at the
+/// real number. Zero (the default) is the blank slot: a full-pane conversation.
+let stageInset = Double(value(of: "--stage") ?? "") ?? 0
+/// The pane's real size in points, `WxH`. Defaults to the shell's own default
+/// panel minus the cutout row.
+let paneSize: CGSize = {
+    let parts = (value(of: "--size") ?? "").split(separator: "x").compactMap { Double($0) }
+    guard parts.count == 2 else { return CGSize(width: 440, height: 420) }
+    return CGSize(width: parts[0], height: parts[1])
+}()
 /// The "you have no agent installed" state — the first thing a new user sees.
 let noAgent = arguments.contains("--no-agent")
-let outputPath = arguments.dropFirst().first(where: { !$0.hasPrefix("--") })
+/// `--flag value`, or nil.
+func value(of flag: String) -> String? {
+    guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else { return nil }
+    return arguments[index + 1]
+}
+
+let flagValues = Set(["--stage", "--size"].compactMap { value(of: $0) })
+let outputPath = arguments.dropFirst().first(where: { !$0.hasPrefix("--") && !flagValues.contains($0) })
     ?? (creating ? "/tmp/ledge-editor-new.png" : "/tmp/ledge-editor.png")
 
 let repoRoot = URL(fileURLWithPath: #filePath)
@@ -137,8 +165,9 @@ final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         let configuration = WKWebViewConfiguration()
         let controller = WKUserContentController()
         configuration.userContentController = controller
-        // The panel's own width, so line breaks and truncation are the real ones.
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 440, height: 420),
+        // The pane's own size, so line breaks, truncation and the room left for
+        // the stage are the real ones.
+        webView = WKWebView(frame: CGRect(origin: .zero, size: paneSize),
                             configuration: configuration)
         super.init()
         // The page posts {type:"ready"} / {type:"input"} here exactly as it does
@@ -158,12 +187,41 @@ final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         // but the snapshot should show a settled surface.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
             webView.evaluateJavaScript(openThread) { _, _ in }
+            // What Swift tells the page about the stage behind it
+            // (`EditorBridge.setStage`).
+            webView.evaluateJavaScript("""
+            window.__ledgeDeliver({ event: "stage", present: \(stageInset > 0),
+              inset: \(stageInset) });
+            """) { _, _ in }
             if noAgent {
                 webView.evaluateJavaScript("""
                 window.__ledgeDeliver({ event: "agent", app: "", turn: 0,
                   installed: false, name: "Codex", install: "npm i -g @openai/codex" });
                 """) { _, _ in }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.snapshot() }
+                return
+            }
+            if composing || collapsedPane {
+                let type = """
+                (() => {
+                  const box = document.querySelector("textarea");
+                  const set = Object.getOwnPropertyDescriptor(
+                    window.HTMLTextAreaElement.prototype, "value").set;
+                  set.call(box, "a stand-up alarm, 9:25 weekdays —\\nring the wings, no sound");
+                  box.dispatchEvent(new Event("input", { bubbles: true }));
+                })();
+                """
+                let collapse = """
+                document.querySelector(".pill .toggle").click();
+                """
+                // A beat first: the ⌄ only exists once React has re-rendered
+                // with the stage the line above just announced.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    webView.evaluateJavaScript(composing ? type : collapse) { _, error in
+                        if let error { print("[snapshot] pill state failed: \(error)") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self.snapshot() }
+                    }
+                }
                 return
             }
             guard !restingOnly else {
@@ -191,8 +249,10 @@ final class Snapshotter: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             let size = image.size
             let composited = NSImage(size: size)
             composited.lockFocus()
-            NSColor.black.setFill()
-            NSRect(origin: .zero, size: size).fill()
+            if !keepAlpha {
+                NSColor.black.setFill()
+                NSRect(origin: .zero, size: size).fill()
+            }
             image.draw(in: NSRect(origin: .zero, size: size))
             composited.unlockFocus()
 

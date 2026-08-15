@@ -275,7 +275,7 @@ final class LedgeSegment: NSControl {
         labels = options.map { option in
             let field = makeLabel(
                 option.label,
-                font: LedgeTheme.systemFont(11.5, weight: .semibold),
+                font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.s.pointSize, weight: .semibold),
                 color: LedgeTheme.secondary,
                 alignment: .center
             )
@@ -607,7 +607,7 @@ final class LedgeStepper: NSControl {
 
 /// `progress` (D6): the slider's track without the knob. Read-only by
 /// definition — an app that wants input asks for a `slider`.
-final class LedgeProgress: NSView {
+final class LedgeProgress: NSView, LedgeColumnFilling {
     private let trackLayer = CALayer()
     private let fillLayer = CALayer()
 
@@ -622,12 +622,18 @@ final class LedgeProgress: NSView {
     /// lazily in `init` because it captures `self`.
     private var advancer: LedgeSelfAdvance!
 
-    init(value: Double) {
+    /// The fill's ink. Ink by default — a meter is quiet unless the app says the
+    /// moment is worth a hue (design.html §01: Focus's session meter is accent,
+    /// because the working moment is the one thing on that panel).
+    private(set) var fillColor: NSColor = LedgeTheme.inkFill
+
+    init(value: Double, color: NSColor = LedgeTheme.inkFill) {
         self.value = min(max(value, 0), 1)
+        self.fillColor = color
         super.init(frame: .zero)
         wantsLayer = true
         trackLayer.backgroundColor = LedgeTheme.track.cgColor
-        fillLayer.backgroundColor = LedgeTheme.inkFill.cgColor
+        fillLayer.backgroundColor = color.cgColor
         layer?.addSublayer(trackLayer)
         layer?.addSublayer(fillLayer)
         setAccessibilityRole(.progressIndicator)
@@ -653,6 +659,21 @@ final class LedgeProgress: NSView {
     /// "back to static", never "unchanged".
     func applyRate(_ rate: Double?) {
         advancer.setRate(rate)
+    }
+
+    /// `color` from a prop update. Resolved rather than optional for the same
+    /// reason `rate` is: `configure` sees the merged prop set, so a deleted
+    /// `color` (null, §3.1) has to go back to ink instead of reading as
+    /// "unchanged".
+    func applyColor(_ color: NSColor) {
+        guard color != fillColor else { return }
+        fillColor = color
+        // A commit that happens to change the hue must not cross-fade a bar
+        // while the panel is measuring itself.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fillLayer.backgroundColor = color.cgColor
+        CATransaction.commit()
     }
 
     /// A committed value, reconciled against wherever the local advance has got

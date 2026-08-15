@@ -282,6 +282,45 @@ describe("ctx.platform enable/disable (spec §8), answered by the host", () => {
     expect(session.lastCatalog.find((app) => app.id === "alpha")?.enabled).toBe(true);
   }, 30000);
 
+  test("the ledge's ✕ stops a session down the same path, and leaves it installed", async () => {
+    // flow.md, "The strip": "the only ✕ in the product lives here". It arrives
+    // as `appControl` (spec §4.3) — a control-plane frame from the shell, not a
+    // worker's request — and lands on exactly the enable/disable machinery the
+    // Settings switch uses, so "is this app running" has one answer.
+    const { dir, appsRoot } = await makeRoot({
+      settings: SETTINGS_APP,
+      alpha: PLAIN_APP("Alpha"),
+    });
+    const settingsPath = join(dir, "settings.json");
+    const log: string[] = [];
+    const session = new RecordingSession();
+    const router = new Router({ appsRoot, settingsPath, watch: false, log: (line) => log.push(line) });
+    openRouter = router;
+    await router.bindSession(session);
+    await waitFor(() => session.envelopesFor("alpha", "commit").length >= 1);
+
+    router.onEnvelope(session, envelope("", "appControl", { app: "alpha", action: "stop" }));
+    await waitFor(() => !router.hasApp("alpha"));
+
+    expect(session.envelopesFor("alpha", "app").at(-1)?.payload.state).toBe("stopped");
+    // Installed, and off: the folder is untouched, the catalog still names it,
+    // and Settings is the way back on.
+    expect(await Bun.file(settingsPath).json()).toEqual({ disabled: ["alpha"] });
+    expect(session.lastCatalog.find((app) => app.id === "alpha")).toMatchObject({
+      id: "alpha",
+      name: "Alpha",
+      enabled: false,
+      running: false,
+    });
+    expect((await readdir(appsRoot)).includes("alpha")).toBe(true);
+
+    // Nothing else is a stop: an unknown action, or a nameless one, is ignored
+    // rather than guessed at.
+    router.onEnvelope(session, envelope("", "appControl", { app: "settings", action: "burn" }));
+    router.onEnvelope(session, envelope("", "appControl", { action: "stop" }));
+    expect(router.hasApp("settings")).toBe(true);
+  }, 30000);
+
   test("Settings refuses to disable itself, and says why", async () => {
     const { dir, appsRoot } = await makeRoot({ settings: SETTINGS_APP });
     const log: string[] = [];
@@ -357,13 +396,17 @@ describe("ctx.platform enable/disable (spec §8), answered by the host", () => {
     openRouter = router;
     await router.bindSession(session);
 
+    // **The row is the button** (REFERENCE.md, "a row is a button with a
+    // child"), so there is no `label` to match on any more — and there is no
+    // need for one: after G3.2's diet the Permissions row is the only pressable
+    // button the whole panel has. Every other control on it is a `toggle`.
     const buttonId = (): number | undefined => {
       for (const commit of session.envelopesFor("settings", "commit")) {
         for (const mutation of commit.payload.mutations as Mutation[]) {
           if (
             mutation.op === "create"
             && mutation.kind === "button"
-            && mutation.props.label === "Permissions…"
+            && mutation.props.onClick === true
           ) {
             return mutation.id;
           }
@@ -383,11 +426,13 @@ describe("ctx.platform enable/disable (spec §8), answered by the host", () => {
     });
   }, 30000);
 
-  test("the Quit button, pressed twice, puts a quit call on the wire", async () => {
-    // The whole chain on this side of the socket: the shipped app.jsx in a real
-    // privileged worker, real clicks routed to real handlers, and the envelope
-    // the SHELL will act on. Ledge has no menu-bar item and no Dock icon, so
-    // this is the only quit there is — worth testing as a path, not a shape.
+  test("the shipped Settings has no Quit of its own — that is the shell's menu", async () => {
+    // The inverse of the test that used to be here, and for the same reason it
+    // was worth testing as a path: Ledge has no Dock icon and no menu-bar item,
+    // so *where* quit lives is a real decision. It lives in the right-click menu
+    // on Ledge's glass, drawn by the shell on every surface — which is exactly
+    // why the app's own two-press Quit row had to go. Two Quits is two answers
+    // to one question, and the app's was the one you could scroll past.
     const source = await Bun.file(
       join(HOST_DIR, "..", "protocol", "demo-apps", "settings", "app.jsx"),
     ).text();
@@ -402,51 +447,35 @@ describe("ctx.platform enable/disable (spec §8), answered by the host", () => {
     await router.bindSession(session);
     await waitFor(() => session.envelopesFor("settings", "commit").length >= 1);
 
-    /**
-     * Which node currently carries this button label.
-     *
-     * Updates count, not just creates: the reconciler re-uses a node and swaps
-     * its `label` when a row's shape changes, so the idle "Quit" becomes the
-     * armed "Cancel" in place. Reading creates only made this test pass or fail
-     * on whether React happened to re-use a node — which is not what it is for.
-     */
-    const buttonId = (label: string): number | undefined => {
-      const labels = new Map<number, unknown>();
-      for (const commit of session.envelopesFor("settings", "commit")) {
-        for (const mutation of commit.payload.mutations as Mutation[]) {
-          if (mutation.op === "create" && mutation.kind === "button") {
-            labels.set(mutation.id, mutation.props.label);
-          } else if (mutation.op === "update" && labels.has(mutation.id) && "label" in mutation.props) {
-            labels.set(mutation.id, mutation.props.label);
-          } else if (mutation.op === "remove") {
-            labels.delete(mutation.id);
-          }
+    // Nothing the panel draws says "quit", in a label or in a word.
+    const words: unknown[] = [];
+    for (const commit of session.envelopesFor("settings", "commit")) {
+      for (const mutation of commit.payload.mutations as Mutation[]) {
+        if (mutation.op === "create" || mutation.op === "update") {
+          words.push(mutation.props.label, mutation.props.content);
         }
       }
-      for (const [id, current] of labels) if (current === label) return id;
-      return undefined;
-    };
-    const click = (id: number) =>
-      router.onEnvelope(session, envelope("settings", "event", { id, name: "click", data: {} }));
+    }
+    const said = words.filter((word): word is string => typeof word === "string");
+    expect(said.some((word) => /quit/i.test(word))).toBe(false);
 
-    // Press one: arm. Nothing goes out — an accidental brush of the panel must
-    // not take the notch away, and there is no Dock icon to get it back from.
-    const quit = await waitFor(() => buttonId("Quit") !== undefined).then(() => buttonId("Quit")!);
-    click(quit);
-    await waitFor(() => buttonId("Cancel") !== undefined);
-    expect(session.envelopesFor("settings", "platform")).toEqual([]);
-
-    // Press two. The reconciler re-uses the node and swaps the handler, so this
-    // is the same id carrying a different meaning — which is exactly why the
-    // first press must not have sent anything.
-    click(buttonId("Quit")!);
-    await waitFor(() => session.envelopesFor("settings", "platform").length >= 1);
-
-    const call = session.envelopesFor("settings", "platform")[0]!.payload;
-    expect(call.call).toBe("quit");
-    expect(Number.isInteger(call.id)).toBe(true);
-    // Forwarded, not answered here: only the shell can end the process.
-    expect(Object.keys(call).sort()).toEqual(["call", "id"]);
+    // …and pressing every button it has puts nothing on the platform wire. The
+    // only button is Permissions, and `ctx.permissions()` is chrome, not a call.
+    for (const commit of session.envelopesFor("settings", "commit")) {
+      for (const mutation of commit.payload.mutations as Mutation[]) {
+        if (mutation.op === "create" && mutation.props.onClick === true) {
+          router.onEnvelope(
+            session,
+            envelope("settings", "event", { id: mutation.id, name: "click", data: {} }),
+          );
+        }
+      }
+    }
+    await Bun.sleep(80);
+    const calls = session
+      .envelopesFor("settings", "platform")
+      .map((e) => (e.payload as { call?: string }).call);
+    expect(calls.includes("quit")).toBe(false);
   }, 30000);
 
   test("quit is Settings-only, like the rest of the management surface", async () => {
@@ -555,8 +584,9 @@ describe("the shipped Settings app", () => {
     // …except Settings' own, which is on and dead (spec §8: it can't be disabled).
     expect(toggles.map((m) => m.props.disabled)).toEqual([false, false, true]);
 
-    // One icon per row, and the real names, not the mockup's three.
-    expect(creates.filter((m) => m.kind === "image").length).toBe(3);
+    // One icon per row, and the real names, not the mockup's three — plus the
+    // Permissions row's own glyph, which is pinned below the list.
+    expect(creates.filter((m) => m.kind === "image").length).toBe(4);
     const content = creates.filter((m) => m.kind === "text").map((m) => m.props.content);
     expect(content).toContain("Stocks");
     expect(content).toContain("Music");
@@ -578,6 +608,7 @@ describe("the shipped Settings app", () => {
     const content = sink.all
       .filter((m): m is Create => m.op === "create" && m.kind === "text")
       .map((m) => m.props.content);
-    expect(content).toContain("Reading the catalog…");
+    // One quiet line (G3.2) — not a sentence, and not an empty panel.
+    expect(content).toContain("Reading…");
   });
 });

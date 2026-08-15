@@ -1,0 +1,12 @@
+{
+  "v": 1,
+  "app": "focusgarden",
+  "seq": 3,
+  "type": "platform",
+  "payload": {
+    "id": 8,
+    "call": "observe",
+    "kind": "focus",
+    "name": "changed"
+  }
+}

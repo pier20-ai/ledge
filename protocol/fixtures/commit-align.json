@@ -1,0 +1,18 @@
+{ "v": 1, "app": "timer", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 16, "align": "center" } },
+  { "op": "create", "id": 2, "kind": "text", "props": { "content": "FOCUS", "size": "xs", "caps": true } },
+  { "op": "create", "id": 3, "kind": "text", "props": { "content": "25:00", "size": "display", "mono": true } },
+  { "op": "create", "id": 4, "kind": "divider", "props": {} },
+  { "op": "create", "id": 5, "kind": "stack", "props": { "axis": "h", "gap": 8, "align": "trailing" } },
+  { "op": "create", "id": 6, "kind": "text", "props": { "content": "row", "size": "s" } },
+  { "op": "create", "id": 7, "kind": "stack", "props": { "axis": "v", "gap": 4, "align": "leading" } },
+  { "op": "create", "id": 8, "kind": "text", "props": { "content": "flush", "size": "s" } },
+  { "op": "insert", "parent": 5, "id": 6, "before": null },
+  { "op": "insert", "parent": 7, "id": 8, "before": null },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "insert", "parent": 1, "id": 7, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

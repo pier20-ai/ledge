@@ -102,14 +102,18 @@ struct WingGeometryTests {
     func expandedIgnoresWings() {
         let surface = makeSurface()
         surface.setWing(WingSpec(text: "live", canvas: WingCanvasSpec(id: 1, w: 80)), animated: false)
+        // The visit's own floor is the bar, never a wing: a 440 pt panel under
+        // a wider bar is bar-width, and the wing contributes nothing either way.
+        let barWidth = surface.visitBarWidth
         let expanded = surface.shapeSize(expanded: true, width: 440, height: 300)
-        #expect(expanded.width == 440 + fillets)
+        #expect(expanded.width == max(440, barWidth) + fillets)
 
         surface.present(.expanded(app: "stocks"), content: nil, width: 440, height: 300, animated: false)
         // The wing is remembered — it comes back when the panel closes — but it
         // contributes nothing while the app owns the whole box.
         #expect(surface.wing != nil)
-        #expect(surface.shapeSize(expanded: true, width: 440, height: 300).width == 440 + fillets)
+        #expect(surface.shapeSize(expanded: true, width: 440, height: 300).width
+                == max(440, barWidth) + fillets)
     }
 
     @Test("Clearing returns the pill to idle; an empty spec is a clear")
@@ -232,6 +236,70 @@ struct WingGeometryTests {
         #expect(label.frame.width <= PanelLimits.maxWingWidth)
         #expect(label.lineBreakMode == .byTruncatingTail)
         #expect(label.maximumNumberOfLines == 1)
+    }
+
+    // MARK: - The meter (flow.md's third wing form)
+
+    @Test("A meter sizes the right wing to the shell's own width, not the app's")
+    func meterSizesTheRightWing() throws {
+        let surface = makeSurface()
+        let idle = collapsedWidth(surface)
+
+        surface.setWing(try Fixtures.wing("chrome-wing-meter.json"), animated: false)
+        surface.layoutSubtreeIfNeeded()
+        let meter = surface.wingMeterView
+        #expect(!meter.isHidden)
+        #expect(surface.wingCanvasView.isHidden)
+        // 64 pt of bar plus the wing's own padding, exactly as a canvas of the
+        // same width would have cost — the difference is who chose the 64.
+        #expect(meter.bounds.width == LedgeMetrics.wingMeterWidth)
+        #expect(collapsedWidth(surface) > idle)
+
+        // Right wing, clear of the housing, and the bar is 3 pt centred in the
+        // strip rather than filling it.
+        let housing = surface.hardwareCutoutRect
+        let placed = surface.convert(meter.bounds, from: meter)
+        #expect(placed.minX >= housing.maxX)
+        #expect(meter.trackFrame.height == LedgeMetrics.wingMeterHeight)
+        #expect(abs(meter.trackFrame.midY - meter.bounds.midY) <= 0.5)
+        #expect(meter.trackFrame.width == LedgeMetrics.wingMeterWidth)
+        #expect(meter.fillFrame.width == (LedgeMetrics.wingMeterWidth * 0.42).rounded())
+        #expect(meter.trackFrame.minY >= 0 && meter.trackFrame.maxY <= housing.height)
+    }
+
+    @Test("A meter value outside 0…1 clamps rather than overrunning its track")
+    func meterClamps() throws {
+        let surface = makeSurface()
+        surface.setWing(try Fixtures.wing("chrome-wing-meter-clamp.json"), animated: false)
+        surface.layoutSubtreeIfNeeded()
+        let meter = surface.wingMeterView
+        #expect(meter.fraction == 1)
+        #expect(meter.fillFrame.width == meter.trackFrame.width)
+
+        surface.setWing(WingSpec(meter: WingMeterSpec(value: -3)), animated: false)
+        surface.layoutSubtreeIfNeeded()
+        #expect(meter.fraction == 0)
+        #expect(meter.fillFrame.width == 0)
+
+        // A meter alone is a wing: it is content, so an empty-spec release must
+        // not swallow it.
+        #expect(surface.wing != nil)
+        surface.setWing(nil, animated: false)
+        #expect(surface.wingMeterView.isHidden)
+    }
+
+    @Test("Canvas and meter both claim the right wing; the app's own pixels win")
+    func canvasBeatsMeter() {
+        let surface = makeSurface()
+        surface.setWing(
+            WingSpec(canvas: WingCanvasSpec(id: 12, w: 100), meter: WingMeterSpec(value: 0.5)),
+            animated: false
+        )
+        surface.layoutSubtreeIfNeeded()
+        #expect(!surface.wingCanvasView.isHidden)
+        #expect(surface.wingMeterView.isHidden)
+        // …and the wing is the canvas' 100, not the meter's 64.
+        #expect(collapsedWidth(surface) == 210 + fillets + 100 + 24)
     }
 
     @Test("Wing content never exceeds the notch strip's height")

@@ -15,7 +15,7 @@ import type { AppMeta } from "./meta";
 import type { WingSpec } from "./wing";
 
 export type { AppMeta, PanelSpec } from "./meta";
-export type { WingCanvas, WingSpec } from "./wing";
+export type { WingCanvas, WingMeter, WingSpec } from "./wing";
 
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
 
@@ -34,6 +34,16 @@ export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
  * chess — moments that deserve more than a wing and less than the panel.
  */
 export type ChromeRequest = "expand" | "collapse" | "peek" | "permissions";
+
+/**
+ * A notification's priority class (spec §3.3, flow.md's Ti knob).
+ *
+ * `ambient` retracts on its dwell; `alert` **holds** until it is acted on or
+ * dismissed, because the one thing an alarm must not do is time out while the
+ * user is looking away. Absent is ambient — an app that says nothing is not
+ * raising an alarm.
+ */
+export type NotificationClass = "ambient" | "alert";
 
 /** Which side of the shared app health state threw (spec §6 rule 2, §7): the
  * monitor loop, or a React render (initial mount / event / ctx.update). */
@@ -122,7 +132,8 @@ export type PlatformObserveSource =
   | "pasteboard"
   | "power"
   | "reachability"
-  | "audio";
+  | "audio"
+  | "focus";
 
 /**
  * The signal names each source accepts.
@@ -187,6 +198,20 @@ export interface AudioEventData {
   /** `device` (the default output changed), `volume`, or `current` (the
    * immediate fire at registration). */
   reason: "device" | "volume" | "current";
+}
+
+/**
+ * Do Not Disturb / Focus. Read from the user's own Focus database — a file, not
+ * a private framework — so it is **silent rather than wrong** when it cannot be
+ * read: an undocumented format that shifts, or a Ledge without Full Disk
+ * Access, produces no events at all rather than a confident `active: false`.
+ *
+ * `modeName` is the user's own name for the mode ("Work") when the database
+ * says so, and the mode identifier's last component when it does not.
+ */
+export interface FocusEventData {
+  active: boolean;
+  modeName?: string;
 }
 
 /** One event from `ctx.platform.calendar()`. Times are ISO-8601 strings. */
@@ -306,9 +331,12 @@ export type WorkerToHost =
   | { type: "meta"; meta: AppMeta }
   | { type: "draw"; id: number; ops: unknown[] }
   | { type: "wing"; wing: WingSpec | null }
-  // `ms` applies to `peek` only: how long the mini view stays up before the
-  // shell puts it away. Absent means the shell's default dwell.
-  | { type: "chrome"; request: ChromeRequest; ms?: number }
+  // `ms` and `cls` apply to `peek` only: how long the swell stays up before the
+  // shell retracts it, and which priority class it belongs to. Absent `ms`
+  // means the shell's default dwell; absent `cls` means ambient. Named `cls`
+  // here and `class` on the wire, because `class` is a reserved word in the one
+  // language and merely awkward in the other.
+  | { type: "chrome"; request: ChromeRequest; ms?: number; cls?: NotificationClass }
   | ({ type: "notify" } & NotifyRequest)
   | { type: "attention" }
   | { type: "apple"; id: number; request: AppleRequest }
@@ -344,7 +372,9 @@ export interface ScreenInfo {
  *                never be a node, and an event addressed to it belongs to the
  *                app itself (`drop`, `notification`, `platform`). Those go to
  *                the app's optional `onEvent(name, data, ctx)` export.
- * - `lifecycle`  panel phase change (spec §4.2); informational.
+ * - `lifecycle`  panel phase change (spec §4.2); informational. Also carries the
+ *                system's Reduce Motion state, which lands on `ctx.reduceMotion`
+ *                before `onLifecycle` is called.
  * - `reply`      resolves a pending bridge request Promise by id.
  *
  * Termination is out-of-band: the host calls `worker.terminate()`, which
@@ -353,7 +383,14 @@ export interface ScreenInfo {
  */
 export type HostToWorker =
   | { type: "event"; id: number; name: string; data: Record<string, unknown> }
-  | { type: "lifecycle"; phase: LifecyclePhase; screen?: ScreenInfo }
+  | {
+      type: "lifecycle";
+      phase: LifecyclePhase;
+      screen?: ScreenInfo;
+      /** The system's Reduce Motion preference (spec §4.2). Absent = unchanged,
+       * which is what a shell that predates the flag looks like. */
+      reduceMotion?: boolean;
+    }
   | BridgeReply;
 
 /**

@@ -158,7 +158,7 @@ struct SelfAdvanceTests {
         let sliders = descendants(of: root).compactMap { $0 as? LedgeSlider }
         let bars = descendants(of: root).compactMap { $0 as? LedgeProgress }
         #expect(sliders.count == 2)
-        #expect(bars.count == 1)
+        #expect(bars.count == 2)
         // A scrubber in seconds: value 64 of 224, advancing one per second.
         #expect(sliders[0].rate == 1)
         #expect(sliders[0].value == 64)
@@ -167,9 +167,34 @@ struct SelfAdvanceTests {
         // The slider that never mentioned `rate` is static, as it always was.
         #expect(sliders[1].rate == 0)
 
+        // `progress.color` (G3): a token, resolved by the shell. The first bar
+        // asked for accent — design.html §01's working-moment meter — and the
+        // second asked for nothing, which is ink.
+        #expect(bars[0].fillColor == LedgeTheme.accent)
+        #expect(bars[1].fillColor == LedgeTheme.inkFill)
+
         // Pausing sends rate 0; dropping the key entirely is the same thing.
         session.inject(try Fixtures.envelope("commit-rate-update.json"))
         #expect(sliders[0].rate == 0)
         #expect(bars[0].rate == 0)
+        // …and `color: null` is §3.1's delete, so the accent bar goes back to
+        // ink rather than keeping a stale hue, while its neighbour gains one.
+        #expect(bars[0].fillColor == LedgeTheme.inkFill)
+        #expect(bars[1].fillColor == LedgeTheme.green)
+    }
+
+    @Test("A meter's colour vocabulary is hue families, never ink shades")
+    func meterColorVocabulary() {
+        #expect(ProtocolRenderer.meterColor("accent") == LedgeTheme.accent)
+        #expect(ProtocolRenderer.meterColor("green") == LedgeTheme.green)
+        #expect(ProtocolRenderer.meterColor("red") == LedgeTheme.red)
+        #expect(ProtocolRenderer.meterColor("violet") == LedgeTheme.violet)
+        #expect(ProtocolRenderer.meterColor("cyan") == LedgeTheme.cyan)
+        // Ink shades are *type* colours; naming one here would be the default
+        // spelled three more ways. An unknown token degrades to the default too,
+        // which is how a future token renders on an older shell.
+        #expect(ProtocolRenderer.meterColor("secondary") == LedgeTheme.inkFill)
+        #expect(ProtocolRenderer.meterColor("chartreuse") == LedgeTheme.inkFill)
+        #expect(ProtocolRenderer.meterColor(nil) == LedgeTheme.inkFill)
     }
 }

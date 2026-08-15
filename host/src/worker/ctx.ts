@@ -45,6 +45,7 @@ import type {
   BridgeReply,
   CalendarEvent,
   LocationFix,
+  NotificationClass,
   NotifyAction,
   PlatformObserveSource,
   SpotlightHit,
@@ -99,10 +100,14 @@ export interface PlatformBridge {
    *   constrained, interface}`.
    * - `"audio"` — `"changed"`. Payload `{deviceName, volume, muted,
    *   transportType, batteryPercent?, reason}`.
+   * - `"focus"` — `"changed"`. Payload `{active, modeName?}` — Do Not Disturb
+   *   and the named Focus modes, read from the user's Focus database. It is
+   *   **quiet rather than wrong**: no Full Disk Access, or a format change in a
+   *   future macOS, means no events at all rather than a false `active: false`.
    *
-   * `power`, `reachability` and `audio` describe a *state*, so registering also
-   * delivers the current one immediately — an app never has to make a separate
-   * read call for the thing it just subscribed to.
+   * `power`, `reachability`, `audio` and `focus` describe a *state*, so
+   * registering also delivers the current one immediately — an app never has to
+   * make a separate read call for the thing it just subscribed to.
    */
   observe(kind: PlatformObserveSource, name: string): Promise<void>;
   unobserve(kind: PlatformObserveSource, name: string): Promise<void>;
@@ -192,6 +197,25 @@ export interface PrivilegedPlatformBridge extends PlatformBridge {
 }
 
 export interface Ctx {
+  /**
+   * The system's **Reduce Motion** preference (spec §4.2, principle 10).
+   *
+   * A worker cannot read this for itself — it is an AppKit accessibility
+   * setting, so it belongs on `ctx` for exactly the reason everything else here
+   * does. The shell sends it on every `lifecycle` (including the one an app gets
+   * when it starts) and re-sends one to every running app the moment the user
+   * flips the switch, so this property is always current.
+   *
+   * It is a **property, not a callback**, because the code that has to obey it
+   * is a draw loop: `if (ctx.reduceMotion) …` inside a `setInterval` is the
+   * shape apps actually need. `onLifecycle(phase, ctx)` is still called after
+   * every change, for an app that would rather react than poll.
+   *
+   * The law in one line: *a canvas that animates must go still when this is
+   * true.* Still, not slower, and not blank — the meter keeps reading, it just
+   * stops moving between readings.
+   */
+  readonly reduceMotion: boolean;
   /** Shallow-merge `patch` into the props object passed to the default export
    * and schedule a render. In-memory only; the sole monitor → UI bridge (§6). */
   update(patch: Record<string, unknown>): void;
@@ -221,8 +245,11 @@ export interface Ctx {
    * keeps only the latest frame per canvas per display tick. */
   draw(id: number, ops: unknown[]): void;
   /** Own the collapsed notch as a live-activity surface, or release it with
-   * `null` (spec §3.3 extension). Latest wing across all apps wins; this app's
-   * wing is released for it on stop, crash, and reload. */
+   * `null` (spec §3.3 extension). `{ text }` is the left wing, `{ canvas }` and
+   * `{ meter: { value } }` the right one — a meter is the shell's stock bar, so
+   * the ordinary "how far along is it" wing costs no draw loop. Latest wing
+   * across all apps wins; this app's wing is released for it on stop, crash,
+   * and reload. */
   wing(spec: WingSpec | null): void;
   /** Ask the shell to present this app (spec §3.3). May be denied silently. */
   /**
@@ -236,8 +263,12 @@ export interface Ctx {
    *
    * Latest asker wins, as with wings. Denied silently if the app has no
    * `<mini>` in its tree.
+   *
+   * `options.class` is the priority class (flow.md): `"ambient"` (the default)
+   * retracts on its dwell, `"alert"` holds until the user acts on it. Urgency
+   * is ink, never geometry — an alert is the same shape, it just does not leave.
    */
-  peek(ms?: number): void;
+  peek(ms?: number, options?: { class?: NotificationClass }): void;
   expand(): void;
   /** Ask the shell to put this app away (spec §3.3). Ignored unless this app is
    * the one currently presented. */
@@ -287,6 +318,10 @@ export interface CtxIO {
 
 export interface CtxHandle {
   ctx: Ctx;
+  /** Update `ctx.reduceMotion` in place (spec §4.2). Called by the worker entry
+   * when a `lifecycle` message carries the flag — *before* `onLifecycle`, so an
+   * app that reacts to the callback reads the new value, not the old one. */
+  setReduceMotion(value: boolean): void;
   /** Resolve/reject a pending apple/platform request from a host reply. Unknown
    * ids are ignored (the request was already settled, or the worker was
    * rebuilt). Called by the worker entry when a `reply` message arrives. */
@@ -435,7 +470,16 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       request((id) => ({ type: "platform", id, request: { kind: "quit" } })) as Promise<void>,
   };
 
+  // Reduce Motion (spec §4.2). Held in the closure and exposed as a getter so
+  // an app that captured `ctx` in a frame loop months of frames ago still reads
+  // today's value — assigning a plain boolean onto the object would work too,
+  // but a getter makes it unwritable from app code, which it should be.
+  let reduceMotion = false;
+
   const ctx: Ctx = {
+    get reduceMotion() {
+      return reduceMotion;
+    },
     update: (patch) => io.update(patch),
     notify: (text, notifyOptions) => {
       // Notifications draw an id from the same counter as bridge requests: it
@@ -484,7 +528,13 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     // Clamped here rather than shell-side so an app cannot pin the notch open
     // with a peek measured in minutes — that is the panel's job, and the app has
     // ctx.expand() for it.
-    peek: (ms) => io.post({ type: "chrome", request: "peek", ms: clampPeek(ms) }),
+    peek: (ms, options) =>
+      io.post({
+        type: "chrome",
+        request: "peek",
+        ms: clampPeek(ms),
+        ...(options?.class ? { cls: options.class } : {}),
+      }),
     expand: () => io.post({ type: "chrome", request: "expand" }),
     collapse: () => io.post({ type: "chrome", request: "collapse" }),
     permissions: () => io.post({ type: "chrome", request: "permissions" }),
@@ -502,5 +552,11 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     else entry.reject(new Error(reply.error));
   };
 
-  return { ctx, settle };
+  return {
+    ctx,
+    setReduceMotion: (value) => {
+      reduceMotion = value;
+    },
+    settle,
+  };
 }

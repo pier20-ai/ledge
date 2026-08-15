@@ -23,6 +23,11 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         /// the wing, its view lives in a shell surface rather than this tree's
         /// content stack — which is what lets a peek be instant.
         var miniID: Int?
+        /// The app's `summary` node, if it mounted one (spec §5 `summary`).
+        /// Same story as `mini`: a root-level zone whose view lives in a shell
+        /// surface. Its presence is also the answer to "is this session heavy",
+        /// which is what the hover machinery asks at Th.
+        var summaryID: Int?
         /// Set while an error card replaces the app tree.
         var errorCard: NSView?
     }
@@ -33,8 +38,18 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
     var onContentChanged: ((_ app: String) -> Void)?
     var onCatalog: ((CatalogPayload) -> Void)?
     var onBuilder: ((BuilderPayload) -> Void)?
-    var onChrome: ((_ app: String, _ request: String, _ wing: WingSpec?, _ ms: Double?) -> Void)?
+    var onChrome: ((
+        _ app: String,
+        _ request: String,
+        _ wing: WingSpec?,
+        _ ms: Double?,
+        _ priority: NotificationClass?
+    ) -> Void)?
     var onLifecycle: ((_ app: String, _ state: String) -> Void)?
+    /// The error card's one action: restart the whole host (flow.md, Errors).
+    /// Set by `HostSession`, which gets it from the app delegate — the only
+    /// object that holds the `HostProcess`.
+    var onReloadHost: (() -> Void)?
 
     private var trees: [String: AppTree] = [:]
 
@@ -55,7 +70,9 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
     var scrollCap: ((_ app: String) -> CGFloat)?
 
     private func scrollCapHeight(for app: String) -> CGFloat {
-        scrollCap?(app) ?? (PanelLimits.fallback.maxHeight - HostSession.stripHeight)
+        // The only chrome a panel spends now is the cutout exclusion row: the
+        // bottom app strip is gone (flow.md — the wings are Ledge's controls).
+        scrollCap?(app) ?? (PanelLimits.fallback.maxHeight - NotchMetrics.fallback.closedHeight)
     }
 
     // MARK: - Query (for the host session / tests)
@@ -88,6 +105,20 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
     func miniView(for app: String) -> NSView? {
         guard let tree = trees[app], let id = tree.miniID else { return nil }
         return tree.views[id]
+    }
+
+    /// The app's `summary` content, or nil when it declared none — in which case
+    /// the session is *light* and a hover that reaches Th opens the visit
+    /// directly (flow.md, Summary; principle 8). Asked on demand like the other
+    /// two zones, so declaring or dropping a summary needs no notification.
+    func summaryView(for app: String) -> NSView? {
+        guard let tree = trees[app], let id = tree.summaryID else { return nil }
+        return tree.views[id]
+    }
+
+    /// Whether this session is *heavy*: does it owe the hover a summary?
+    func declaresSummary(for app: String) -> Bool {
+        trees[app]?.summaryID != nil
     }
 
     /// The first canvas in `app`'s tree that asked to be focusable (spec §5).
@@ -161,7 +192,12 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
 
     func showErrorCard(app: String, message: String, stack: String?) {
         let tree = trees[app] ?? { let new = AppTree(); trees[app] = new; return new }()
-        tree.errorCard = ErrorCardView(app: app, message: message, stack: stack)
+        // `message` and `stack` are deliberately dropped on the floor here: the
+        // card is generic by decision (flow.md, Errors), and the diagnosis is
+        // already on its way to ~/.ledge/host.log. They stay in the signature
+        // because they are still on the wire (spec §3.2).
+        NSLog("[ledge] app crashed app=%@ message=%@", app, message)
+        tree.errorCard = ErrorCardView(onReload: { [weak self] in self?.onReloadHost?() })
         onContentChanged?(app)
     }
 
@@ -169,8 +205,14 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         onLifecycle?(app, state)
     }
 
-    func chromeRequest(app: String, request: String, wing: WingSpec?, ms: Double?) {
-        onChrome?(app, request, wing, ms)
+    func chromeRequest(
+        app: String,
+        request: String,
+        wing: WingSpec?,
+        ms: Double?,
+        priority: NotificationClass?
+    ) {
+        onChrome?(app, request, wing, ms, priority)
     }
 
     func drawCanvas(app: String, id: Int, ops: [JSONValue]) {
@@ -229,6 +271,9 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
                 return
             case .mini:
                 tree.miniID = id
+                return
+            case .summary:
+                tree.summaryID = id
                 return
             default:
                 break
@@ -325,24 +370,39 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
                         stack.append(subID)
                     }
                 }
+                // Captured before the removal: a stack that has just lost a
+                // child has to re-derive its fill/hug decision, because both
+                // depend on which children it still has (a row that loses its
+                // `spacer` stops filling and starts hugging).
+                let host = view.superview as? LedgeStackView
                 view.removeFromSuperview()
+                if let host {
+                    tieSpacers(in: host)
+                    host.syncFillWidths()
+                }
             }
             tree.views[current] = nil
             tree.kinds[current] = nil
             tree.props[current] = nil
             tree.canvases[current] = nil
-            // Removing the wing reverts the zone to the shell's default (the app
-            // name) on the next refresh — an app that stops having something to
-            // say up there gets its name back, not an empty gap.
+            // Removing a zone node releases the surface it filled: an app that
+            // stops having something to say up there gets the shell's default
+            // back, not an empty gap. All three zones, because an app that drops
+            // its `summary` has stopped being a heavy session and must start
+            // opening straight to the visit on hover.
             if tree.wingID == current { tree.wingID = nil }
+            if tree.miniID == current { tree.miniID = nil }
+            if tree.summaryID == current { tree.summaryID = nil }
             if tree.rootID == current {
                 tree.rootID = nil
-                // The wing is not in the root's *view* hierarchy (that is the
-                // whole point), so the walk above cannot reach it. But it is a
-                // direct child of the root in the tree, so a root that goes takes
-                // it with it — otherwise a replaced root would leave a stale
-                // wing view in the zone for the next commit to render.
+                // The zones are not in the root's *view* hierarchy (that is the
+                // whole point), so the walk above cannot reach them. But each is
+                // a direct child of the root in the tree, so a root that goes
+                // takes them with it — otherwise a replaced root would leave a
+                // stale zone view for the next commit to render.
                 tree.wingID = nil
+                tree.miniID = nil
+                tree.summaryID = nil
             }
         }
     }
@@ -425,7 +485,10 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             return stepper
 
         case .progress:
-            let progress = LedgeProgress(value: props["value"]?.asDouble ?? 0)
+            let progress = LedgeProgress(
+                value: props["value"]?.asDouble ?? 0,
+                color: Self.meterColor(props["color"]?.asString)
+            )
             progress.heightAnchor.constraint(equalToConstant: LedgeMetrics.progressHeight).isActive = true
             progress.setContentHuggingPriority(.defaultLow, for: .horizontal)
             return progress
@@ -442,6 +505,13 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // that could would eventually ask to be the panel, and the panel
             // already exists. `LedgeMiniView`, not `LedgeWingView`: only the
             // former reports a real fitting size (see its doc comment).
+            return LedgeMiniView()
+
+        case .summary:
+            // The same shape as `mini`, and deliberately the same view: the two
+            // swells share a geometry, so a summary that measured itself
+            // differently from a notification would make the notch grow to two
+            // different heights for the same one-row content.
             return LedgeMiniView()
 
         case .spinner:
@@ -466,6 +536,11 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             let image: NSView = src.hasPrefix("sf:")
                 ? LedgeSymbolView(symbol: String(src.dropFirst(3)), radius: radius)
                 : LedgeFileImageView(path: src, radius: radius)
+            // `stroke` (spec §5): the same hairline vocabulary a stack names, on
+            // the image view itself. An artwork well whose bitmap letterboxes —
+            // or fails to load at all — keeps the frame the layout drew for it,
+            // and it costs no wrapper stack (which would double-frame it).
+            image.applyHairlineStroke(Self.strokeToken(props["stroke"]?.asString))
             constrainSize(
                 image,
                 width: cgFloat(props["w"], default: 24),
@@ -530,6 +605,18 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
                     "y": .double(Double(point.y)),
                 ]))
             }
+            // `drag` (§4.1): press-drag-release, throttled shell-side. The
+            // closure is wired here like every other handler; whether it fires
+            // is `dragEnabled`, resolved from the merged props in `configure` —
+            // a canvas that never declared `onDrag` must not put 30 events a
+            // second on the socket for a gesture nobody subscribed to.
+            canvas.onDrag = { [weak self] phase, point in
+                self?.onEvent?(app, id, "drag", .object([
+                    "phase": .string(phase),
+                    "x": .double(Double(point.x)),
+                    "y": .double(Double(point.y)),
+                ]))
+            }
             constrainSize(
                 canvas,
                 width: cgFloat(props["w"], default: 120),
@@ -561,21 +648,33 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
                 stack.alignment = axis == "h" ? .centerY : .leading
             }
             applyAlign(stack, props["align"]?.asString)
-            stack.syncFillWidths()          // `pad` feeds the fill width
             // `distribute` (spec §5): `equal` is what makes a row of chips or
             // buttons share the width evenly without any app doing arithmetic.
-            stack.distribution = props["distribute"]?.asString == "equal" ? .fillEqually : .fill
+            // Declared rather than set: a row with nothing width-less in it is
+            // laid out on `.gravityAreas` so it stops flinging its children to
+            // opposite edges, and `syncFillWidths` owns that decision.
+            stack.declaredDistribution =
+                props["distribute"]?.asString == "equal" ? .fillEqually : .fill
+            stack.syncFillWidths()          // `pad` feeds the fill width
             stack.applyContainer(
                 fill: Self.fillToken(props["fill"]?.asString),
                 stroke: Self.strokeToken(props["stroke"]?.asString),
-                radius: props["radius"]?.asDouble.map { CGFloat($0) }
+                radius: props["radius"]?.asDouble.map { CGFloat($0) },
+                gradient: Self.gradientToken(props["gradient"]?.asString)
             )
 
         case .text:
             guard let field = view as? NSTextField else { return }
-            if let content = props["content"]?.asString { field.stringValue = content }
+            // Face and ink first, then the string: `caps` rebuilds the field as
+            // an attributed value (tracking is not a font trait), and it has to
+            // build it out of the face this commit asked for.
             field.font = Self.font(size: props["size"]?.asString, weight: props["weight"]?.asString, mono: props["mono"]?.asBool ?? false)
             field.textColor = Self.semanticColor(props["color"]?.asString, default: LedgeTheme.primary)
+            if let text = field as? LedgeText {
+                text.applyContent(props["content"]?.asString, caps: props["caps"]?.asBool ?? false)
+            } else if let content = props["content"]?.asString {
+                field.stringValue = content
+            }
             // `maxLines`/`truncate` (spec §5, law L7): both resolved from the
             // merged prop set, so dropping `maxLines` really does go back to one
             // line rather than reading as "unchanged".
@@ -621,6 +720,9 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         case .canvas:
             guard let canvas = view as? ProtocolCanvasView else { return }
             canvas.focusable = props["focusable"]?.asBool ?? canvas.focusable
+            // Resolved, not optional: `configure` sees the merged prop set, so
+            // dropping `onDrag` (null, §3.1) really does stop the phases.
+            canvas.dragEnabled = props["onDrag"]?.asBool ?? false
 
         case .button:
             guard let button = view as? LedgeButton else { return }
@@ -647,11 +749,30 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // in place: an app swapping artwork sends an `update` op on the same
             // node (§3.1), not a new one. An `sf:` symbol node stays a symbol
             // node — a src that changes *kind* is a different component.
-            guard let image = view as? LedgeFileImageView else { return }
-            image.apply(
-                path: props["src"]?.asString,
-                radius: props["radius"]?.asDouble.map { CGFloat($0) }
-            )
+            //
+            // **Both kinds update.** This used to `guard let image = view as?
+            // LedgeFileImageView`, which silently dropped every `src` update on
+            // a symbol node: a bell that became a timer kept the bell until the
+            // app forced a remount with a React `key`. G3.
+            //
+            // `stroke` is resolved rather than optional, on both kinds of image:
+            // `configure` sees the merged prop set, so a deleted `stroke` (null,
+            // §3.1) has to take the ring away instead of reading as "unchanged".
+            view.applyHairlineStroke(Self.strokeToken(props["stroke"]?.asString))
+            let radius = props["radius"]?.asDouble.map { CGFloat($0) }
+            let src = props["src"]?.asString
+            if let symbol = view as? LedgeSymbolView {
+                // A `src` that changes *kind* (file → symbol or back) is a
+                // different component, so only the `sf:` form lands here; a bare
+                // path arriving at a symbol node is ignored rather than drawn as
+                // a symbol called "/Users/…".
+                symbol.apply(
+                    symbol: src.flatMap { $0.hasPrefix("sf:") ? String($0.dropFirst(3)) : nil },
+                    radius: radius
+                )
+            } else if let image = view as? LedgeFileImageView {
+                image.apply(path: src, radius: radius)
+            }
 
         case .spacer:
             // Built fully at create; `min` doesn't change in practice.
@@ -698,6 +819,9 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         case .progress:
             guard let progress = view as? LedgeProgress else { return }
             progress.applyRate(props["rate"]?.asDouble)
+            // Resolved, not optional: `configure` sees the merged prop set, so a
+            // deleted `color` (null, §3.1) goes back to ink.
+            progress.applyColor(Self.meterColor(props["color"]?.asString))
             if let value = props["value"]?.asDouble { progress.applyCommittedValue(value) }
 
         case .wing:
@@ -706,10 +830,12 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
             // left for the renderer to decide.
             break
 
-        case .mini:
-            // No props at all: what a mini shows is its children, and *when* it
-            // shows is `ctx.peek` — deliberately not a prop, so the app cannot
-            // pin the surface open by never re-rendering.
+        case .mini, .summary:
+            // No props at all on either swell node: what one shows is its
+            // children, and *when* it shows is the shell's — `ctx.peek` for a
+            // notification, a hover past Th for a summary. Deliberately not a
+            // prop, so an app can neither pin the surface open by never
+            // re-rendering nor take away the chevron the shell draws on it.
             break
 
         case .spinner:
@@ -737,13 +863,21 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         }
     }
 
+    /// `stack.align` — the **cross**-axis alignment (spec §5).
+    ///
+    /// The canonical words are the spec's and the JSX types': `leading` /
+    /// `center` / `trailing`. `start` / `end` are kept as aliases because this
+    /// switch only ever knew those two, so every documented `align="leading"`
+    /// silently did nothing — a wrong word here is not an error anywhere, which
+    /// is exactly why it survived. An unknown word still leaves the axis default
+    /// alone rather than guessing.
     private func applyAlign(_ stack: NSStackView, _ align: String?) {
         guard let align else { return }
         let horizontal = stack.orientation == .horizontal
         switch align {
-        case "start": stack.alignment = horizontal ? .top : .leading
+        case "leading", "start": stack.alignment = horizontal ? .top : .leading
         case "center": stack.alignment = horizontal ? .centerY : .centerX
-        case "end": stack.alignment = horizontal ? .bottom : .trailing
+        case "trailing", "end": stack.alignment = horizontal ? .bottom : .trailing
         default: break
         }
     }
@@ -761,10 +895,16 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         value?.asDouble.map { CGFloat($0) } ?? fallback
     }
 
+    /// `button.variant` (spec §5). Four words reach an app: `plain`, `glass`,
+    /// `accent` and **`ghost`** — the app-content tier of design.html §06's
+    /// two-tier control law (bare pure-white glyph, a capsule only under the
+    /// cursor). `bead` is deliberately *not* here: a bead is Ledge's own chrome,
+    /// and an app that could name it would dress its buttons as the shell's.
     static func variant(_ raw: String?) -> LedgeButtonVariant {
         switch raw {
         case "glass": .glass
         case "accent": .accent
+        case "ghost": .ghost
         default: .plain
         }
     }
@@ -781,6 +921,27 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         case "redTint": LedgeTheme.redTint
         case "violetTint": LedgeTheme.violetTint
         case "black": LedgeTheme.sunken
+        default: nil
+        }
+    }
+
+    /// `stack.gradient` tokens (spec §5 proposal): a **standardized wash**, not
+    /// a free-form gradient. The app names a hue family — the same five the
+    /// tint and stroke sets already use — and the shell owns the geometry (top
+    /// of the container at `washAlpha`, transparent by `washEnd`).
+    ///
+    /// That split is the whole design. A prop that took two colors, an angle
+    /// and two stops would let every app invent its own material, and a row of
+    /// panels would stop looking like one system after the second app. Inside a
+    /// `canvas` the opposite rule applies — pixels are the app's, and the
+    /// `gradient` draw op (§3.4) takes real colors and an angle.
+    static func gradientToken(_ raw: String?) -> NSColor? {
+        switch raw {
+        case "accent": LedgeTheme.accent
+        case "green": LedgeTheme.green
+        case "red": LedgeTheme.red
+        case "violet": LedgeTheme.violet
+        case "cyan": LedgeTheme.cyan
         default: nil
         }
     }
@@ -811,23 +972,29 @@ final class ProtocolRenderer: ProtocolEngineDelegate {
         }
     }
 
+    /// `progress.color` (spec §5): the hue *families* a meter may take, and
+    /// nothing else. Deliberately narrower than `semanticColor` — the ink
+    /// shades (`primary`/`secondary`/`tertiary`) are not meter colours, they are
+    /// type colours, and a meter that could name one would just be the default
+    /// spelled three ways. Anything unrecognised, and absence, is ink.
+    static func meterColor(_ raw: String?) -> NSColor {
+        switch raw {
+        case "accent": LedgeTheme.accent
+        case "green": LedgeTheme.green
+        case "red": LedgeTheme.red
+        case "violet": LedgeTheme.violet
+        case "cyan": LedgeTheme.cyan
+        default: LedgeTheme.inkFill
+        }
+    }
+
+    /// The `text` face for a §5 prop pair. The ramp itself is
+    /// `LedgeMetrics.TypeSize`/`TypeWeight` — this only resolves tokens and
+    /// picks the family, because a size ramp that only the protocol renderer
+    /// can see is a ramp the shell's own chrome will fork.
     static func font(size: String?, weight: String?, mono: Bool) -> NSFont {
-        let pointSize: CGFloat = switch size {
-        case "xs": 10
-        case "s": 11.5
-        case "m": 12.5
-        case "l": 15
-        // The spec's own §3.1 example is `"$214.62"` at `xl`/`bold` — xl is the
-        // headline price, not merely "a bit bigger".
-        case "xl": 30
-        default: 12.5
-        }
-        let fontWeight: NSFont.Weight = switch weight {
-        case "bold": .bold
-        case "semibold": .semibold
-        case "medium": .medium
-        default: .regular
-        }
+        let pointSize = LedgeMetrics.TypeSize(token: size).pointSize
+        let fontWeight = LedgeMetrics.TypeWeight(token: weight).fontWeight
         // Non-mono text uses the *monospaced-digit* system font: the same
         // typeface as `systemFont`, but prices and percentages stop jittering
         // as they tick. Apps get that for free rather than asking for `mono`

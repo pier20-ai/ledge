@@ -358,6 +358,35 @@ struct ProtocolEngineTests {
         #expect(selections[1].seq == 2)
     }
 
+    @Test("Every lifecycle carries Reduce Motion, and a flip is reported (§4.2)")
+    func lifecycleCarriesReduceMotion() throws {
+        let (engine, _, outbound) = makeEngine()
+
+        // Off by default: an engine that has never been told anything must not
+        // claim the user asked for less motion.
+        engine.sendLifecycle(app: "stocks", phase: "expanded")
+        var payload = try #require(outbound.last(ofType: "lifecycle"))
+            .decodePayload([String: JSONValue].self)
+        #expect(payload["phase"]?.asString == "expanded")
+        #expect(payload["reduceMotion"]?.asBool == false)
+        #expect(engine.reducesMotion == false)
+
+        // The return value is the caller's cue to re-send to every app — a
+        // no-op set must not trigger a broadcast.
+        #expect(engine.updateReduceMotion(true) == true)
+        #expect(engine.updateReduceMotion(true) == false)
+        #expect(engine.reducesMotion)
+
+        engine.sendLifecycle(app: "stocks", phase: "collapsed")
+        payload = try #require(outbound.last(ofType: "lifecycle"))
+            .decodePayload([String: JSONValue].self)
+        #expect(payload["phase"]?.asString == "collapsed")
+        #expect(payload["reduceMotion"]?.asBool == true)
+        // Still the same envelope: the flag rides beside the screen block, it
+        // does not replace it.
+        #expect(payload["screen"]?.asObject?["notchWidth"]?.asDouble == 189)
+    }
+
     @Test("Builder input and cancel serialize correctly (§4.3)")
     func builderInput() throws {
         let (engine, _, outbound) = makeEngine()

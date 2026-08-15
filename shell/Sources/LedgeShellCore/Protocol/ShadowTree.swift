@@ -36,13 +36,24 @@ public enum ComponentKind: String, Sendable, CaseIterable {
     /// holds a live view, so a peek (or a hover promoting one to the full panel)
     /// never round-trips to the worker.
     case mini
+    /// The **summary** — the hover's glance surface (flow.md, Summary). Same
+    /// shape as `mini`: a root-level zone, one row tall, that the app fills and
+    /// the shell shows on its own schedule. The difference is *who raises it*
+    /// — a notification is the app interrupting, a summary is the user asking —
+    /// and that difference is entirely the shell's, which is why the node is a
+    /// sibling of `mini` rather than a prop on it.
+    ///
+    /// Declaring one is what makes a session *heavy*: hover ≥ Th shows this
+    /// instead of opening the visit. A session that declares none is its own
+    /// summary and hovering opens it straight away (principle 8).
+    case summary
 
     /// Whether children may be attached under this kind. Containers (`stack`),
-    /// `button` (a single child), and the two zone kinds (`wing`, `mini`) are
-    /// attachable; nothing else is.
+    /// `button` (a single child), and the three zone kinds (`wing`, `mini`,
+    /// `summary`) are attachable; nothing else is.
     var isAttachable: Bool {
         switch self {
-        case .stack, .button, .wing, .mini: true
+        case .stack, .button, .wing, .mini, .summary: true
         default: false
         }
     }
@@ -52,7 +63,7 @@ public enum ComponentKind: String, Sendable, CaseIterable {
     /// shell chrome instead of being inserted into the content stack.
     var isRootZone: Bool {
         switch self {
-        case .wing, .mini: true
+        case .wing, .mini, .summary: true
         default: false
         }
     }
@@ -104,11 +115,16 @@ private func expectedType(for kind: ComponentKind, prop: String) -> PropType? {
     // Semantic container styling (spec §5 proposal, see protocol/README.md):
     // tokens only — a raw color would put theming in the app instead of the
     // shell, which is exactly what the semantic `text.color` vocabulary avoids.
-    case (.stack, "fill"), (.stack, "stroke"): return .string
+    // `gradient` is a token like the other two: the app names a hue family, the
+    // shell owns the wash's geometry. Free-form gradients live in `canvas`.
+    case (.stack, "fill"), (.stack, "stroke"), (.stack, "gradient"): return .string
     case (.stack, "radius"): return .number
 
     case (.text, "content"), (.text, "size"), (.text, "weight"), (.text, "color"): return .string
-    case (.text, "mono"), (.text, "truncate"): return .bool
+    // `caps` is one prop for one decision (D1 addition): uppercase *and* the
+    // tracking that makes uppercase legible. An app that could ask for only
+    // half of it would ship the half that looks wrong.
+    case (.text, "mono"), (.text, "truncate"), (.text, "caps"): return .bool
     // Multi-line is opt-in and counted (L7) — never a silent wrap.
     case (.text, "maxLines"): return .number
 
@@ -117,7 +133,12 @@ private func expectedType(for kind: ComponentKind, prop: String) -> PropType? {
     case (.button, "size"): return .string
     case (.button, "onClick"), (.button, "disabled"): return .bool
 
-    case (.image, "src"): return .string
+    // `stroke` is the same token vocabulary a `stack` names, on the picture
+    // itself (spec §5): artwork letterboxes, and a well that lost its frame the
+    // moment the bitmap did not fill it is not a well. Wrapping the image in a
+    // stroked stack is not the same thing — that double-frames it whenever the
+    // bitmap *does* fill the box.
+    case (.image, "src"), (.image, "stroke"): return .string
     case (.image, "w"), (.image, "h"), (.image, "radius"): return .number
 
     case (.spacer, "min"): return .number
@@ -138,7 +159,9 @@ private func expectedType(for kind: ComponentKind, prop: String) -> PropType? {
     case (.input, "onChange"), (.input, "onSubmit"): return .bool
 
     case (.canvas, "w"), (.canvas, "h"): return .number
-    case (.canvas, "focusable"), (.canvas, "onKey"): return .bool
+    // `onDrag` joins `onKey`/`onClick`: press-drag-release with a phase (§4.1),
+    // which is what a scrubber, a knob or a sketch surface is made of.
+    case (.canvas, "focusable"), (.canvas, "onKey"), (.canvas, "onDrag"): return .bool
 
     // MARK: - New kinds (D6)
 
@@ -156,6 +179,11 @@ private func expectedType(for kind: ComponentKind, prop: String) -> PropType? {
     case (.stepper, "onChange"): return .bool
 
     case (.progress, "value"), (.progress, "rate"): return .number
+    // `color` names a hue *family*, exactly like `pill.tone` and `chart.color`
+    // — a token, never a hex string, so the shell keeps every app's meter the
+    // same colour of accent. Default is ink: a progress bar is quiet unless the
+    // app says the moment is worth a hue (design.html §01, Focus's meter).
+    case (.progress, "color"): return .string
 
     case (.pill, "label"), (.pill, "tone"): return .string
 

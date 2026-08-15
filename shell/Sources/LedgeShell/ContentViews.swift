@@ -6,9 +6,22 @@ import LedgeShellCore
 /// decides what a selection *means*, it only reports that one happened.
 struct ShellCallbacks {
     let selectApp: (String) -> Void
+    /// The strip's blank slot — what **[+]** used to be (flow.md, "The strip").
     let selectNewApp: () -> Void
+    /// Settings, from the right-click menu or ⌘, (flow.md, Edges).
     let selectSettings: () -> Void
+    /// The left wing's bead: lower the glass onto the conversation, or raise it.
     let toggleChat: () -> Void
+    /// The right wing's `‹|›`, and a horizontal swipe: walk the session strip.
+    /// `-1` is `‹`, `+1` is `›`.
+    let walkStrip: (Int) -> Void
+    /// The `|` between them: **the ledge**, the zoomed-out overview (flow.md,
+    /// "The strip"). The same callback in the panel and in the parked window —
+    /// the whole surface tears off, so its controls do too.
+    let showOverview: () -> Void
+    /// Quit Ledge, from the right-click menu. The only way out now that the
+    /// bottom bar (and with it the Settings app's Quit row) is gone.
+    let quit: () -> Void
 
     /// Callbacks for a surface nobody can drive — snapshots, and the chrome
     /// surfaces that have nothing to report yet.
@@ -17,7 +30,10 @@ struct ShellCallbacks {
         selectApp: { _ in },
         selectNewApp: {},
         selectSettings: {},
-        toggleChat: {}
+        toggleChat: {},
+        walkStrip: { _ in },
+        showOverview: {},
+        quit: {}
     )
 }
 
@@ -57,7 +73,7 @@ final class AppHeaderView: FlippedView {
 
         let titleLabel = makeLabel(
             title,
-            font: LedgeTheme.systemFont(11.5, weight: .semibold),
+            font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.s.pointSize, weight: .semibold),
             color: LedgeTheme.secondary
         )
         titleLabel.frame = CGRect(x: titleX, y: 9, width: 180, height: 17)
@@ -79,7 +95,7 @@ final class AppHeaderView: FlippedView {
         if let status {
             let statusLabel = makeLabel(
                 status,
-                font: LedgeTheme.monoFont(10, weight: .medium),
+                font: LedgeTheme.monoFont(LedgeMetrics.TypeSize.xs.pointSize, weight: .medium),
                 color: LedgeTheme.secondary,
                 alignment: .right
             )
@@ -94,85 +110,21 @@ final class AppHeaderView: FlippedView {
     }
 }
 
-private final class DividerLabelView: FlippedView {
-    init(title: String) {
-        super.init(frame: .zero)
-        let left = HairlineView(frame: CGRect(x: 0, y: 10, width: 155, height: 1))
-        addSubview(left)
-        let label = makeLabel(
-            title.uppercased(),
-            font: LedgeTheme.monoFont(8.5, weight: .semibold),
-            color: LedgeTheme.tertiary,
-            alignment: .center
-        )
-        label.frame = CGRect(x: 161, y: 3, width: 86, height: 16)
-        addSubview(label)
-        let right = HairlineView(frame: CGRect(x: 253, y: 10, width: 155, height: 1))
-        addSubview(right)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-private final class ChatBubbleView: RoundedBoxView {
-    private let textLabel: NSTextField
-
-    init(text: String, isUser: Bool) {
-        textLabel = makeMultilineLabel(
-            text,
-            font: LedgeTheme.systemFont(12.5),
-            color: LedgeTheme.primary
-        )
-        super.init(
-            fill: isUser ? NSColor.white.withAlphaComponent(0.13) : LedgeTheme.raised,
-            stroke: isUser ? .clear : LedgeTheme.hairline,
-            radius: 13
-        )
-        addSubview(textLabel)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-        textLabel.frame = bounds.insetBy(dx: 11, dy: 7)
-    }
-}
-
-private final class ChatInputView: RoundedBoxView {
-    init(placeholder: String) {
-        super.init(fill: NSColor.white.withAlphaComponent(0.07), stroke: LedgeTheme.hairline, radius: 12)
-        let label = makeLabel(
-            placeholder,
-            font: LedgeTheme.systemFont(12.5),
-            color: LedgeTheme.tertiary
-        )
-        label.frame = CGRect(x: 12, y: 13, width: 330, height: 18)
-        addSubview(label)
-        let send = AccentIconButton(accessibilityLabel: "Send", handler: {})
-        send.frame = CGRect(x: 356, y: 2, width: 40, height: 40)
-        addSubview(send)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-/// Hosts an app's `<mini>` node in the peek surface (spec §3.3 extension).
+/// Hosts an app's `<mini>` or `<summary>` node in **the swell** — the notch
+/// growing down and out (flow.md: the notification and the summary, five
+/// surfaces, two of them this one).
 ///
 /// The app supplies content and nothing else — no width, no dwell, no chrome —
 /// so this centres it, pads it, and lets the controller size the surface from
-/// `fits(in:)`. Deliberately dumb: everything about *when* a mini is on screen
-/// lives in the panel controller, and everything about what it says lives in the
-/// app's tree.
+/// `preferredSize`. Deliberately dumb: everything about *when* a swell is on
+/// screen lives in the panel controller, and everything about what it says
+/// lives in the app's tree.
+///
+/// The one thing the app does not supply is the summary's **chevron**. flow.md:
+/// "The summary always shows a quiet open affordance — it must be obvious that
+/// a click opens the full thing." An affordance an app could forget to draw is
+/// an affordance half the sessions will not have, so the shell draws it, outside
+/// the app's node, and an app cannot remove it.
 final class MiniContentView: FlippedView {
     /// Padding around the app's content. Generous horizontally because the
     /// surface's corners are rounded and text tucked into them reads as clipped.
@@ -200,8 +152,54 @@ final class MiniContentView: FlippedView {
     static let maxHeight: CGFloat = 80
 
     private var content: NSView?
+    private let chevron: NSImageView
 
-    /// Adopt (or release) the app's mini node. The view belongs to the app's
+    /// Whether the shell's open affordance is drawn. True for the summary, false
+    /// for the notification — a notification promises nothing; it *is* the
+    /// thing, and it has at most one action of its own.
+    private(set) var showsOpenAffordance = false
+
+    override init(frame frameRect: NSRect) {
+        chevron = NSImageView()
+        chevron.image = NSImage(
+            systemSymbolName: "chevron.down",
+            accessibilityDescription: "Opens the session"
+        )?.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(
+                pointSize: LedgeMetrics.swellChevronPointSize,
+                weight: LedgeMetrics.swellChevronWeight
+            )
+        )
+        // `ink-3` (design.html §03): quiet enough to be an affordance rather
+        // than a control, present enough to be seen at notch scale.
+        chevron.contentTintColor = LedgeTheme.tertiary
+        chevron.imageScaling = .scaleProportionallyDown
+        chevron.isHidden = true
+        super.init(frame: frameRect)
+        addSubview(chevron)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Turn the open affordance on (summary) or off (notification).
+    func setShowsOpenAffordance(_ shows: Bool) {
+        guard shows != showsOpenAffordance else { return }
+        showsOpenAffordance = shows
+        chevron.isHidden = !shows
+        needsLayout = true
+    }
+
+    /// The width the chevron and its gap claim out of the surface.
+    private var affordanceWidth: CGFloat {
+        showsOpenAffordance
+            ? LedgeMetrics.swellChevronBox + LedgeMetrics.swellChevronGap
+            : 0
+    }
+
+    /// Adopt (or release) the app's swell node. The view belongs to the app's
     /// tree, so it is only ever borrowed — never removed from that tree, and
     /// handed back unmodified when the peek ends.
     func adopt(_ view: NSView?) {
@@ -230,17 +228,37 @@ final class MiniContentView: FlippedView {
     func preferredSize(cutoutWidth: CGFloat, maxWidth: CGFloat) -> CGSize {
         let fitting = content?.fittingSize ?? .zero
         let floor = max(Self.minWidth, cutoutWidth + Self.notchOvershoot * 2)
-        let width = min(max(fitting.width + Self.padX * 2, floor), maxWidth)
+        // The chevron is paid for out of the *surface*, not out of the app's
+        // room: a summary and a notification carrying the same line come out the
+        // same height, and the app's content never has to shrink to make space
+        // for something it did not ask for.
+        let width = min(max(fitting.width + Self.padX * 2 + affordanceWidth, floor), maxWidth)
         let height = min(max(fitting.height + Self.padY * 2, Self.minHeight), Self.maxHeight)
         return CGSize(width: width, height: height)
     }
 
     override func layout() {
         super.layout()
+        let padded = bounds.insetBy(dx: Self.padX, dy: Self.padY)
+        // Trailing, vertically centred — design.html §03 draws it at the end of
+        // the payload row, after the line.
+        if showsOpenAffordance {
+            chevron.frame = CGRect(
+                x: padded.maxX - LedgeMetrics.swellChevronBox,
+                y: padded.midY - LedgeMetrics.swellChevronBox / 2,
+                width: LedgeMetrics.swellChevronBox,
+                height: LedgeMetrics.swellChevronBox
+            )
+        }
         guard let content else { return }
-        let available = bounds.insetBy(dx: Self.padX, dy: Self.padY)
+        let available = CGRect(
+            x: padded.minX,
+            y: padded.minY,
+            width: max(0, padded.width - affordanceWidth),
+            height: padded.height
+        )
         let fitting = content.fittingSize
-        // Centred both ways: a mini is one line about one thing, and left-
+        // Centred both ways: a swell is one line about one thing, and left-
         // aligning it in a surface sized to fit leaves a gap that reads as a
         // layout bug rather than a choice.
         content.frame = CGRect(
@@ -250,58 +268,10 @@ final class MiniContentView: FlippedView {
             height: min(fitting.height, available.height)
         )
     }
+
+    // MARK: - Test seams
+
+    var chevronView: NSImageView { chevron }
 }
 
-/// The **[+]** surface (spec §8): the same chat over a folder that doesn't
-/// exist yet. Shell chrome; inert until the builder adapters land.
-final class NewAppContentView: FlippedView {
-    static let panelHeight: CGFloat = 352
-
-    init(callbacks: ShellCallbacks) {
-        super.init(frame: .zero)
-        let header = AppHeaderView(title: "New app", status: "untitled.jsx")
-        header.frame = CGRect(x: 0, y: 0, width: 440, height: 34)
-        addSubview(header)
-
-        let preview = RoundedBoxView(fill: NSColor.clear, stroke: NSColor.white.withAlphaComponent(0.14), radius: 12)
-        preview.layer?.borderWidth = 1.5
-        preview.frame = CGRect(x: 16, y: 42, width: 408, height: 56)
-        let previewLabel = makeLabel(
-            "Preview appears here as the app is built",
-            font: LedgeTheme.systemFont(11.5),
-            color: LedgeTheme.tertiary,
-            alignment: .center
-        )
-        previewLabel.frame = CGRect(x: 16, y: 19, width: 376, height: 18)
-        preview.addSubview(previewLabel)
-        addSubview(preview)
-
-        let divider = DividerLabelView(title: "Transcript")
-        divider.frame = CGRect(x: 16, y: 105, width: 408, height: 22)
-        addSubview(divider)
-
-        let user = ChatBubbleView(
-            text: "track flight UA 884 tomorrow, ping me if the gate changes",
-            isUser: true
-        )
-        user.frame = CGRect(x: 150, y: 132, width: 274, height: 50)
-        addSubview(user)
-
-        let ai = ChatBubbleView(
-            text: "On it — writing flight.jsx with a monitor() on the departures feed. It’ll need network access to flightaware.com.",
-            isUser: false
-        )
-        ai.frame = CGRect(x: 16, y: 188, width: 334, height: 62)
-        addSubview(ai)
-
-        let input = ChatInputView(placeholder: "Describe an app…")
-        input.frame = CGRect(x: 12, y: 254, width: 416, height: 44)
-        addSubview(input)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
 

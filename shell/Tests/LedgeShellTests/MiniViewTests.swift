@@ -4,15 +4,17 @@ import Testing
 @testable import LedgeShell
 @testable import LedgeShellCore
 
-/// **The mini view** — the third presentation rung, between the collapsed wing
-/// and the full panel (spec §3.3 extension: `<mini>` + `ctx.peek`).
+/// **The notification** — the app interrupting, in the notch's swell (flow.md,
+/// Interruption). `mini` is the wire name the §5 node and `ctx.peek` keep; the
+/// surface it fills is one of the two swells.
 ///
-/// The property this suite protects is that a peek is an *interruption you can
+/// The property this suite protects is that it is an *interruption you can
 /// ignore*, never a background app taking the screen: it only escalates from
-/// collapsed, it puts itself away, it does not rewrite which app you were using,
-/// and reaching for it opens that app rather than whatever you had before.
+/// Resting or Ambient, it puts itself away, it does not rewrite which session
+/// you were in, and acting on it opens that session rather than whatever you
+/// had before.
 @MainActor
-@Suite("Mini view (spec §3.3 extension)")
+@Suite("The notification (spec §5 `mini`, flow.md Interruption)")
 struct MiniViewTests {
 
     // MARK: - Placement
@@ -62,15 +64,27 @@ struct MiniViewTests {
 
     // MARK: - Presentation state
 
-    @Test("A mini is not an expansion")
+    @Test("A swell is not an expansion, and both swells answer alike")
     func miniIsNotExpanded() {
-        let mini = ShellPresentation.mini(app: "music")
-        // Load-bearing: the hover machinery treats `isExpanded` as "already
-        // open". If a peek claimed to be an expansion, hovering it would try to
-        // close the panel instead of opening the app.
-        #expect(!mini.isExpanded)
-        #expect(mini.isMini)
-        #expect(mini.app == "music")
+        let notification = ShellPresentation.notification(app: "music")
+        // Load-bearing: `isExpanded` is "the visit is open", and every law in
+        // flow.md's table that turns on it — what a click means, whether the
+        // walk-away timer may run, whether the cutout row carries controls —
+        // would answer wrongly for a swell that claimed to be one.
+        #expect(!notification.isExpanded)
+        #expect(notification.isMini)
+        #expect(notification.isNotification)
+        #expect(notification.isSwell)
+        #expect(notification.app == "music")
+        // `notification(app:)` is an alias, not a second case: the wire says
+        // `mini`, the shell says notification, and they are the same value.
+        #expect(notification == .mini(app: "music"))
+
+        let summary = ShellPresentation.summary(app: "chess")
+        #expect(!summary.isExpanded)
+        #expect(summary.isSummary)
+        #expect(summary.isSwell)
+        #expect(!summary.isMini, "the two swells are distinguishable, and only here")
     }
 
     /// Reporting a presented app is what produces `selection` + the
@@ -83,6 +97,9 @@ struct MiniViewTests {
     func miniReportsNothingToTheHost() {
         #expect(ShellPresentation.mini(app: "music").app == "music")
         #expect(ShellPresentation.mini(app: "music").reportedApp == nil)
+        // The summary is the same: a glance is not a visit, so no worker is
+        // told its panel opened just because the pointer rested on the notch.
+        #expect(ShellPresentation.summary(app: "chess").reportedApp == nil)
 
         // Every other surface reports exactly what it shows.
         #expect(ShellPresentation.expanded(app: "chess").reportedApp == "chess")
@@ -116,18 +133,27 @@ struct MiniViewTests {
         #expect(state.presentation == .expanded(app: "chess"))
     }
 
-    @Test("Reaching for a mini opens that app, and remembers it")
+    @Test("Acting on a swell opens that session, and remembers it")
     func promotingAMiniIsAChoice() {
         var state = ShellState()
         state.present(.expanded(app: "chess"))
         state.present(.collapsed)
         state.present(.mini(app: "music"))
 
-        state.promoteMini()
+        state.promoteSwell()
 
         #expect(state.presentation == .expanded(app: "music"))
-        // Now it WAS a visit, so it becomes the remembered app.
+        // Now it WAS a visit, so it becomes the remembered session.
         #expect(state.lastPresentedApp == "music")
+
+        // The summary promotes the same way — flow.md: "Summary | click
+        // anywhere | Visit".
+        state.present(.collapsed)
+        state.present(.summary(app: "chess"))
+        #expect(state.lastPresentedApp == "music", "a glance is not a visit")
+        state.promoteSwell()
+        #expect(state.presentation == .expanded(app: "chess"))
+        #expect(state.lastPresentedApp == "chess")
     }
 
     @Test("A late dwell timer cannot close what it no longer owns")
@@ -152,11 +178,11 @@ struct MiniViewTests {
         #expect(state.presentation == .collapsed)
     }
 
-    @Test("promoteMini is a no-op when no mini is up")
+    @Test("promoteSwell is a no-op when no swell is up")
     func promoteWithoutMini() {
         var state = ShellState()
         state.present(.expanded(app: "chess"))
-        state.promoteMini()
+        state.promoteSwell()
         #expect(state.presentation == .expanded(app: "chess"))
     }
 

@@ -381,6 +381,38 @@ describe("ctx bridges", () => {
   });
 });
 
+// Reduce Motion (spec §4.2, principle 10). A property rather than a callback,
+// because the code that has to obey it is a draw loop — and read-only, because
+// an app that could set it would be turning the user's accessibility preference
+// off from inside the app.
+describe("ctx.reduceMotion", () => {
+  test("defaults to false and tracks what the shell last said", () => {
+    const { ctx, setReduceMotion } = createCtx({ post: () => {}, update: () => {} });
+    expect(ctx.reduceMotion).toBe(false);
+
+    setReduceMotion(true);
+    expect(ctx.reduceMotion).toBe(true);
+    setReduceMotion(false);
+    expect(ctx.reduceMotion).toBe(false);
+  });
+
+  test("a reference captured by a frame loop sees today's value, not boot's", () => {
+    const { ctx, setReduceMotion } = createCtx({ post: () => {}, update: () => {} });
+    // The documented pattern: a monitor keeps `ctx` and a setInterval reads it.
+    const captured = ctx;
+    setReduceMotion(true);
+    expect(captured.reduceMotion).toBe(true);
+  });
+
+  test("app code cannot write it", () => {
+    const { ctx } = createCtx({ post: () => {}, update: () => {} });
+    expect(() => {
+      (ctx as { reduceMotion: boolean }).reduceMotion = true;
+    }).toThrow();
+    expect(ctx.reduceMotion).toBe(false);
+  });
+});
+
 describe("ctx.update", () => {
   test("a fake monitor's updates shallow-merge and re-render", () => {
     const sink = new InMemorySink();
@@ -426,5 +458,30 @@ describe("ctx.update", () => {
         msg.type === "chrome" && msg.request === "peek",
     );
     expect(peeks.map((msg) => msg.ms)).toEqual([4000, 1500, 500, 20_000, 4000]);
+    // None of them named a class, so none of them carries one: absent is
+    // ambient, and a default spelled out on the wire is a default that has to be
+    // kept in sync in two places.
+    expect(peeks.every((msg) => msg.cls === undefined)).toBe(true);
+  });
+
+  // flow.md's Ti knob has two halves — "Ti ≈ 6 s for ambient-class, alert-class
+  // holds" — and this field is the whole of the second one. An alert that timed
+  // out while the user was looking away is the one failure this surface cannot
+  // have.
+  test("peek carries its priority class, and nothing else does", () => {
+    const { posts, post } = recorder();
+    const { ctx } = createCtx({ post, update: () => {} });
+
+    ctx.peek(2000, { class: "alert" });
+    ctx.peek(2000, { class: "ambient" });
+
+    const peeks = posts.filter(
+      (msg): msg is Extract<WorkerToHost, { type: "chrome" }> =>
+        msg.type === "chrome" && msg.request === "peek",
+    );
+    expect(peeks.map((msg) => msg.cls)).toEqual(["alert", "ambient"]);
+    // The dwell is still clamped: an alert holds on the shell's decision, not
+    // by asking for a twenty-minute peek.
+    expect(peeks.map((msg) => msg.ms)).toEqual([2000, 2000]);
   });
 });

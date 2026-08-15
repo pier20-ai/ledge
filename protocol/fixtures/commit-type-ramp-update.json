@@ -1,0 +1,6 @@
+{ "v": 1, "app": "type", "seq": 2, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 2, "props": { "content": "9°" } },
+  { "op": "update", "id": 3, "props": { "size": "hero" } },
+  { "op": "update", "id": 4, "props": { "caps": null } },
+  { "op": "update", "id": 6, "props": { "caps": true, "content": "Steady" } }
+] } }

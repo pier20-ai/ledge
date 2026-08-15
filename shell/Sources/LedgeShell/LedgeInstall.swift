@@ -26,8 +26,15 @@ enum LedgeInstall {
         "2cb03dc92cf9f0c82eb95a2b43c0b96f61f5abc97f9c44ff048ffbfd64e988db",
         // 33a5e62: working app toggles and Quit, but no route back to Permissions.
         "8e55f92d07814ed65d893b9dc71b274e3e3144095d6a0d6238233ab87f9ef10f",
-        // c492b16..HEAD: Permissions called the obsolete ctx.platform API.
+        // c492b16: Permissions called the obsolete ctx.platform API.
         "41d6114988791705aa95a6cc5b2fa9c613d7bf8e5636f21391c372c6a01a8d4d",
+        // a4a6bcb..G3.2: the pre-reset panel — a filled Quit capsule, a
+        // "Permissions…" text button and a "Quit Ledge" footer row, all of
+        // which the visual audit cut. Missing from this set until G3.2, which
+        // is why a shipped Ledge on that source would not have been upgraded:
+        // **every** commit that edits `protocol/demo-apps/settings/app.jsx`
+        // owes this list the digest of the source it replaced.
+        "3271ece363f218205215abdfb7d1abeb43ae24796aebca01d0c9aaf08b635391",
     ]
 
     /// Overrides the install root (`--ledge-root`). Redirects seeding, the apps

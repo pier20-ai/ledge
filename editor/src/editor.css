@@ -1,43 +1,62 @@
-/* The builder surface, styled to belong to the panel it lives in.
+/* Chat mode — the transcript pane (design.html §01 "Chat" + §08).
  *
- * Two rules govern everything here:
+ * Three rules govern everything here:
  *
- *   1. The page is TRANSPARENT. The black glass, the rounded corners and the
- *      rim light belong to the Swift surface; this draws on top of them. Any
- *      opaque background — including the browser default — does not tint that
- *      glass, it replaces it, and the notch stops looking like hardware. Swift
- *      also turns off `drawsBackground`; both halves are needed.
+ *   1. The page is TRANSPARENT, end to end. The black glass, the gradient that
+ *      runs it from opaque at the top to clear at the bottom, the rounded
+ *      corners and the rim light are the Swift surface's (`ShellSurfaceView`,
+ *      `ChatSurfaceView`). This page draws bubbles and a pill on top of them and
+ *      nothing else. Any opaque background — including the browser default —
+ *      does not tint that glass, it replaces it, and the notch stops looking
+ *      like hardware.
  *   2. Nothing is fetched. No web fonts, no images, no remote anything: the page
  *      loads from file:// under a strict CSP, so a font-face URL is not a slow
  *      render, it is a blocked request and a fallback nobody chose.
- *
- * Colours restate the shell's own tokens (Theme.swift). Duplicated rather than
- * injected because fetching a palette over the bridge would put a round trip in
- * front of first paint, and these have not changed in the life of the project.
+ *   3. Every value below is design.html's, copied whole (principle 15). The
+ *      duplication is deliberate and tracked: the tokens cannot be imported
+ *      across the file:// boundary without a fetch, so they are transcribed —
+ *      and a value that disagrees with design.html is a defect here, not a
+ *      local decision.
  */
 
 :root {
-  /* Raised across the board after reading it on a real panel.
-   *
-   * White-on-black is not the same problem as black-on-white: the glass sits
-   * over whatever is behind the notch, the panel is small, and it is usually
-   * read at a glance rather than studied. The first pass used AppKit's own
-   * secondary/tertiary alphas (0.62 / 0.38), which are tuned for large opaque
-   * surfaces and come out genuinely hard to read here — the reasoning block and
-   * the marker label were the worst of it.
-   *
-   * Secondary text is now readable in its own right rather than merely present;
-   * only the true furniture (hairlines, disabled ink) stays quiet. */
-  --ink: rgba(255, 255, 255, 0.98);
-  --ink-2: rgba(255, 255, 255, 0.80);
-  --ink-3: rgba(255, 255, 255, 0.58);
-  --raised: rgba(255, 255, 255, 0.09);
-  --raised-hi: rgba(255, 255, 255, 0.15);
-  --hairline: rgba(255, 255, 255, 0.16);
-  /* The shell's own accent (Theme.swift): amber, not iOS blue. The send
-     button sits inches from AppKit controls using the same colour. */
+  /* product · material (design.html --glass* / --raised / --hairline-d) */
+  --glass-solid: #050506;
+  --raised: rgba(255, 255, 255, 0.055);
+  --raised-hover: rgba(255, 255, 255, 0.085);
+  --hairline-d: rgba(255, 255, 255, 0.09);
+  --track: rgba(255, 255, 255, 0.14);
+  /* product · ink */
+  --ink-1: rgba(255, 255, 255, 0.94);
+  --ink-2: rgba(255, 255, 255, 0.56);
+  --ink-3: rgba(255, 255, 255, 0.32);
+  /* product · hue (rationed — principle 3). Violet is you, cyan is the agent,
+     and in this surface those two appear nowhere else. */
   --accent: #ffb454;
-  --radius: 11px;
+  --red: #ff453a;
+  --violet: #8f61ff;
+  --cyan: #2ed1f0;
+  /* product · geometry */
+  --r-chip: 8px;
+  --r-content: 14px;
+  --r-pill: 999px;
+  /* product · the bead: a Ledge control is the glass swelling */
+  --bead-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05));
+  --bead-fill-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.09));
+  --bead-edge: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(0, 0, 0, 0.5);
+  /* product · motion (design.html §07: two eases, three durations) */
+  --ease-pop: cubic-bezier(0.34, 1.45, 0.4, 1);
+  --ease-settle: cubic-bezier(0.33, 1, 0.45, 1);
+  --dur-fast: 180ms;
+  --dur-move: 380ms;
+
+  --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+  /* How much of the pane the native stage occupies at the top. Swift owns this
+     number (`ChatSurfaceView`); the transcript starts below it and the newest
+     bubble is allowed to float back over its bottom edge. */
+  --stage-inset: 0px;
 }
 
 * {
@@ -50,10 +69,8 @@ body {
   padding: 0;
   height: 100%;
   background: transparent;
-  color: var(--ink);
-  /* -apple-system resolves to the face AppKit draws the rest of the panel in,
-     so the transcript and the app strip read as one product. */
-  font: 12.5px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  color: var(--ink-1);
+  font: 12.5px/1.45 var(--sys);
   -webkit-font-smoothing: antialiased;
   overflow: hidden;
   /* The panel owns every gesture that moves it; a rubber-band scroll of the
@@ -66,513 +83,449 @@ body {
   cursor: default;
 }
 
-#root,
-.editor {
+#root {
   height: 100%;
 }
 
-.editor {
+/* ------------------------------------------------------------------- the pane
+   design.html `.glasspanel` padding, minus the gradient — the gradient is the
+   panel body itself, painted in Swift, because it has to fade the *silhouette*
+   (fillets, bottom radius and all) and not a rectangle inside it. */
+.pane {
   position: relative;
+  height: 100%;
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  padding: 14px 12px 12px;
 }
 
-/* ---------------------------------------------------------------- banner */
-
-/* Shown when the agent Ledge builds with is not installed. Not an error — this
-   is a working panel with one thing missing — so it is amber like the Preview
-   toggle rather than red, and it sits ABOVE the transcript rather than inside a
-   turn: nothing has failed yet, and it applies to every app, not this one. */
-.banner {
+/* The room the native stage takes at the top of the pane. Not a view of the
+   stage — the stage is a real AppKit tree behind this page, dimmed and scaled
+   by Swift. This is the hole the transcript leaves for it. */
+.stagegap {
   flex: none;
-  margin: 10px 14px 0;
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 180, 84, 0.35);
-  border-radius: var(--radius);
-  background: rgba(255, 180, 84, 0.1);
+  height: var(--stage-inset);
 }
 
-.banner p {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--ink-2);
-}
-
-.banner b {
-  color: var(--ink);
-  font-weight: 600;
-}
-
-.banner .hint {
-  margin-top: 6px;
-  color: var(--ink-3);
-}
-
-/* The one thing to do about it. Selectable, because the next step is pasting
-   it into a terminal. */
-.banner-command {
-  margin: 8px 0 0;
-  padding: 6px 9px;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--hairline);
-  overflow-x: auto;
-  user-select: text;
-}
-
-.banner-command code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 11.5px;
-  color: var(--accent);
-  white-space: pre;
-}
-
-/* ------------------------------------------------------------- transcript */
-
-.transcript {
+/* --------------------------------------------------------------- the scroller
+   At rest the last exchange lingers at the bottom; everything older is a scroll
+   away, sliding under a top fade (design.html §08). */
+/* The 14 pt of overlap design.html §08 draws on the first bubble: history
+   slides *under* the stage's bottom edge as it scrolls away, rather than
+   stopping politely below it. The mask does the rest. */
+.scroll {
   flex: 1 1 auto;
   min-height: 0;
+  margin-top: -14px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 10px 14px 4px;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 22px);
 }
 
-/* The scrollbar is presentation the panel already provides by other means: a
-   gutter here sits inside a rounded black shape and reads as a seam. */
-.transcript::-webkit-scrollbar {
+.scroll::-webkit-scrollbar {
   display: none;
 }
 
-.empty {
-  color: var(--ink-3);
-  padding: 18px 4px;
-}
-
-.empty p {
-  margin: 0 0 4px;
-}
-
-.empty b {
-  color: var(--ink-2);
-  font-weight: 600;
-}
-
-.empty .hint {
-  font-size: 11.5px;
-}
-
-.empty code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--raised);
-  color: var(--ink-2);
-}
-
-.composer textarea:disabled {
-  opacity: 0.5;
-}
-
-.turn {
+/* Bottom-anchored without `justify-content` on the scroll box itself, which in
+   WebKit makes the overflowing top unreachable. */
+.bubbles {
+  position: relative;
+  z-index: 2;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
-  /* Enough that a turn anchored to the top of the viewport reads as a new turn,
-     without wasting a panel only ~400 pt tall. */
-  margin-bottom: 18px;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 6px;
 }
 
-/* The user's own words, right-aligned so the eye finds the question in a
-   scrolled transcript without reading it. */
-.prompt {
-  align-self: flex-end;
-  max-width: 85%;
-  padding: 6px 10px;
-  border-radius: var(--radius);
-  background: var(--raised-hi);
+/* ------------------------------------------------------------------- bubbles */
+
+.bubble {
+  max-width: 76%;
+  padding: 8px 13px;
+  border-radius: 16px;
+  font: 400 12.5px/1.45 var(--sys);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   user-select: text;
 }
 
-.reply {
-  max-width: 100%;
-  user-select: text;
+/* You. Violet, lit from inside — the one place in the product this hue appears
+   besides the pill's own draft. */
+.bubble.you {
+  align-self: flex-end;
+  color: #fff;
+  background: linear-gradient(160deg, #a47cff, #7e4ff2);
+  box-shadow:
+    0 0 26px rgba(143, 97, 255, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  border-bottom-right-radius: 5px;
 }
 
-.reply p {
-  margin: 0 0 8px;
+/* The agent. Cyan-tinted glass: a wash, a hairline, and a glow. */
+.bubble.agent {
+  align-self: flex-start;
+  color: var(--ink-1);
+  background: linear-gradient(160deg, rgba(46, 209, 240, 0.32), rgba(46, 209, 240, 0.15));
+  border: 1px solid rgba(46, 209, 240, 0.38);
+  box-shadow:
+    0 0 24px rgba(46, 209, 240, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  border-bottom-left-radius: 5px;
 }
 
-.reply p:last-child {
+/* Trouble is the same bubble in the alert hue: urgency is ink, never geometry
+   (flow.md, Edges). No card, no code, no stack trace — the agent's own sentence
+   in red glass. */
+.bubble.agent.trouble {
+  background: linear-gradient(160deg, rgba(255, 69, 58, 0.28), rgba(255, 69, 58, 0.13));
+  border-color: rgba(255, 69, 58, 0.38);
+  box-shadow:
+    0 0 24px rgba(255, 69, 58, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.bubble p {
+  margin: 0 0 6px;
+}
+
+.bubble p:last-child {
   margin-bottom: 0;
 }
 
-.reply strong {
+.bubble strong {
   font-weight: 600;
 }
 
-.reply code {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 11.5px;
-  padding: 1px 4px;
-  border-radius: 4px;
-  background: var(--raised);
+.bubble em {
+  font-style: italic;
 }
 
-.reply pre {
-  width: 100%;
-  margin: 0 0 8px;
-  padding: 8px 10px;
-  border-radius: var(--radius);
-  /* Lifted OFF the glass rather than cut into it: a darker-than-black box on a
-     panel that is already black reads as a hole, and the code inside it loses
-     the little contrast the surface had. */
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid var(--hairline);
-  /* Code is the one thing here that may exceed the panel's width, and wrapping
-     it would misrepresent what the agent wrote. */
-  overflow-x: auto;
+.bubble ul,
+.bubble ol {
+  margin: 0 0 6px;
+  padding-left: 16px;
 }
 
-.reply pre code {
-  padding: 0;
-  background: none;
-  white-space: pre;
+.bubble li {
+  margin-bottom: 2px;
 }
 
-/* A heading inside a turn is a section marker, not a title: the turn already
-   has a beginning. One size for every level — see markdown.js. */
-.reply h4 {
-  margin: 12px 0 6px;
-  font-size: 12.5px;
-  font-weight: 700;
-}
-
-.reply h4:first-child {
-  margin-top: 0;
-}
-
-.reply ul,
-.reply ol {
-  margin: 0 0 8px;
-  /* Enough to hang the marker, not the browser's 40px — which on a 440 pt panel
-     is a tenth of the width spent on nothing. */
-  padding-left: 18px;
-}
-
-.reply li {
-  margin-bottom: 3px;
-  white-space: pre-wrap;
-}
-
-/* A link's target is not shown (nothing here can navigate); the label is styled
-   only enough to read as the name of a thing. */
-.reply .link {
-  color: var(--ink);
+/* A link's target is never shown and nothing here can navigate; the label is
+   styled only enough to read as the name of a thing. */
+.bubble .link {
+  color: inherit;
   text-decoration: underline;
-  text-decoration-color: var(--hairline);
+  text-decoration-color: rgba(255, 255, 255, 0.4);
   text-underline-offset: 2px;
 }
 
-/* ------------------------------------------------------------------ tables */
-
-/* A before/after table is how these models summarise a change, so it has to
-   survive a narrow panel. It scrolls sideways INSIDE its own box rather than
-   wrapping every cell to two words, and never widens the transcript — a page
-   that scrolls horizontally would slide off the notch's own shape. */
-.table-wrap {
-  width: 100%;
-  max-width: 100%;
-  margin: 0 0 8px;
-  overflow-x: auto;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
+.turn {
+  display: contents;
 }
 
-.table-wrap::-webkit-scrollbar {
-  display: none;
+/* ------------------------------------------------------------------- the gap
+   The only timestamp in the product: shown when a turn arrives long after the
+   one above it, because that is the only moment the hour is information. */
+.gap {
+  align-self: center;
+  padding: 4px 0 2px;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
 }
 
-.reply table {
-  border-collapse: collapse;
-  font-size: 11.5px;
-  /* Not 100%: a table forced to the panel's width squeezes its columns into
-     unreadable slivers. It takes the width its content needs and scrolls. */
-  min-width: 100%;
-}
-
-.reply th,
-.reply td {
-  padding: 5px 9px;
-  text-align: left;
-  vertical-align: top;
-  white-space: pre-wrap;
-  /* Long enough to read a phrase, short enough that three columns fit. */
-  max-width: 220px;
-}
-
-.reply th {
-  font-weight: 600;
-  color: var(--ink);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.reply td {
-  color: var(--ink-2);
-}
-
-/* Rules between rows only — a full grid is more ink than a three-column table
-   in a notch needs. */
-.reply tbody tr + tr td,
-.reply thead + tbody td {
-  border-top: 1px solid var(--hairline);
-}
-
-/* ------------------------------------------------------------ tool marker */
-
-/* A labelled rule, not a chip: there is exactly one of these per turn and it is
-   replaced in place as the agent works. It reads as "this is what is happening"
-   rather than as an item in a list, which is the difference between a
-   transcript and a build log. */
-.marker {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 2px 0;
-  font-size: 11px;
-  color: var(--ink-2);
-}
-
-.marker::after {
-  content: "";
-  flex: 1 1 auto;
-  height: 1px;
-  background: var(--hairline);
-}
-
-/* One line, always. The adapter truncates the text, but a command with no
-   spaces can still be wider than the panel. */
-.marker-text {
-  flex: 0 1 auto;
-  min-width: 0;
+/* ------------------------------------------------------------------ shimmer
+   Tool activity, and the only thing that ever reports it. One line, swept, and
+   gone the moment the work is: no status rows, no expansion, no build log. */
+.shimmer {
+  align-self: flex-start;
+  padding-left: 6px;
+  max-width: 92%;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* Full ink: reading WHICH file changed is the entire point of this line. */
-  color: var(--ink);
-}
-
-/* Running pulses; finished simply stops. Movement is how you tell "still going"
-   from "done" without reading anything. */
-.marker-live .marker-text {
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.45;
-  }
-}
-
-/* --------------------------------------------------------------- reasoning */
-
-/* Same family as the tool marker — a quiet line about what is happening rather
-   than something the agent said — but with no rule beside it: a border made it
-   look like a quoted block, which is a claim about importance it should not be
-   making. Italic and grey carry the distinction on their own.
-
-   Present, never hidden: this is the only thing on screen for the opening
-   stretch of a real turn, so a disclosure would restore exactly the "is it
-   working?" problem it exists to solve. Wraps, because unlike a tool call it is
-   prose and truncating it would leave half a thought. */
-.reasoning {
-  width: 100%;
-  color: var(--ink-2);
-  font-size: 11.5px;
-  font-style: italic;
-  white-space: pre-wrap;
-  user-select: text;
-}
-
-/* ------------------------------------------------------- status and outcome */
-
-.thinking {
-  display: flex;
-  gap: 4px;
-  padding: 4px 2px;
-}
-
-.thinking i {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ink-2);
-  animation: bounce 1.2s ease-in-out infinite;
-}
-
-.thinking i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.thinking i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes bounce {
-  0%,
-  60%,
-  100% {
-    opacity: 0.3;
-  }
-  30% {
-    opacity: 1;
-  }
-}
-
-.status {
-  font-size: 11.5px;
-  color: var(--ink);
-}
-
-/* A status line is by definition about something still happening, so it moves.
-   Used for the retry line, which would otherwise read as a failure. */
-.shimmer {
-  background: linear-gradient(90deg, var(--ink-3) 20%, var(--ink) 50%, var(--ink-3) 80%);
+  font: 400 10.5px/1.6 var(--mono);
+  background: linear-gradient(90deg, var(--ink-3) 30%, var(--ink-1) 50%, var(--ink-3) 70%);
   background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: shimmer 2s linear infinite;
+  animation: sweep 1.6s linear infinite;
 }
 
-@keyframes shimmer {
+@keyframes sweep {
+  from {
+    background-position: 180% 0;
+  }
   to {
-    background-position: -200% 0;
+    background-position: -20% 0;
   }
 }
 
-.error {
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: var(--radius);
-  background: rgba(255, 69, 58, 0.12);
-  border: 1px solid rgba(255, 69, 58, 0.3);
-  color: #ffb3ad;
-  font-size: 11.5px;
-  white-space: pre-wrap;
-  /* The one thing on this surface a user will want to paste somewhere. */
-  user-select: text;
+/* -------------------------------------------------------------- empty state
+   One glyph, one line, never an apology and never a button: the pill below is
+   the action (design.html §08, "First launch"). */
+.empty {
+  margin: auto 0;
+  text-align: center;
+  padding: 18px 20px 22px;
 }
 
-.outcome {
-  font-size: 11px;
+.empty svg {
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+
+.empty .eline {
+  font: 400 12.5px/1.5 var(--sys);
   color: var(--ink-2);
 }
 
-.outcome-failed {
-  color: #ffb3ad;
-}
-
-/* ------------------------------------------------------------- the composer */
-
+/* ------------------------------------------------------------- jump to latest
+   A bead, and it exists only while the past is on screen. */
 .jump {
   position: absolute;
   left: 50%;
+  bottom: 60px;
   transform: translateX(-50%);
-  bottom: 58px;
-  padding: 4px 12px;
-  border: 1px solid var(--hairline);
-  border-radius: 99px;
-  background: rgba(30, 30, 30, 0.9);
-  color: var(--ink-2);
-  font: inherit;
-  font-size: 11px;
-  cursor: default;
-  backdrop-filter: blur(12px);
+  width: 23px;
+  height: 23px;
+  border: none;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-1);
+  background: var(--bead-fill);
+  box-shadow: var(--bead-edge);
+  z-index: 3;
+  animation: bead-in var(--dur-fast) var(--ease-pop) both;
 }
 
-.composer {
+.jump:hover {
+  background: var(--bead-fill-hover);
+}
+
+@keyframes bead-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+}
+
+/* ----------------------------------------------------------------- the pill
+   Capsule at rest, 20 pt corners while composing, and it sits on the clearest
+   glass the pane has. */
+.pill {
   flex: none;
+  position: relative;
+  z-index: 3;
+  margin-top: 10px;
+  min-height: 40px;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   gap: 8px;
-  padding: 8px 12px 12px;
+  padding: 0 5px;
+  transition:
+    border-radius var(--dur-fast) var(--ease-settle),
+    background var(--dur-fast) linear;
 }
 
-.composer textarea {
+/* Grown: the draft is two or three lines, the corners relax to 20, and the
+   controls sit at the bottom of the box beside the last line. */
+.pill.grown {
+  align-items: flex-end;
+  border-radius: 20px;
+  padding: 8px 8px 8px 5px;
+}
+
+.pill textarea {
   flex: 1 1 auto;
-  min-height: 30px;
-  max-height: 96px;
-  padding: 6px 10px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: var(--raised);
-  color: var(--ink);
-  font: inherit;
-  resize: none;
+  min-width: 0;
+  height: 18px;
+  max-height: 54px; /* three lines at 18 */
+  padding: 0;
+  border: none;
   outline: none;
+  background: none;
+  resize: none;
+  overflow-y: auto;
+  color: var(--ink-1);
+  font: 400 12.5px/18px var(--sys);
   user-select: text;
 }
 
-.composer textarea::placeholder {
-  color: var(--ink-3);
+.pill.grown textarea {
+  padding-bottom: 3px;
 }
 
-.composer textarea:focus {
-  border-color: rgba(255, 180, 84, 0.5);
-  background: var(--raised-hi);
+.pill textarea::-webkit-scrollbar {
+  display: none;
 }
 
-.composer button {
+.pill textarea::placeholder {
+  color: var(--ink-2);
+}
+
+.pill textarea:disabled {
+  opacity: 0.55;
+}
+
+/* ⊕ attach — an app-tier bare glyph, not a bead: it opens something outside
+   Ledge rather than changing Ledge's own state. */
+.icosm {
   flex: none;
-  height: 30px;
-  padding: 0 12px;
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  font: inherit;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--ink-1);
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast) linear;
+}
+
+.icosm:hover {
+  background: var(--raised-hover);
+}
+
+.icosm svg {
+  display: block;
+}
+
+/* The transcript toggle — the ONE coloured control on this surface, and it
+   wears the conversation's hue in both directions. */
+.toggle {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #04353d;
+  background: linear-gradient(180deg, #5fe4f8, var(--cyan));
+  box-shadow:
+    0 0 16px rgba(46, 209, 240, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: box-shadow var(--dur-fast) linear;
+}
+
+.toggle:hover {
+  box-shadow:
+    0 0 22px rgba(46, 209, 240, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.toggle svg {
+  display: block;
+}
+
+/* Send: the only bead inside the pill. While a turn runs the same bead becomes
+   stop — one control, because there is only ever one thing to do to a turn. */
+.bead {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-1);
+  background: var(--bead-fill);
+  box-shadow: var(--bead-edge);
+  transition:
+    background var(--dur-fast) linear,
+    transform 0.1s linear;
+}
+
+.bead:hover {
+  background: var(--bead-fill-hover);
+}
+
+.bead:active {
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.bead:disabled {
+  color: var(--ink-3);
+}
+
+.bead svg {
+  display: block;
+}
+
+/* ------------------------------------------------------------------ collapsed
+   ⌄ clears the pane to watch the stage. The bubbles and the shimmer go; the
+   pill stays exactly where it was, because it is the way back. */
+.pane.collapsed .scroll,
+.pane.collapsed .jump {
+  display: none;
+}
+
+.pane.collapsed .pill {
+  margin-top: auto;
+}
+
+/* -------------------------------------------------------------- the banner
+   Ledge builds with the user's own agent and never talks to a model itself, so
+   "it isn't installed" is a condition of the whole surface rather than a failed
+   turn. One line and the one command that fixes it. */
+.banner {
+  flex: none;
+  margin-bottom: 8px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 180, 84, 0.3);
+  border-radius: var(--r-content);
+  background: rgba(255, 180, 84, 0.09);
+  font: 400 11.5px/1.4 var(--sys);
+  color: var(--ink-2);
+}
+
+.banner b {
+  color: var(--ink-1);
   font-weight: 600;
-  font-size: 11.5px;
-  cursor: default;
-  color: #fff;
 }
 
-.composer .send {
-  background: var(--accent);
-  /* White, matching the amber send button the shell already draws. */
-  color: #fff;
+.banner code {
+  display: block;
+  margin-top: 6px;
+  font: 400 11px/1.4 var(--mono);
+  color: var(--accent);
+  user-select: text;
+  overflow-x: auto;
+  white-space: pre;
 }
 
-.composer .send:disabled {
-  background: var(--raised);
-  border-color: var(--hairline);
-  color: var(--ink-3);
-}
-
-/* Stop is not destructive and must not look like it — it is the ordinary way to
-   take a turn back. Quiet, but never hidden. */
-.composer .stop {
-  background: var(--raised-hi);
-  border-color: var(--hairline);
-  color: var(--ink);
-}
-
-.composer .stop:disabled {
-  color: var(--ink-3);
-}
-
+/* Reduce Motion: swap motion for fades, never skip the change itself
+   (principle 10). The shimmer becomes a still quiet line rather than
+   disappearing — it is carrying information, not decoration. */
 @media (prefers-reduced-motion: reduce) {
-  .chip-started,
-  .thinking i,
-  .shimmer {
-    animation: none;
+  * {
+    animation: none !important;
+    transition-duration: 1ms !important;
   }
   .shimmer {
-    color: var(--ink-2);
+    -webkit-background-clip: initial;
+    background-clip: initial;
     background: none;
-    -webkit-text-fill-color: currentColor;
+    color: var(--ink-3);
   }
 }

@@ -15,6 +15,33 @@
 # installed only when missing.
 #
 # Usage: scripts/snapshot-demos.sh [out-dir]
+#
+# Two flags on the dump step below are worth knowing when you are reviewing one
+# app rather than the set (host/scripts/dump-commits.ts):
+#
+#   --props '<json>'  mount with the props a monitor would have produced, so a
+#                     data-driven app can be seen in a state other than empty
+#                     without a throwaway preview module beside it. e.g.
+#                       bun scripts/dump-commits.ts …/nowplaying/app.jsx out.json \
+#                         --props '{"track":{"title":"Rhubarb","artist":"Aphex Twin",
+#                                            "playing":true,"done":0.42}}'
+#   --wing            run monitor(ctx) for ~400 ms against a recording ctx and
+#                     keep what it publishes: the first ctx.wing (rendered into
+#                     `<app>-wing.png` — the only way an app's collapsed-pill
+#                     signature is reviewable at all, since a wing is never part
+#                     of the mount tree) **and every canvas frame it drew**,
+#                     which is what puts pixels in a panel's wells.
+#
+# This script passes `--wing` for every app, so a full run always includes each
+# app's pill alongside its panel. Apps whose monitor cannot get going without a
+# live host (nowplaying needs a player) simply produce no wing and say so.
+#
+# Canvas apps therefore need no special handling any more. A `canvas` node's
+# content never travels in a commit (spec §3.4) — it arrives as draw frames from
+# a loop the monitor starts — so weather, chess and tetris used to render as
+# empty slabs, their whole signature missing from the one picture that is meant
+# to be evidence. The dump now carries a `draws` map keyed by node id and the
+# shell replays it as `draw` envelopes once the panel has been measured.
 
 set -euo pipefail
 
@@ -26,7 +53,40 @@ OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 
 # Strip order = spec §8 (installed apps left to right); Settings is pinned to the
 # far right by the shell, so its order only decides the snapshot sequence.
-APPS=(stocks music deals alarm trader cimedic chess tetris aviary settings)
+#
+# The list is the whole of protocol/demo-apps. Everything else that used to be
+# here predates the design reset and lives in protocol/demo-apps-archive, which
+# is not an apps root and is never scanned — chess and tetris came back out of
+# it in D4, rewritten against principles.md rather than restored.
+#
+# Both are canvas apps whose panel is a well, and both now paint into it here:
+# `--wing` runs their monitor, the monitor draws, and the `draws` map carries
+# those frames to the shell. To see a *particular* state rather than the opening
+# one (a mid-game position, a live score), pass `--props` to dump-commits
+# directly and read the panel.
+APPS=(nowplaying weather focus timer radio beacon chess tetris settings)
+
+# Mount props for the apps whose opening state is not their real one. Settings
+# is the whole of the list: its rows come from `ctx.platform.stats()`, which is
+# answered by the host — there is no host here, so the mount frame is its "no
+# catalog yet" line and the panel that gets reviewed shows none of the rows the
+# app is *for*. This is the `--props` escape hatch documented above, used for
+# exactly the reason it exists: the object a monitor would have handed it.
+app_props() {
+  case "$1" in
+    settings) cat <<'JSON'
+{"ready":true,"apps":[
+  {"id":"nowplaying","name":"Now Playing","icon":"sf:music.note","enabled":true},
+  {"id":"weather","name":"Weather","icon":"sf:cloud.sun","enabled":true},
+  {"id":"focus","name":"Focus","icon":"sf:timer","enabled":true},
+  {"id":"tetris","name":"Tetris","icon":"sf:square.grid.3x3.fill","enabled":false},
+  {"id":"settings","name":"Settings","icon":"sf:slider.horizontal.3","enabled":true}
+]}
+JSON
+      ;;
+    *) printf '' ;;
+  esac
+}
 
 COMMITS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ledge-commits.XXXXXX")"
 
@@ -53,9 +113,17 @@ log "dumping mount commits…"
 order=0
 for app in "${APPS[@]}"; do
   [ -f "$DEMO_APPS/$app/app.jsx" ] || fail "missing $DEMO_APPS/$app/app.jsx"
-  ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
-      "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" ) \
-    || fail "dump-commits failed for $app"
+  props="$(app_props "$app")"
+  if [ -n "$props" ]; then
+    ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
+        "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" --wing \
+        --props "$props" ) \
+      || fail "dump-commits failed for $app"
+  else
+    ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
+        "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" --wing ) \
+      || fail "dump-commits failed for $app"
+  fi
   order=$((order + 1))
 done
 

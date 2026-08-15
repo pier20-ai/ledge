@@ -11,6 +11,16 @@ private struct CommitDump: Decodable {
     /// The app's declared `meta.panel`, if it declared one (spec §5 extension).
     var panel: PanelSpec?
     var mutations: [Mutation]
+    /// `dump-commits --wing`: the collapsed-notch surface this app asked for
+    /// (spec §3.3) and the frame it drew into it (§3.4). Absent for the ordinary
+    /// panel-only dump.
+    var wing: WingSpec?
+    var wingOps: [JSONValue]?
+    /// Every canvas the app painted during that same window (§3.4), keyed by
+    /// node id. Replayed as `draw` envelopes once the panel has a size, which is
+    /// what makes a **panel** canvas — weather's pane, chess's board, tetris's
+    /// well — appear in the PNG instead of an empty slab.
+    var draws: [String: [JSONValue]]?
 }
 
 /// Renders the shell's surfaces to PNGs without a window or a host process.
@@ -57,7 +67,7 @@ enum SnapshotRenderer {
 
         // Collapsed pill.
         try write(
-            surface(catalog: catalog, presentation: .collapsed, content: nil, height: 0),
+            surface(presentation: .collapsed, content: nil, height: 0),
             named: "idle",
             to: directory
         )
@@ -66,55 +76,110 @@ enum SnapshotRenderer {
         // left, a live strip on the right. Replayed like everything else — the
         // draw ops go through the real coalescer and the real canvas view,
         // including the `image` op blitting a spritesheet cell (§3.4).
-        let wings = wingSurface(catalog: catalog)
+        let wings = wingSurface()
         try write(wings, cropping: wings.currentShapeRect, named: "wings", to: directory)
 
         // The same pill with a label and nothing else — the shape a countdown
         // app puts up, and the asymmetric case: the wing is entirely on one side
         // of the camera housing, so the pill hangs off one side of the cutout.
-        let textWing = wingSurface(catalog: catalog, spec: WingSpec(text: "⏰ 14:53 · 10m"))
+        let textWing = wingSurface(spec: WingSpec(text: "⏰ 14:53 · 10m"))
         try write(textWing, cropping: textWing.currentShapeRect, named: "wings-text", to: directory)
+
+        // …and the same pill with the stock **meter** in the right wing (spec
+        // §3.3 extension) — the timer's shape. Nothing here is drawn by an app:
+        // the bar's width, thickness and ink are the shell's, which is the whole
+        // difference between this and the canvas above.
+        let meterWing = wingSurface(spec: WingSpec(text: "12:04", meter: WingMeterSpec(value: 0.42)))
+        try write(meterWing, cropping: meterWing.currentShapeRect, named: "wings-meter", to: directory)
+
+        // An app's own wing, when `dump-commits --wing` captured one: the same
+        // pill as above, wearing what the app actually asked the notch for. This
+        // is the only way an app's *signature* is reviewable without a live
+        // player — a wing is never in the mount tree.
+        for dump in dumps {
+            guard let spec = dump.wing else { continue }
+            let pill = wingSurface(spec: spec, ops: dump.wingOps ?? [])
+            try write(pill, cropping: pill.currentShapeRect, named: "\(dump.app)-wing", to: directory)
+        }
 
         // Replayed app panels.
         for dump in dumps {
             guard let resolved = session.content(for: dump.app) else {
                 throw SnapshotError.noTree(dump.app)
             }
-            try write(
-                surface(
-                    catalog: catalog,
-                    presentation: .expanded(app: dump.app),
-                    content: resolved.view,
-                    wing: session.panelWing(for: dump.app),
-                    name: session.name(for: dump.app),
-                    width: resolved.width,
-                    height: resolved.height
-                ),
-                named: dump.app,
-                to: directory
+            let panel = surface(
+                presentation: .expanded(app: dump.app),
+                content: resolved.view,
+                width: resolved.width,
+                height: resolved.height
             )
+            // …and then the pixels. A `canvas` node's content never travels in a
+            // commit (§3.4), so up to here three of the demo apps rendered as an
+            // empty well. The draws go in **after** `surface` has laid the panel
+            // out, because `ProtocolCanvasView.apply(ops:)` rasterises into a
+            // buffer the size of its own `bounds` and a canvas that has not been
+            // measured yet has none — the frame would be dropped in silence.
+            if let draws = dump.draws, !draws.isEmpty {
+                try replay(draws: draws, app: dump.app, into: session)
+                panel.layoutSubtreeIfNeeded()
+                panel.displayIfNeeded()
+            }
+            try write(panel, named: dump.app, to: directory)
         }
 
-        // Shell chrome surfaces (spec §8): inert, no host tree behind them.
-        // No `chat` snapshot any more: that surface is a `WKWebView` now
-        // (`EditorSurfaceView`), and a web view has nothing to draw until its
-        // content process has loaded and painted — which never happens inside a
-        // synchronous headless render. A PNG of it would be a black rectangle
-        // asserting nothing. The editor is verified through `EditorBridge`
-        // (unit) and by launching the built app (visually) instead.
+        // **Chat mode, over the first app's stage** (flow.md, "Visit modes").
+        //
+        // What this PNG is evidence for is the half a web view cannot show: the
+        // panel body's glass running opaque under the notch to nearly clear at
+        // the pill, and the session's live tree still mounted inside it, dimmed
+        // and scaled one step back. The transcript itself is a `WKWebView` and
+        // paints nothing inside a synchronous headless render, so the pane above
+        // the stage is deliberately empty here — `scripts/snapshot-editor.swift`
+        // renders that layer in a real web view, and the two compose.
+        if let first = dumps.first, let resolved = session.content(for: first.app) {
+            let chat = ChatSurfaceView()
+            let stageHeight = max(0, resolved.height - session.chromeHeight)
+            let height = ChatSurfaceView.panelHeight(stageHeight: stageHeight)
+            chat.frame = CGRect(x: 0, y: 0, width: resolved.width, height: height)
+            chat.setStage(resolved.view, height: stageHeight)
+            chat.layoutSubtreeIfNeeded()
+            try write(
+                surface(
+                    presentation: .chat(app: first.app),
+                    content: chat,
+                    width: resolved.width,
+                    height: height + NotchMetrics.fallback.closedHeight
+                ),
+                named: "chat",
+                to: directory
+            )
+            // Put the tree back where the stage snapshot left it, so a later
+            // caller asking for this app's panel is not handed an empty box.
+            chat.setStage(nil, height: 0)
+        }
+
+        // The blank slot: the same chat surface with nothing behind it — chat
+        // only, full pane, no glass toggle (flow.md, "The strip"). The pane is
+        // empty here for the same reason as above: its transcript is a web view.
+        let blank = ChatSurfaceView()
+        blank.frame = CGRect(
+            x: 0, y: 0,
+            width: PanelLimits.defaultWidth,
+            height: ChatSurfaceView.panelHeight(stageHeight: nil)
+        )
+        blank.layoutSubtreeIfNeeded()
         try write(
             surface(
-                catalog: catalog,
                 presentation: .newApp,
-                content: NewAppContentView(callbacks: .inert),
-                height: NewAppContentView.panelHeight + NotchMetrics.fallback.closedHeight
+                content: blank,
+                height: ChatSurfaceView.panelHeight(stageHeight: nil)
+                    + NotchMetrics.fallback.closedHeight
             ),
             named: "newApp",
             to: directory
         )
         try write(
             surface(
-                catalog: catalog,
                 presentation: .expanded(app: nil),
                 content: HostPlaceholderView(phase: .noHost(detail: "cd host && bun run start")),
                 height: HostPlaceholderView.panelHeight + NotchMetrics.fallback.closedHeight
@@ -122,25 +187,148 @@ enum SnapshotRenderer {
             named: "no-host",
             to: directory
         )
+
+        // **The ledge** (flow.md, "The strip"): the whole strip at once, as
+        // slabs on a shelf, with the blank slot's dashed frame at the end. The
+        // pointer is planted on the second slab so the PNG shows the rise —
+        // static evidence of a gesture is the only kind a snapshot can give.
+        try write(overviewSurface(catalog: catalog), named: "overview", to: directory)
+
+        // **Parked** (flow.md, States): the same body, torn off the notch. The
+        // first app's own tree is inside it, because what parks is the surface
+        // and not a picture of one.
+        if let first = dumps.first, let resolved = session.content(for: first.app) {
+            try write(
+                parkedSurface(
+                    app: first.app,
+                    content: resolved.view,
+                    width: resolved.width,
+                    height: resolved.height
+                ),
+                named: "parked",
+                to: directory
+            )
+        }
+    }
+
+    /// The ledge, rendered against a real catalog: one slab per enabled app plus
+    /// the one blank slot (`SessionStrip.slots`).
+    private static func overviewSurface(catalog: [CatalogApp]) -> ShellSurfaceView {
+        let shelf = OverviewSurfaceView()
+        let strip = SessionStrip(catalog: catalog)
+        // Opened from a session in the middle of the strip, which is the frame
+        // worth reviewing: the shelf panned to centre that slab, both cut ends
+        // softened, and shelf visibly continuing past each of them.
+        let current = strip.apps.isEmpty ? nil : strip.apps[strip.apps.count / 2]
+        shelf.apply(slabs: strip.slots.map { slot in
+            switch slot {
+            case .app(let app):
+                let row = catalog.first { $0.id == app }
+                return OverviewSurfaceView.Slab(
+                    app: app,
+                    name: row?.name ?? app,
+                    icon: row?.symbolName ?? "square.dashed"
+                )
+            case .blank:
+                return .blank
+            }
+        }, current: current)
+        let height = OverviewSurfaceView.panelHeight + NotchMetrics.fallback.closedHeight
+        let view = surface(
+            presentation: .overview,
+            content: shelf,
+            height: height
+        )
+        // **After** the last layout pass, not before: `layout` re-reads the live
+        // pointer (which is nowhere near a headless view), so a rise applied
+        // first is flattened by the pass that follows it.
+        view.layoutSubtreeIfNeeded()
+        // The cursor on the slab the shelf opened onto: the gaussian puts that
+        // one at 1 and its neighbours partway up, which is the shape of the
+        // whole gesture — and it puts the ✕ where it belongs, on a slab the
+        // shelf has actually scrolled to rather than on one behind the fade.
+        if let current, let index = shelf.slabs.firstIndex(where: { $0.app == current }) {
+            shelf.apply(pointerX: shelf.slabFrames[index].midX)
+        }
+        view.displayIfNeeded()
+        return view
+    }
+
+    /// The parked window, in a view a little larger than itself so the window
+    /// rung of the shadow ramp is in the PNG rather than clipped off it.
+    private static func parkedSurface(
+        app: String,
+        content: NSView,
+        width: CGFloat,
+        height: CGFloat
+    ) -> NSView {
+        let body = ParkedSurfaceView(callbacks: .inert)
+        body.rowHeight = NotchMetrics.fallback.closedHeight
+        body.setPanelWing(mode: .stage, canToggleGlass: true)
+        body.present(.expanded(app: app), content: content, animated: false)
+        let margin = PanelLimits.shadowMargin
+        body.frame = CGRect(origin: CGPoint(x: margin, y: margin), size: CGSize(width: width, height: height))
+        let stage = FlippedView(
+            frame: CGRect(x: 0, y: 0, width: width + margin * 2, height: height + margin * 2)
+        )
+        stage.addSubview(body)
+        stage.layoutSubtreeIfNeeded()
+        stage.displayIfNeeded()
+        return stage
     }
 
     // MARK: - Helpers
 
+    /// Feed one app's captured canvas frames through the real §3.4 path: a
+    /// `draw` envelope per canvas, then the coalescer's flush, which is exactly
+    /// what the display-link tick does in a live shell. Nothing here paints
+    /// directly — a snapshot that bypassed the engine would stop being evidence.
+    ///
+    /// Ids arrive as strings (JSON object keys) and are sorted numerically so a
+    /// run is reproducible; the seq is pushed well past the commits' so the
+    /// per-app gate (§1) lets every frame through.
+    private static func replay(
+        draws: [String: [JSONValue]],
+        app: String,
+        into session: HostSession
+    ) throws {
+        let frames = draws
+            .compactMap { key, ops in Int(key).map { (id: $0, ops: ops) } }
+            .sorted { $0.id < $1.id }
+        for (offset, frame) in frames.enumerated() {
+            session.inject(Envelope(
+                app: app,
+                seq: drawSeqBase + offset,
+                type: "draw",
+                payload: try encode(DrawPayload(id: frame.id, ops: frame.ops))
+            ))
+        }
+        session.flushDraws()
+    }
+
+    /// Above any seq the commit replay above can reach (one per dump, and there
+    /// are nine demo apps).
+    private static let drawSeqBase = 1_000
+
     private static func surface(
-        catalog: [CatalogApp],
         presentation: ShellPresentation,
         content: NSView?,
-        wing: NSView? = nil,
-        name: String? = nil,
         width: CGFloat = PanelLimits.defaultWidth,
         height: CGFloat
     ) -> ShellSurfaceView {
         let surface = ShellSurfaceView(callbacks: .inert)
-        surface.setCatalog(catalog)
+        surface.setBodyMaterial(presentation.isConversation ? .chatGlass : .solid)
+        let mode: PanelWingBarView.Mode = if presentation == .overview {
+            .overview
+        } else if presentation.isChat {
+            .editor
+        } else {
+            .stage
+        }
         surface.setPanelWing(
-            name: name ?? presentation.app,
-            content: wing,
-            canEdit: presentation.app != nil
+            mode: mode,
+            // On the ledge the bead is **Back**, and it is always there.
+            canToggleGlass: presentation == .overview || presentation.app != nil
         )
         surface.frame = CGRect(
             origin: .zero,
@@ -165,12 +353,15 @@ enum SnapshotRenderer {
     /// to `currentShapeRect`, because the collapsed shape is anchored to the
     /// hardware cutout rather than centred on itself — a one-sided wing sits off
     /// centre by design (see `ShellSurfaceView.shapeRect`).
+    ///
+    /// `ops` overrides the stock equalizer with a real app's frame — that is the
+    /// `--wing` path, where the pixels in the strip came out of the app's own
+    /// `ctx.draw` rather than out of this file.
     private static func wingSurface(
-        catalog: [CatalogApp],
-        spec: WingSpec = WingSpec(text: "AAPL ▲ 1.2%", canvas: WingCanvasSpec(id: 12, w: 64))
+        spec: WingSpec = WingSpec(text: "AAPL ▲ 1.2%", canvas: WingCanvasSpec(id: 12, w: 64)),
+        ops: [JSONValue]? = nil
     ) -> ShellSurfaceView {
         let view = ShellSurfaceView(callbacks: .inert)
-        view.setCatalog(catalog)
         view.setWing(spec, animated: false)
         // Room for the widest pill either wing can reach, so the anchored shape
         // is never clipped by the view it is drawn in.
@@ -182,6 +373,11 @@ enum SnapshotRenderer {
         )
         view.present(.collapsed, content: nil, height: 0, animated: false)
         view.layoutSubtreeIfNeeded()
+        if let ops {
+            view.wingCanvasView.apply(ops: ops)
+            view.displayIfNeeded()
+            return view
+        }
         // A three-bar equalizer, the mockup's own right-wing content, plus one
         // cell of a spritesheet — the `image` op reaches the wing strip through
         // exactly the same canvas the panel uses.

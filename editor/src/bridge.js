@@ -58,6 +58,24 @@ window.ledge = {
   cancel() {
     post({ type: "cancel" });
   },
+  /// The pill's ⌄/⌃. The pane clears itself; Swift needs to know because the
+  /// panel is a different height with no transcript in it, and because the
+  /// stage behind gets its prominence back (flow.md, "Visit modes").
+  transcript(collapsed) {
+    post({ type: "transcript", collapsed: Boolean(collapsed) });
+  },
+  /// The user scrolled into the past, or came back to the latest. The stage
+  /// behind recedes while they are back there (design.html §08).
+  scrollback(past) {
+    post({ type: "scrollback", past: Boolean(past) });
+  },
+  /// Esc, with no turn to interrupt. Forwarded explicitly rather than left to
+  /// WebKit's responder-chain behaviour: whether an unhandled key event escapes
+  /// a focused `<textarea>` inside a `WKWebView` is not a contract anybody
+  /// wrote down, and "Esc closes the visit" is flow.md's Transitions table.
+  escape() {
+    post({ type: "escape" });
+  },
   /// Tell Swift the page can receive events. Called once, below.
   ready() {
     post({ type: "ready" });
