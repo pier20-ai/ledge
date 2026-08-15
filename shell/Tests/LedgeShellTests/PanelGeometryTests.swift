@@ -60,13 +60,12 @@ struct PanelGeometryTests {
         surface.metrics = .fallback
         surface.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
 
-        // Past the bar's own width the shape *is* the panel; under it the bar is
-        // the floor and the panel hangs beneath (see `visitBarIsInvariant`).
-        let bar = surface.visitBarWidth
-        let wide = surface.shapeSize(expanded: true, width: bar + 80, height: 300)
-        #expect(wide.width == bar + 80 + ShellSurfaceView.fillet * 2)
+        // One uniform width, top to bottom (G2.4): the shape is the panel and
+        // nothing else — the controls float beside the cutout, outside it.
+        let wide = surface.shapeSize(expanded: true, width: 620, height: 300)
+        #expect(wide.width == 620 + ShellSurfaceView.fillet * 2)
         let narrow = surface.shapeSize(expanded: true, width: 360, height: 300)
-        #expect(narrow.width == bar + ShellSurfaceView.fillet * 2)
+        #expect(narrow.width == 360 + ShellSurfaceView.fillet * 2)
 
         surface.present(.expanded(app: "chess"), content: nil, width: 520, height: 300, animated: false)
         #expect(surface.expandedWidth == 520)
@@ -113,11 +112,9 @@ struct PanelGeometryTests {
         }
         #expect(Set(bars.map { "\($0)" }).count == 1, "the bar moved: \(bars)")
 
-        // The silhouette still grows with the session — the bar is a floor, not
-        // a cap. A panel wider than the bar meets its edges; a narrower one
-        // hangs beneath it, and the shape stays bar-width.
-        #expect(shapes.first == shapes[1])                       // both under the bar
-        #expect(shapes.last! > shapes.first!)                    // 640 is past it
+        // The silhouette is the session's width plus fillets, every time —
+        // one uniform width top to bottom (G2.4); only the islands are wider.
+        #expect(shapes.last! > shapes.first!)
     }
 
     @Test("A catalog panel declaration drives the session's panel size (§3.6 → §5)")

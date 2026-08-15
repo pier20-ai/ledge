@@ -35,6 +35,9 @@ final class ParkedWindow: NSPanel {
 /// and one control the panel does not have: the ⌃ that flies it home.
 @MainActor
 final class ParkedSurfaceView: FlippedView {
+    /// Air between the window's top edge and the chrome row (G2.4).
+    static let topPad: CGFloat = 6
+
     /// The ⌃ (design.html §04 `.window .home`).
     var onFlyHome: (() -> Void)?
 
@@ -160,6 +163,14 @@ final class ParkedSurfaceView: FlippedView {
         needsLayout = true
     }
 
+    /// Fly-home hands the content back to the notch panel by reparenting it —
+    /// but this view keeps animating (the window shrinks toward the notch), and
+    /// its `layout` must not go on stomping the frame of a view that now lives
+    /// somewhere else. Called by the controller the moment the surface leaves.
+    func abandonContent() {
+        currentContent = nil
+    }
+
     func setPanelWing(mode: PanelWingBarView.Mode, canToggleGlass: Bool) {
         wingBar.apply(mode: mode, canToggleGlass: canToggleGlass)
     }
@@ -238,7 +249,7 @@ final class ParkedSurfaceView: FlippedView {
         let homeSize = home.intrinsicContentSize
         home.frame = CGRect(
             x: bounds.width - homeSize.width - LedgeMetrics.parkedHomeInset,
-            y: LedgeMetrics.parkedHomeInset / 2,
+            y: Self.topPad + (rowHeight - homeSize.height) / 2,
             width: homeSize.width,
             height: homeSize.height
         )
@@ -249,9 +260,12 @@ final class ParkedSurfaceView: FlippedView {
         // them on the panel too.
         wingBar.cutoutWidth = 0
         wingBar.rowHeight = rowHeight
+        // A breath below the window's top edge (G2.4: the beads were touching
+        // it — the notch panel gets this air from the cutout row; the window
+        // has to spend its own).
         wingBar.frame = CGRect(
             x: 0,
-            y: 0,
+            y: Self.topPad,
             width: max(0, home.frame.minX - LedgeMetrics.parkedHomeInset),
             height: rowHeight
         )
@@ -259,12 +273,17 @@ final class ParkedSurfaceView: FlippedView {
 
         contentHost.frame = CGRect(
             x: 0,
-            y: rowHeight,
+            y: Self.topPad + rowHeight,
             width: bounds.width,
-            height: max(0, bounds.height - rowHeight)
+            height: max(0, bounds.height - rowHeight - Self.topPad)
         )
-        currentContent?.frame = contentHost.bounds
-        currentContent?.autoresizingMask = [.width, .height]
+        // Only a view that genuinely lives here: after fly-home the composite
+        // is the notch panel's again, and resizing it from a shrinking window
+        // is exactly the stranded-frame bug (G2.4).
+        if let currentContent, currentContent.superview === contentHost {
+            currentContent.frame = contentHost.bounds
+            currentContent.autoresizingMask = [.width, .height]
+        }
         if !swell.isHidden {
             swell.frame = CGRect(x: 0, y: 0, width: bounds.width, height: swell.frame.height)
         }

@@ -102,18 +102,17 @@ struct WingGeometryTests {
     func expandedIgnoresWings() {
         let surface = makeSurface()
         surface.setWing(WingSpec(text: "live", canvas: WingCanvasSpec(id: 1, w: 80)), animated: false)
-        // The visit's own floor is the bar, never a wing: a 440 pt panel under
-        // a wider bar is bar-width, and the wing contributes nothing either way.
-        let barWidth = surface.visitBarWidth
+        // The visit is the panel's own width (G2.4: uniform, no bar band), and
+        // the wing contributes nothing either way.
         let expanded = surface.shapeSize(expanded: true, width: 440, height: 300)
-        #expect(expanded.width == max(440, barWidth) + fillets)
+        #expect(expanded.width == 440 + fillets)
 
         surface.present(.expanded(app: "stocks"), content: nil, width: 440, height: 300, animated: false)
         // The wing is remembered — it comes back when the panel closes — but it
         // contributes nothing while the app owns the whole box.
         #expect(surface.wing != nil)
         #expect(surface.shapeSize(expanded: true, width: 440, height: 300).width
-                == max(440, barWidth) + fillets)
+                == 440 + fillets)
     }
 
     @Test("Clearing returns the pill to idle; an empty spec is a clear")

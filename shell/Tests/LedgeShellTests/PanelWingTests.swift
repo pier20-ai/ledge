@@ -122,13 +122,12 @@ struct PanelWingTests {
         surface.layoutSubtreeIfNeeded()
         let bar = surface.panelWingBarView
 
-        #expect(bar.glassToggleView.currentLabel == "Apps")
-        #expect(!bar.glassToggleView.isHidden)
+        #expect(!bar.splitView.isHidden)
         #expect(!bar.walkerView.isHidden)
 
         // Neither control crosses into the camera's dead zone.
         let (left, right, dead) = zones(surface)
-        let toggle = surface.convert(bar.glassToggleView.bounds, from: bar.glassToggleView)
+        let toggle = surface.convert(bar.splitView.bounds, from: bar.splitView)
         let walker = surface.convert(bar.walkerView.bounds, from: bar.walkerView)
         #expect(toggle.maxX <= dead.minX + 0.01)
         #expect(walker.minX >= dead.maxX - 0.01)
@@ -142,12 +141,10 @@ struct PanelWingTests {
     /// walking from a 440 pt session to a 520 pt one slid the next control out
     /// from under the pointer.
     ///
-    /// They are anchored to the **bar**, which is itself a constant centred on
-    /// the cutout — and the bar's *outer ends* are where design.html §01 puts
-    /// them, not against the camera housing. Hugging the housing is what Manu
-    /// felt was wrong on device: two controls huddled around a hole, with the
-    /// black glass running on empty either side of them.
-    @Test("Switching sessions never moves a control: they sit at the bar's ends")
+    /// They hug the **cutout** as floating islands (Manu's G2.4 conclusion:
+    /// the bar band is gone, the silhouette is one uniform width, and the
+    /// controls sit just beside the physical notch).
+    @Test("Switching sessions never moves a control: they hug the cutout")
     func controlsDoNotMoveWithPanelWidth() {
         var togglePositions: [CGFloat] = []
         var walkerPositions: [CGFloat] = []
@@ -158,14 +155,15 @@ struct PanelWingTests {
             let bar = surface.panelWingBarView
             // In the SURFACE's coordinates — the space the hardware cutout is
             // described in, and therefore the space "on screen" means.
-            let toggle = surface.convert(bar.glassToggleView.bounds, from: bar.glassToggleView)
+            let toggle = surface.convert(bar.splitView.bounds, from: bar.splitView)
             let walker = surface.convert(bar.walkerView.bounds, from: bar.walkerView)
             togglePositions.append(toggle.minX)
             walkerPositions.append(walker.maxX)
-            // Space-between, 10 pt of padding, measured from the bar's ends.
-            let barRect = surface.visitBarRect
-            #expect(abs(toggle.minX - (barRect.minX + LedgeMetrics.panelWingPad)) < 0.01)
-            #expect(abs(walker.maxX - (barRect.maxX - LedgeMetrics.panelWingPad)) < 0.01)
+            // Inner-anchored: trailing edge against the dead zone's near side,
+            // leading edge against its far side.
+            let deadRect = zones(surface).dead
+            #expect(abs(toggle.maxX - deadRect.minX) < 0.01)
+            #expect(abs(walker.minX - deadRect.maxX) < 0.01)
             // …and still clear of the camera, which is the other half of the law.
             #expect(toggle.maxX <= zones(surface).dead.minX + 0.01)
             #expect(walker.minX >= zones(surface).dead.maxX - 0.01)
@@ -187,7 +185,7 @@ struct PanelWingTests {
         // panel, so a frame measured inside it moves by half the width change
         // even when nothing moved on screen. Screen space is what the law is
         // about.
-        let before = surface.convert(bar.glassToggleView.bounds, from: bar.glassToggleView)
+        let before = surface.convert(bar.splitView.bounds, from: bar.splitView)
 
         // A different session, a different width, the editor showing.
         surface.present(
@@ -199,10 +197,10 @@ struct PanelWingTests {
         )
         surface.setPanelWing(mode: .editor, canToggleGlass: true)
         surface.layoutSubtreeIfNeeded()
-        let after = surface.convert(bar.glassToggleView.bounds, from: bar.glassToggleView)
+        let after = surface.convert(bar.splitView.bounds, from: bar.splitView)
         // Only the word changed. The two labels differ by a point or two in
         // width, so the frame is compared where it is anchored.
-        #expect(bar.glassToggleView.currentLabel == "Done")
+        #expect(bar.splitView.chatZone.isLit)
         #expect(abs(after.maxX - before.maxX) < 0.01)
         #expect(after.height == before.height)
     }

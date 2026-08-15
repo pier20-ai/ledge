@@ -675,6 +675,11 @@ enum LedgeButtonVariant {
 /// centered exactly, which NSButton's cell metrics never quite do with custom
 /// fonts and SF Symbols.
 final class LedgeButton: NSControl {
+    /// A control in a borderless, non-activating window (the parked surface)
+    /// must act on the click that keys the window — "click once to wake it,
+    /// once more to press" was G2.4's first bug.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     private var variant: LedgeButtonVariant
     private let handler: () -> Void
     private let label: NSTextField

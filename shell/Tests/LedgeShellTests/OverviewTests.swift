@@ -52,9 +52,9 @@ struct OverviewTests {
 
         #expect(controller.presentation == .overview)
         #expect(controller.presentation.isExpanded, "the ledge is a visit, zoomed out")
-        let bead = controller.surfaceForTesting.panelWingBarView.glassToggleView
-        #expect(bead.currentLabel == "Back")
-        #expect(!bead.isHidden, "Back is always there — it is the way off the shelf")
+        let split = controller.surfaceForTesting.panelWingBarView.splitView
+        #expect(split.homeZone.isLit, "⌂ lights while the shelf is up — it is the way off it")
+        #expect(!split.homeZone.isHidden)
     }
 
     // MARK: - The shelf is the strip

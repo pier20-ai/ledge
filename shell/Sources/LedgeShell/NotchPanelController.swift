@@ -1053,6 +1053,10 @@ final class NotchPanelController {
         self.parked = nil
         parkedSwellTimer?.cancel()
         parkedSwellTimer = nil
+        // The content is about to be reparented into the notch panel by the
+        // refresh below; the shrinking window must stop laying it out (G2.4 —
+        // the fly-home render bug).
+        parked.view.abandonContent()
 
         // The visit re-presents in the notch *first*, so the surface the window
         // is flying toward is already the one that will be there when it lands.

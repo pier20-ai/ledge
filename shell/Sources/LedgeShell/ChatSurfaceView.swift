@@ -47,9 +47,10 @@ final class ChatSurfaceView: FlippedView {
     /// the live tree, one step back — with real air on every side.
     static let stageScale: CGFloat = 0.90
     static let stageDim: CGFloat = 0.92
-    /// Scrolled into the past, it recedes further (design.html §08).
-    static let recededDim: CGFloat = 0.55
-    static let recededBlur: CGFloat = 6
+    /// Scrolled into the past, it recedes further — a dim only. No blur: the
+    /// stage stays legible behind the history (Manu's G2.4 wireframe: "not
+    /// blurred"; the transcript occludes, the glass does not smear).
+    static let recededDim: CGFloat = 0.72
 
     /// The panel height chat wants. `stageHeight` is the session's measured tree
     /// height, or nil for a slot with no stage. **Constant while chat is up**:
@@ -67,6 +68,7 @@ final class ChatSurfaceView: FlippedView {
     /// a message on the bridge, not a reload.
     let editor = EditorSurfaceView()
     private let stageWell = StageWellView()
+    private let stageShadow = CALayer()
 
     /// The pane's height changed because the user collapsed or reopened the
     /// transcript. The controller re-measures; nothing in here resizes a panel.
@@ -97,11 +99,17 @@ final class ChatSurfaceView: FlippedView {
         stageWell.layer?.borderWidth = LedgeMetrics.hairline
         stageWell.layer?.borderColor = LedgeTheme.hairline.cgColor
         stageWell.layer?.masksToBounds = true
-        // CoreImage filters are opt-in per view, and the recede is the only
-        // thing in the shell that uses one.
-        stageWell.layerUsesCoreImageFilters = true
         stageWell.alphaValue = Self.stageDim
         stageWell.isHidden = true
+        // The wireframe's "app stage (with shadow)": the well floats on the
+        // glass, so it casts the swell rung. The well clips its content, so the
+        // shadow lives on a sibling layer beneath it.
+        stageShadow.backgroundColor = NSColor.black.cgColor
+        stageShadow.cornerRadius = LedgeMetrics.rContent
+        LedgeShadow.swell.applyGeometry(to: stageShadow)
+        stageShadow.shadowOpacity = LedgeShadow.swell.opacity
+        stageShadow.isHidden = true
+        layer?.addSublayer(stageShadow)
         addSubview(stageWell)
 
         // Added last: the transcript is over the stage, always, and that is what
@@ -224,10 +232,6 @@ final class ChatSurfaceView: FlippedView {
             context.allowsImplicitAnimation = true
             stageWell.animator().alphaValue = past ? Self.recededDim : Self.stageDim
         }
-        stageWell.layer?.filters = past
-            ? [CIFilter(name: "CIGaussianBlur", parameters: ["inputRadius": Self.recededBlur])]
-                .compactMap { $0 }
-            : []
     }
 
     // MARK: - Layout
@@ -243,6 +247,22 @@ final class ChatSurfaceView: FlippedView {
         // (0, 0), so the scale alone would collapse the well into its top-left
         // corner. The translation puts the horizontal half back.
         stageWell.frame = CGRect(x: 0, y: Self.topPad, width: bounds.width, height: stageHeight)
+        // The shadow mirrors the well exactly — frame, transform, visibility.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stageShadow.isHidden = stageWell.isHidden
+        stageShadow.frame = stageWell.frame
+        stageShadow.setAffineTransform(
+            CGAffineTransform(translationX: bounds.width * (1 - Self.stageScale) / 2, y: 0)
+                .scaledBy(x: Self.stageScale, y: Self.stageScale)
+        )
+        stageShadow.shadowPath = CGPath(
+            roundedRect: CGRect(origin: .zero, size: stageWell.frame.size),
+            cornerWidth: LedgeMetrics.rContent,
+            cornerHeight: LedgeMetrics.rContent,
+            transform: nil
+        )
+        CATransaction.commit()
         // Explicitly, every pass: the composite is reparented between here and
         // the panel's own content host, and a view that changes superview keeps
         // the frame it had in the old one. Relying on the autoresizing mask

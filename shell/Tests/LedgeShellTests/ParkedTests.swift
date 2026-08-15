@@ -87,7 +87,7 @@ struct ParkedTests {
     func theWindowCarriesTheWings() throws {
         let (_, controller, _) = try parked()
         let view = try #require(controller.parkedSurfaceForTesting)
-        #expect(view.wingBarView.glassToggleView.currentLabel == "Apps")
+        #expect(!view.wingBarView.splitView.isHidden)
         #expect(view.homeBead.frame.maxX <= view.bounds.width)
         // The ⌃ is at the top-right, and the walker sits clear of it.
         view.frame = CGRect(x: 0, y: 0, width: 440, height: 300)
@@ -136,11 +136,11 @@ struct ParkedTests {
         controller.enterOverview()
         #expect(controller.presentation == .overview)
         #expect(controller.isParked)
-        #expect(view.wingBarView.glassToggleView.currentLabel == "Back")
+        #expect(view.wingBarView.splitView.homeZone.isLit)
 
         controller.leaveOverview()
         #expect(controller.presentation == .expanded(app: app))
-        #expect(view.wingBarView.glassToggleView.currentLabel == "Apps")
+        #expect(!view.wingBarView.splitView.homeZone.isLit)
     }
 
     // MARK: - While parked

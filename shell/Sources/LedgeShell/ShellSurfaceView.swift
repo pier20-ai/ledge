@@ -323,7 +323,7 @@ final class PanelWingBarView: FlippedView {
 
     private let leftZone = ClippingView()
     private let rightZone = ClippingView()
-    private let glassToggle: LedgeButton
+    private let split: HomeChatSplitView
     private let walker: WingWalkerView
 
     /// The hardware cutout's width and the row's height, pushed in by the
@@ -337,20 +337,14 @@ final class PanelWingBarView: FlippedView {
         onWalk: @escaping (Int) -> Void,
         onOverview: @escaping () -> Void
     ) {
-        // `bead`, not `plain`: a Ledge control is the glass swelling (design.html
-        // §01, principle 1's two-tier control law). The app's own controls are
-        // bare white glyphs and live inside the content well, where they cannot
-        // be confused with these.
-        glassToggle = LedgeButton(
-            Mode.stage.label,
-            variant: .bead,
-            size: .s,
-            handler: onToggleGlass
-        )
-        glassToggle.setAccessibilityLabel(Mode.stage.accessibilityLabel)
+        // The left island is the [⌂|✦] split (Manu's O2 conclusion): ⌂ shows
+        // the ledge — the word "Apps" opening a chat was the counterintuitive
+        // thing — and ✦ lowers the glass. Both are the glass swelling
+        // (design.html §01, principle 1's two-tier control law).
+        split = HomeChatSplitView(onHome: onOverview, onChat: onToggleGlass)
         walker = WingWalkerView(onWalk: onWalk, onOverview: onOverview)
         super.init(frame: .zero)
-        leftZone.addSubview(glassToggle)
+        leftZone.addSubview(split)
         rightZone.addSubview(walker)
         addSubview(leftZone)
         addSubview(rightZone)
@@ -373,12 +367,14 @@ final class PanelWingBarView: FlippedView {
     /// surface that has nothing on it, so a surface with nothing on it is
     /// exactly when it must be there.
     func apply(mode: Mode, canToggleGlass: Bool) {
-        if mode != self.mode {
-            self.mode = mode
-            glassToggle.apply(label: mode.label, symbol: nil)
-            glassToggle.setAccessibilityLabel(mode.accessibilityLabel)
-        }
-        glassToggle.isHidden = !canToggleGlass
+        self.mode = mode
+        // The lit zone answers "where am I"; the press still means "take me
+        // there / back" — ⌂ toggles the ledge, ✦ toggles the glass.
+        split.apply(
+            homeLit: mode == .overview,
+            chatLit: mode == .editor,
+            chatHidden: !canToggleGlass
+        )
         needsLayout = true
     }
 
@@ -426,16 +422,15 @@ final class PanelWingBarView: FlippedView {
         leftZone.frame = left
         rightZone.frame = right
 
-        // **At the bar's outer ends, not hugging the cutout** (design.html §01:
-        // the bar is `justify-content: space-between` with 10 pt of padding).
-        // The bar is a fixed width centred on the cutout, so a control at its
-        // far end is every bit as notch-anchored as one against the housing —
-        // and it is where the mockup puts it, which is what Manu felt was wrong
-        // on device.
-        let toggle = glassToggle.intrinsicContentSize
+        // **Hugging the cutout** (Manu's G2.4 conclusion: the controls sit
+        // beside the physical notch as floating islands; the bar band is gone
+        // and the silhouette is one uniform width). Inner-anchored: the
+        // split's trailing edge against the dead zone, the walker's leading
+        // edge against its other side.
+        let toggle = split.intrinsicContentSize
         let toggleWidth = min(ceil(toggle.width), left.width)
-        glassToggle.frame = CGRect(
-            x: 0,
+        split.frame = CGRect(
+            x: max(0, left.width - toggleWidth),
             y: (left.height - toggle.height) / 2,
             width: toggleWidth,
             height: toggle.height
@@ -444,7 +439,7 @@ final class PanelWingBarView: FlippedView {
         let walkerSize = walker.intrinsicContentSize
         let walkerWidth = min(walkerSize.width, right.width)
         walker.frame = CGRect(
-            x: right.width - walkerWidth,
+            x: 0,
             y: (right.height - walkerSize.height) / 2,
             width: walkerWidth,
             height: walkerSize.height
@@ -453,7 +448,7 @@ final class PanelWingBarView: FlippedView {
 
     // MARK: - Test seams
 
-    var glassToggleView: LedgeButton { glassToggle }
+    var splitView: HomeChatSplitView { split }
     var walkerView: WingWalkerView { walker }
 }
 
@@ -473,6 +468,10 @@ final class PanelWingBarView: FlippedView {
 /// than the one-point rule you can see, because a one-point target is not a
 /// control.
 final class WingWalkerView: FlippedView {
+    /// Same law as `LedgeButton`: in the parked window, the click that keys the
+    /// window is also the press (G2.4).
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     /// Which third of the control a point is in. The two halves are the fill;
     /// the seam is a hit lane straddling them, because a one-point click target
     /// is not a control (`LedgeMetrics.walkerDividerLane`).
@@ -655,6 +654,172 @@ final class WingWalkerView: FlippedView {
     var dividerFrame: CGRect { divider.frame }
 }
 
+/// **The [⌂|✦] split** — the left island (Manu's O2 conclusion, G2.4): ⌂ shows
+/// the ledge, ✦ lowers the glass. One capsule, two zones, the walker's own
+/// anatomy — and the zone whose surface is up stays lit, so the control also
+/// answers "where am I".
+@MainActor
+final class HomeChatSplitView: FlippedView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    enum Zone: Equatable {
+        case home
+        case chat
+    }
+
+    private let home: WalkerZoneView
+    private let chat: WalkerZoneView
+    private let divider = HairlineView()
+    private let edge = WalkerEdgeView()
+    private let onHome: () -> Void
+    private let onChat: () -> Void
+    private var tracking: NSTrackingArea?
+    private var chatHidden = false
+
+    private static let bead = LedgeMetrics.Size.s
+
+    init(onHome: @escaping () -> Void, onChat: @escaping () -> Void) {
+        self.onHome = onHome
+        self.onChat = onChat
+        home = WalkerZoneView(symbol: "house", label: "Show all apps")
+        chat = WalkerZoneView(symbol: "bubble.left", label: "Edit with AI")
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.masksToBounds = true
+        layer?.cornerCurve = .continuous
+        home.onPress = onHome
+        chat.onPress = onChat
+        addSubview(home)
+        addSubview(chat)
+        addSubview(divider)
+        addSubview(edge)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel("Apps and chat")
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(
+            width: chatHidden
+                ? Self.bead.height
+                : Self.bead.height * 2 + LedgeMetrics.hairline,
+            height: Self.bead.height
+        )
+    }
+
+    /// Which surface is up — the lit zone — and whether there is any glass to
+    /// lower at all (the blank slot keeps ⌂ and loses ✦).
+    func apply(homeLit: Bool, chatLit: Bool, chatHidden: Bool) {
+        home.isLit = homeLit
+        chat.isLit = chatLit
+        if self.chatHidden != chatHidden {
+            self.chatHidden = chatHidden
+            chat.isHidden = chatHidden
+            divider.isHidden = chatHidden
+            invalidateIntrinsicContentSize()
+        }
+        needsLayout = true
+    }
+
+    func zone(at point: CGPoint) -> Zone? {
+        guard bounds.contains(point) else { return nil }
+        if chatHidden { return .home }
+        return point.x < bounds.midX ? .home : .chat
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer?.cornerRadius = LedgeMetrics.capsule(bounds.height)
+        CATransaction.commit()
+        let half = chatHidden ? bounds.width : bounds.width / 2
+        home.frame = CGRect(x: 0, y: 0, width: half, height: bounds.height)
+        chat.frame = CGRect(x: half, y: 0, width: bounds.width - half, height: bounds.height)
+        divider.frame = CGRect(
+            x: (bounds.width - LedgeMetrics.hairline) / 2,
+            y: bounds.height * 0.25,
+            width: LedgeMetrics.hairline,
+            height: bounds.height * 0.5
+        )
+        edge.frame = bounds
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let next = NSTrackingArea(
+            rect: bounds,
+            options: [.activeAlways, .mouseEnteredAndExited, .mouseMoved],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(next)
+        tracking = next
+        syncHover()
+    }
+
+    override func mouseEntered(with event: NSEvent) { syncHover() }
+    override func mouseMoved(with event: NSEvent) { syncHover() }
+    override func mouseExited(with event: NSEvent) { syncHover() }
+
+    private func syncHover() {
+        guard let window else {
+            setHovered(nil)
+            return
+        }
+        let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        setHovered(zone(at: point))
+    }
+
+    private(set) var hoveredZone: Zone?
+
+    private func setHovered(_ zone: Zone?) {
+        guard zone != hoveredZone else { return }
+        hoveredZone = zone
+        home.isHovered = zone == .home
+        chat.isHovered = zone == .chat
+    }
+
+    private(set) var pressedZone: Zone?
+
+    override func mouseDown(with event: NSEvent) {
+        let start = zone(at: convert(event.locationInWindow, from: nil))
+        setPressed(start)
+        var inside = start
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            let point = convert(next.locationInWindow, from: nil)
+            if next.type == .leftMouseUp {
+                inside = zone(at: point)
+                break
+            }
+            setPressed(zone(at: point) == start ? start : nil)
+        }
+        setPressed(nil)
+        guard let start, inside == start else { return }
+        switch start {
+        case .home: onHome()
+        case .chat: onChat()
+        }
+    }
+
+    private func setPressed(_ zone: Zone?) {
+        guard zone != pressedZone else { return }
+        pressedZone = zone
+        home.isPressed = zone == .home
+        chat.isPressed = zone == .chat
+    }
+
+    // MARK: - Test seams
+
+    var homeZone: WalkerZoneView { home }
+    var chatZone: WalkerZoneView { chat }
+}
+
 /// Half of the split bead: a fill and a glyph, and no silhouette of its own —
 /// the capsule and the edge ring belong to `WingWalkerView`. It is deliberately
 /// not a `LedgeButton`: a button would bring its own background, its own
@@ -703,6 +868,9 @@ final class WalkerZoneView: FlippedView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     var isHovered = false { didSet { guard isHovered != oldValue else { return }; refresh() } }
+    /// A persistent "this mode is on" floor (the [⌂|✦] split lights the zone
+    /// whose surface is up). Same two tokens as hover — no third colour.
+    var isLit = false { didSet { guard isLit != oldValue else { return }; refresh() } }
     var isPressed = false {
         didSet {
             guard isPressed != oldValue else { return }
@@ -748,8 +916,9 @@ final class WalkerZoneView: FlippedView {
     }
 
     private func refresh() {
-        let top = isHovered ? LedgeTheme.beadFillTopHover : LedgeTheme.beadFillTop
-        let bottom = isHovered ? LedgeTheme.beadFillBottomHover : LedgeTheme.beadFillBottom
+        let bright = isHovered || isLit
+        let top = bright ? LedgeTheme.beadFillTopHover : LedgeTheme.beadFillTop
+        let bottom = bright ? LedgeTheme.beadFillBottomHover : LedgeTheme.beadFillBottom
         // Pressed, the light comes from the wrong side: a swelling lit from the
         // top reads as a dent when the gradient flips, which is what "pushed
         // into the glass" looks like. Same two tokens, reversed — no third
@@ -1311,10 +1480,11 @@ final class ShellSurfaceView: FlippedView {
                 height: metrics.closedHeight + (promising ? LedgeInteraction.promiseHeight : 0)
             )
         }
-        // **The bar is a floor on the shape's width, never a function of it.**
-        // A 336 pt panel under a 470 pt bar is exactly what design.html §01
-        // draws; the surplus is bar, and the panel hangs beneath it.
-        return CGSize(width: max(width, visitBarWidth) + fillets, height: height)
+        // **One uniform width, top to bottom** (Manu's G2.4 conclusion): the
+        // bar band is gone — the controls float beside the cutout as their own
+        // islands, outside the silhouette — so the shape is the panel and
+        // nothing else.
+        return CGSize(width: width + fillets, height: height)
     }
 
     /// **The visit bar's width — a constant.**
@@ -1688,7 +1858,6 @@ final class ShellSurfaceView: FlippedView {
         // — the shoulder where a narrow panel hangs off a wider bar — and it is
         // part of the same path, so the two are one body and not two shapes that
         // happen to touch.
-        let overhang = (shape.width - Self.fillet * 2 - body.width) / 2
         // **The joint is always present**, on every presentation — see
         // `notchPath`. A pill and a full-width panel have `panel.minX == barLeft`
         // and a zero radius, so the joint is a straight edge and draws nothing;
@@ -1706,10 +1875,11 @@ final class ShellSurfaceView: FlippedView {
         let shoulder = BarShoulder(
             panel: body,
             y: min(panelWingRowHeight, max(Self.fillet, shape.height - bottomRadius)),
-            // Never wider than the step it is rounding: a panel a few points
-            // narrower than the bar gets a few points of fillet, not a curve
-            // that doubles back over the bar's own edge.
-            radius: presentation.isExpanded ? max(0, min(Self.fillet, overhang)) : 0
+            // Always degenerate since G2.4: the silhouette is one uniform width
+            // (no bar band), but the joint stays in the path so every
+            // presentation keeps the same element signature and the morph
+            // never smears (the F2.1 law).
+            radius: 0
         )
         let path = Self.notchPath(
             in: shape,
@@ -1929,32 +2099,27 @@ final class ShellSurfaceView: FlippedView {
             return
         }
 
-        // A true crossfade, concurrent with the size spring. The old sequence —
-        // fade the old out, wait 120 ms, fade the new in — left a beat where
-        // the panel was resizing around *nothing*, which read on device as
-        // "the old app resizes, then the new one appears" (Manu, G2.3). Both
-        // animations now run in the same breath the geometry moves.
+        // G2.4's recipe, verbatim from the device test: "shut the current app
+        // altogether to get a black surface of the same size, then resize with
+        // animation, then mount the new app." The old content leaves at once —
+        // bare glass, no half-faded tree stretching under the spring — the
+        // silhouette does its move, and the new tree fades up as it lands.
         if let previous, owned {
-            NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.14
-                previous.animator().alphaValue = 0
-            }, completionHandler: {
-                previous.removeFromSuperview()
-                // Leave it usable: this same view may be the *next* thing shown
-                // (chat → stage hands the composite straight back), and a view
-                // that returns still holding a zero alpha is invisible content
-                // with no way to notice.
-                previous.alphaValue = 1
-            })
+            previous.removeFromSuperview()
+            previous.alphaValue = 1
         }
 
         next.alphaValue = 0
         next.setFrameOrigin(CGPoint(x: 0, y: 6))
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.22
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
-            next.animator().alphaValue = 1
-            next.animator().setFrameOrigin(.zero)
+        let settle = min(0.30, (lastSpring?.response ?? 0.2) * 0.75)
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self, weak next] in
+            guard let next, next === self?.currentContent else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+                next.animator().alphaValue = 1
+                next.animator().setFrameOrigin(.zero)
+            }
         }
     }
 

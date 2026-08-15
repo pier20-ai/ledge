@@ -106,7 +106,9 @@ struct ChatModeTests {
         post(["type": "scrollback", "past": true], to: chat)
         #expect(chat.recededIntoThePast)
         #expect(well.alphaValue == ChatSurfaceView.recededDim)
-        #expect(well.layer?.filters?.isEmpty == false)
+        // No blur, by ruling (G2.4): the recede is a dim, and the stage stays
+        // legible behind the history.
+        #expect(well.layer?.filters?.isEmpty != false)
 
         post(["type": "scrollback", "past": false], to: chat)
         #expect(!chat.recededIntoThePast)

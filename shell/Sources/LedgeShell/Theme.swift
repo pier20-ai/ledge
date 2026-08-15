@@ -159,13 +159,16 @@ enum LedgeGlass {
     /// what is behind as well, which is what makes the bottom look like glass
     /// rather than a scrim — but the contrast does not depend on it, because a
     /// blur is a system effect that cannot be verified off-device.
-    /// G2.3 ("a bit more glassy"): the midband drops .74 → .66 so more of the
-    /// frost's blur shows through where the bubbles float. The floor stays at
-    /// .55 — it is what the contrast law is measured against, frost excluded.
+    /// G2.3 ("a bit more glassy"): the midband at .66 lets the frost's blur
+    /// show through where the bubbles float. G2.4 ("frosted textured glass,
+    /// not see-through"): the floor rises to .60 — with the blur behind it the
+    /// bottom reads as material, not as a window onto the desktop. The
+    /// contrast law is measured against the gradient alone, frost excluded,
+    /// and a higher floor only raises it.
     static let chat: [Stop] = [
         Stop(at: 0, color: NSColor(srgbRed: 5 / 255, green: 5 / 255, blue: 6 / 255, alpha: 0.97)),
         Stop(at: 0.55, color: NSColor(srgbRed: 5 / 255, green: 5 / 255, blue: 6 / 255, alpha: 0.66)),
-        Stop(at: 1, color: NSColor(srgbRed: 12 / 255, green: 13 / 255, blue: 18 / 255, alpha: 0.55)),
+        Stop(at: 1, color: NSColor(srgbRed: 12 / 255, green: 13 / 255, blue: 18 / 255, alpha: 0.60)),
     ]
 }
 
