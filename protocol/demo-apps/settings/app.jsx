@@ -15,13 +15,26 @@
 // picture. A toggle that flipped locally and then had to un-flip when the host
 // disagreed would be lying for as long as it took to find out.
 //
-// There is no title row — the shell names the app in the panel's left wing —
-// and there is no "General" section: it used to hold "Launch at login" and
-// "Throttle monitors on battery", neither of which anything implemented. A
-// switch that does nothing is worse than a missing feature, so they are gone
-// rather than pending.
-
-import { useState } from "react";
+// Laws: 1 (hairlines and rows; nothing filled anywhere on this panel) · 2 (the
+// shell owns chrome — no title row, because the shell names the app in the
+// panel's left wing, and no Quit, because quitting is the shell's context menu
+// and always was) · 4 (a name and a switch; the loading state is one quiet
+// line) · 5 (the row *is* the control — the switch is the datum, and Permissions
+// is a row you press, not a row with a button parked in it).
+//
+// Diet, against the pre-reset panel (G3.2):
+//   CUT   the filled "Quit" capsule and its armed red confirmation · the whole
+//         "Quit Ledge" footer row · the "Permissions…" text button · the
+//         `ctx.platform.quit()` call site · the monospaced app id beside every
+//         name (UI *about* the datum, and the name already is the datum).
+//   KEPT  the privileged plumbing, `ctx.permissions()`, the `<wing side="left">`
+//         exercise, and the rule that Settings cannot switch itself off.
+//
+// Quit lives in the right-click menu on Ledge's glass (`NotchPanelController`'s
+// `glassMenu`, flow.md). One way out, drawn by the shell, on every surface —
+// which is exactly why an app-drawn second one had to go: two Quits is two
+// answers to one question, and the app's was the one that could be scrolled
+// past.
 
 export const meta = { name: "Settings", icon: "sf:slider.horizontal.3" };
 
@@ -53,12 +66,6 @@ export async function monitor(ctx) {
           .then(refresh)
           .catch((error) => console.log(`could not re-read the catalog: ${error}`));
       },
-      // The shell's, not the host's: only the process with the run loop can end
-      // itself, and the host is its child. It resolves just before the process
-      // goes, so there is nothing useful to do after the await.
-      onQuit: () => {
-        ctx.platform.quit().catch((error) => console.log(`could not quit: ${error}`));
-      },
       // Chrome, not a call: the shell raises its permission surface or silently
       // does not, and there is no answer worth waiting for.
       onPermissions: () => ctx.permissions(),
@@ -69,13 +76,16 @@ export async function monitor(ctx) {
   await Bun.sleep(POLL_MS);
 }
 
+/** A row: a glyph, a name, and the platform switch. Full-bleed — the padding is
+ * the row's own, so the `<divider />` between two of them runs the whole width
+ * of the panel instead of stopping short of it. */
 function AppRow({ app, onToggle }) {
   // Settings cannot be disabled (spec §8) — it is the only way back from
   // everything else on this panel. The switch is shown, on and dead, rather
   // than hidden: the row should still read as a row.
   const locked = app.id === "settings";
   return (
-    <stack axis="h" gap={8} align="center" pad={6}>
+    <stack axis="h" gap={10} align="center" pad={10}>
       <image src={app.icon} w={16} h={16} radius={4} />
       <text
         content={app.name}
@@ -84,7 +94,6 @@ function AppRow({ app, onToggle }) {
         color={app.enabled ? "primary" : "secondary"}
         truncate
       />
-      <text content={app.id} size="xs" weight="medium" color="tertiary" mono />
       <spacer />
       <toggle
         on={app.enabled}
@@ -95,46 +104,7 @@ function AppRow({ app, onToggle }) {
   );
 }
 
-/**
- * Quitting, in two presses.
- *
- * Not a modal — §5 has no modal, and quitting is not destructive (apps are
- * files on disk, and the host exits with the shell). But Ledge is
- * `LSUIElement`: no Dock icon, and no menu-bar item since the status menu was
- * removed, so an accidental quit costs the user a trip to Finder to get their
- * notch back. Arming in place is the cheapest thing that makes that impossible
- * to do by accident, and it costs one deliberate press when you meant it.
- *
- * It lives OUTSIDE the scroller on purpose: with enough apps installed, a
- * footer inside the list would be a quit you have to go looking for, and this
- * is the only one there is.
- */
-function QuitRow({ onQuit, onPermissions }) {
-  const [armed, setArmed] = useState(false);
-  if (!armed) {
-    return (
-      <stack axis="h" gap={8} align="center" pad={12}>
-        <text content="Quit Ledge" size="m" weight="semibold" />
-        <spacer />
-        {/* The way back to the permission surface. It sits here rather than in
-            the list because it is about Ledge, not about any app — and because
-            with the menu bar gone this panel is the only door left. */}
-        <button label="Permissions…" variant="plain" onClick={() => onPermissions?.()} />
-        <button label="Quit" variant="glass" onClick={() => setArmed(true)} />
-      </stack>
-    );
-  }
-  return (
-    <stack axis="h" gap={8} align="center" pad={12} fill="redTint" radius={8}>
-      <text content="Quit Ledge?" size="m" weight="semibold" />
-      <spacer />
-      <button label="Cancel" variant="plain" onClick={() => setArmed(false)} />
-      <button label="Quit" variant="accent" onClick={() => onQuit?.()} />
-    </stack>
-  );
-}
-
-export default function Settings({ apps = [], ready = false, onToggle, onQuit, onPermissions }) {
+export default function Settings({ apps = [], ready = false, onToggle, onPermissions }) {
   const on = apps.filter((app) => app.enabled).length;
   return (
     <stack axis="v">
@@ -150,16 +120,17 @@ export default function Settings({ apps = [], ready = false, onToggle, onQuit, o
         />
       </wing>
 
-      {/* Padding inside the scroller, not on the root: a scroller's ceiling is
-          the panel's whole content height, and every point spent above it is a
-          point the list asks for and cannot have (see stocks). */}
-      <stack axis="v" scroll pad={12} gap={0}>
+      {/* No padding on the scroller and none on the root: the rows carry their
+          own, so every hairline is full-bleed — and a scroller's ceiling is the
+          panel's whole content height, so a point spent above it is a point the
+          list asks for and cannot have (see stocks). */}
+      <stack axis="v" scroll gap={0}>
         {apps.length === 0 ? (
-          <text
-            content={ready ? "No apps installed." : "Reading the catalog…"}
-            size="s"
-            color="secondary"
-          />
+          // One quiet line, indented to the rows' own inset so the empty state
+          // stands where the first row would.
+          <stack axis="h" pad={10}>
+            <text content={ready ? "No apps installed" : "Reading…"} size="s" color="secondary" />
+          </stack>
         ) : (
           apps.flatMap((app, index) => [
             index === 0 ? null : <divider key={`rule-${app.id}`} />,
@@ -168,8 +139,23 @@ export default function Settings({ apps = [], ready = false, onToggle, onQuit, o
         )}
       </stack>
 
+      {/* Permissions is about Ledge, not about any app, so it is not in the
+          list — and it is pinned below the scroller rather than sitting at the
+          bottom of it, because with enough apps installed a door you have to
+          scroll to find is a door most people never open.
+
+          The whole row is the press target (REFERENCE.md, "a row is a button
+          with a child"): a chevron parked at the end of a row that is not
+          itself pressable makes the other 90% of it a dead zone. */}
       <divider />
-      <QuitRow onQuit={onQuit} onPermissions={onPermissions} />
+      <button variant="plain" onClick={() => onPermissions?.()}>
+        <stack axis="h" gap={10} align="center" pad={10}>
+          <image src="sf:hand.raised" w={16} h={16} />
+          <text content="Permissions" size="m" weight="semibold" />
+          <spacer />
+          <text content="›" size="m" color="tertiary" />
+        </stack>
+      </button>
     </stack>
   );
 }

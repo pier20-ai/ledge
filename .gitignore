@@ -15,7 +15,13 @@ protocol/demo-apps/*/.build/
 protocol/demo-apps/*/prices.json
 protocol/demo-apps/*/alarms.json
 protocol/demo-apps/*/*.tmp
-# music: album art pulled from the running player (art-<track hash>.jpg).
+# weather: the last forecast + IP fix, so a cold or offline launch still has a
+# sky. `fixture/open-meteo.json` beside it IS tracked — that one is a recorded
+# response the tests parse.
+protocol/demo-apps/weather/cache.json
+# nowplaying (and the archived music app): album art pulled from the running
+# player, named after the track so the shell re-decodes it (art-<hash>.jpg).
+protocol/demo-apps/nowplaying/art-*.jpg
 protocol/demo-apps/music/art-*.jpg
 # trader: the paper ledger (bun:sqlite, WAL).
 protocol/demo-apps/trader/ledger.sqlite*
@@ -36,3 +42,15 @@ protocol/settings.json.tmp
 # signed Ledge.app — both produced by scripts/bundle-app.sh.
 dist/
 host/dist/
+
+# The archive (protocol/demo-apps-archive) is reference, not an apps root — but
+# it still carries the runtime artifacts the apps left behind the last time they
+# ran. Same rules, same reasons.
+protocol/demo-apps-archive/*/crash.log
+protocol/demo-apps-archive/*/console.log
+protocol/demo-apps-archive/*/.build/
+protocol/demo-apps-archive/*/prices.json
+protocol/demo-apps-archive/*/alarms.json
+protocol/demo-apps-archive/*/*.tmp
+protocol/demo-apps-archive/music/art-*.jpg
+protocol/demo-apps-archive/trader/ledger.sqlite*

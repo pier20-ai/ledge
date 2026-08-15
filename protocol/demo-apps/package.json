@@ -5,9 +5,12 @@
   "type": "module",
   "//": "The apps root's shared dependency set — the repo analogue of ~/.ledge/node_modules (spec §6). Apps import these bare; nothing here is a build tool. Versions are pinned exactly and bun.lock is committed, per spec §6 ('always ship the lockfile').",
   "//react": "react AND react-reconciler are pinned HERE, at the apps root, because the apps root is what both sides resolve against: an app's `import react` and the worker's reconciler (host/src/render/runtime.ts) each walk up from here and find this one copy. Hooks live in module-level state (ReactCurrentDispatcher), so two copies is `dispatcher.useState of null` on an app's first useState. This was `react: file:../../host/node_modules/react`, which made the HOST's copy authoritative — that inverts the real relationship and cannot survive compilation, since `bun build --compile` produces a host with no node_modules at all. react-reconciler must be here too, so that ITS own `require(react)` lands on this same copy. Keep both versions in lockstep with host/package.json, which needs its own copies for the tests.",
-  "//pruned": "cheerio, chess.js and stockfish left with the apps that used them (protocol/demo-apps-archive, the pre-design-reset set). They were 250 MB of node_modules and 239 MB of the .app bundle for apps no apps root loads any more. The archive is reference, not a package: nothing installs it.",
+  "//pruned": "cheerio left with the apps that used it (protocol/demo-apps-archive, the pre-design-reset set). The archive is reference, not a package: nothing installs it.",
+  "//chess": "chess.js is legality and SAN — 784 KB, unremarkable. `stockfish` is 239 MB, and all but 7 MB of that is builds this app never loads: the package ships asm.js plus full and lite WASM, and the two full ones carry a ~100 MB NNUE net apiece. D4 re-added it because chess came back to the apps root, and restored the prune in scripts/bundle-app.sh that keeps only `bin/stockfish-18-lite-single.*` in the shipped seed. Chess degrades honestly without it (a built-in 2-ply search, and no eval in the summary), so removing the dependency is a supported choice, not a break.",
   "dependencies": {
+    "chess.js": "1.4.0",
     "react": "18.3.1",
-    "react-reconciler": "0.29.2"
+    "react-reconciler": "0.29.2",
+    "stockfish": "18.0.8"
   }
 }

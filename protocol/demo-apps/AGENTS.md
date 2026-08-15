@@ -41,6 +41,10 @@ That is a complete, working app.
 4. **`<wing side="left">` only.** The right side of the panel's top row is
    reserved by the shell.
 5. **You cannot set the panel's width from JSX.** Ask via `meta.panel`.
+6. **`monitor` has a 1 s floor.** The host tops every pass up to a second, so it
+   is a poller and never a clock: anything sub-second or event-driven wants a
+   `setInterval`/`setTimeout` plus `await new Promise(() => {})` to park the
+   loop. See `REFERENCE.md`, "The monitor loop" — every app here hit this first.
 
 ## Where things are
 
@@ -48,6 +52,7 @@ That is a complete, working app.
 |---|---|
 | every component and its props | `REFERENCE.md`, "Components" |
 | `ctx` — the whole surface | `REFERENCE.md`, "`ctx`" |
+| pacing: monitor vs. timers | `REFERENCE.md`, "The monitor loop" |
 | wings, the mini view, peeking | `REFERENCE.md`, "Three sizes of attention" |
 | canvas drawing and its ops | `REFERENCE.md`, "Canvas and games" |
 | storage, dependencies, splitting a file | `REFERENCE.md`, end |

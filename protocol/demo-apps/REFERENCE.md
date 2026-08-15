@@ -14,21 +14,31 @@ machine, and searching for it finds nothing, slowly.
 
 ## The apps in this folder
 
-Four, and each one is here to be *felt* on the notch — every surface in this
-document is exercised by at least one of them. Read them as syntax; read
-`docs/design/principles.md` before you copy their taste.
+Nine, and each one is here to be *felt* on the notch — every surface in this
+document is exercised by at least one of them. `nowplaying`, `weather` and
+`focus` are **default apps** (they ship); `timer`, `radio`, `beacon`, `chess`
+and `tetris` are exercise apps, plus Settings.
+Read them as syntax; read `docs/design/principles.md` before you copy their
+taste.
 
 | app | what it exercises |
 |---|---|
-| `timer` | `<summary>` (heavy session: hover shows the line, not the panel) · a wing **meter** (a `<canvas>` node mirrored into the right wing) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons |
+| `nowplaying` | the resting pill's owner: a **live-activity wing** (ticker + animated canvas) held while music plays and released when it stops · `ctx.apple` transport against Music.app and Spotify **without ever launching them** · `ctx.platform.observe("distributedNotification", …)` as a latency fix over a slow poll · `progress` with `rate` · a file-path `<image>` well · **no `<summary>`, no `<mini>`** — and an empty state that is one glyph and one line |
+| `focus` | design.html §01's Stage panel, running: `meta.panel.width` asked down to the specimen's 336 pt · the `display` numeral **as its own control** (press it to cycle the preset) beside two ghosts on one row · a shell-drawn `<progress rate>` instead of a hand-drawn bar, with `rate: 0` + ten steps under `ctx.reduceMotion` · one **alert-class** `ctx.peek` reused by two different events, each with its own `<mini>` row · `ctx.notify` as the *gentle* half of an alarm (no `attention`, no actions) · app-owned JSON persistence (temp file + `rename`) |
+| `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · `<summary>` declared, so the session is **heavy** · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
+| `timer` | `<summary>` (heavy session: hover shows the line, not the panel) · a wing **meter** (`meter: { value }` — the shell draws the bar) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons · a `setInterval` clock with a parked monitor |
 | `radio` | **no `<summary>`** — the law's other half: a rested pointer must open the visit directly · a wing **canvas** animating at ~8 fps off `ctx.draw`, the same node drawn in the panel · a wing held as live activity and released when it stops |
 | `beacon` | both notification classes back to back: **ambient** (glyph, one line, no action, retracts on Ti) and **alert** (one action, holds) · the three clicks on a swell — the action, elsewhere → visit, and nothing · `hero` numeral, `disabled` controls |
+| `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · `<summary>` carrying the engine's *evaluation*, the one reading the board cannot give · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
+| `tetris` | principle 5's worked example: **a score is a number**, so a 36 pt `display` numeral sits directly on the glass with `lv 6` beside it and nothing around either — the `SCORE`/`LINES`/`LEVEL` boxes are what the design reset was about · a `focusable` `<canvas>` with `onKey`, driven by a `setInterval` game loop and parked `monitor` · the next piece drawn *inside* the well rather than in a second framed canvas · a commit signature so a soft-drop point does not re-reconcile the panel · one ghost that starts, pauses, resumes and restarts · Reduce Motion audited and found to have nothing to switch off — every moving pixel is gameplay |
 | `settings` | the privileged app (spec §8): `ctx.platform.enable/disable/stats/quit/permissions`, a `<wing side="left">`, `toggle` rows, `useState` |
 
-The nine apps that used to live here predate the design reset and now sit in
-`protocol/demo-apps-archive/`. That folder is **not** an apps root: nothing
-scans it, nothing installs its dependencies, and nothing in it is a model for
-new work.
+The nine apps in `protocol/demo-apps-archive/` predate the design reset. That
+folder is **not** an apps root: nothing scans it, nothing installs its
+dependencies, and nothing in it is a model for new work. `chess` and `tetris`
+were rebuilt *out* of it in D4 — engines copied verbatim, everything around
+them rewritten — and their pre-reset originals stay there on purpose, because
+each new file's header cites the old one line by line for what was cut.
 
 ## Exports the host looks for
 
@@ -37,7 +47,7 @@ new work.
 | `default` | `App(props)` | The view. Re-rendered whenever `ctx.update()` merges new props. |
 | `meta` | `{ name?, icon?, panel? }` | Catalog identity. `icon` is an SF Symbol as `"sf:name"`. `panel` is `{ width?, maxHeight? }` in points. |
 | `monitor` | `async monitor(ctx)` | Background work. Called in a loop — see below. |
-| `onLifecycle` | `(phase, ctx)` | `"expanded" \| "collapsed" \| "hidden" \| "visible"`. Use it to stop animating while collapsed. |
+| `onLifecycle` | `(phase, ctx)` | `"expanded" \| "collapsed" \| "hidden" \| "visible"`. Use it to stop animating while collapsed — and to notice a change in `ctx.reduceMotion`, which rides the same message. |
 | `onEvent` | `(name, data, ctx)` | App-level events with no node behind them: `"drop"`, `"notification"`, platform observations. |
 
 All except `default` are optional.
@@ -55,9 +65,41 @@ export async function monitor(ctx) {
 }
 ```
 
+**The loop has a 1 s floor, and it is the trap in this API.** A pass that
+returns faster than a second is topped up to one before the next call — the host
+will not spin a worker. So `monitor` is a *poller*, and it cannot be a clock, a
+frame loop, or a delay: a countdown written as `await Bun.sleep(250)` ticks
+somewhere between 0.25 s and 1 s and visibly stutters, and "fire this in one
+second" written as a short pass lands anywhere in two. Every app in this folder
+hit it first and fixed it the same way.
+
+**The fix: own the clock with a timer, and park the monitor.** Timers are
+ordinary Bun — they run in the worker and die with it on reload or crash, which
+is the right lifetime for anything you have not shown the user yet.
+
+```jsx
+let ctxRef = null;
+
+export async function monitor(ctx) {
+  ctxRef = ctx;
+  commit();                                 // the first frame, immediately
+  setInterval(tick, 250);                   // 4 Hz — the clock is yours now
+  await new Promise(() => {});              // park: never resolves, never spins
+}
+```
+
+The parked promise is the whole idiom: `monitor` is the only thing the host
+awaits, so a promise that never resolves means it is called exactly once and the
+timer owns the pacing from then on. Use it for anything sub-second (a countdown,
+a meter, an animation) and for anything event-driven (`beacon` arms a
+`setTimeout` from a button and parks with nothing to poll at all). Keep the real
+polling shape — `await`, then `Bun.sleep` — for what it is for: fetching.
+
 A throw from `monitor` is an app crash: the worker restarts with backoff
 (1 s → 2 min), and the stack lands in `crash.log` next to `app.jsx`. **Read
-`crash.log` when something stops working** — it is written for you.
+`crash.log` when something stops working** — it is written for you. A throw
+inside a `setInterval` callback is a crash too, so the parked-loop shape does not
+lose you the error report.
 
 ## Components
 
@@ -68,8 +110,8 @@ positioning, no CSS.
 |---|---|---|
 | `stack` | — | `axis` `"h"\|"v"`, `gap`, `pad`, `align` `"leading"\|"center"\|"trailing"`, `distribute` `"fill"\|"equal"`, `flex`, `scroll`, `fill`, `stroke`, `radius`, `gradient` |
 | `text` | `content` | `size` `xs\|s\|m\|l\|xl\|display\|hero`, `weight` `light\|regular\|medium\|semibold\|bold`, `color`, `mono`, `maxLines`, `truncate`, `caps` |
-| `button` | — | `label` **or a child**, `icon`, `variant` `plain\|glass\|accent`, `size` `s\|m\|l`, `disabled`, `onClick` |
-| `image` | `src` | `w`, `h`, `radius` |
+| `button` | — | `label` **or a child**, `icon`, `variant` `plain\|glass\|accent\|ghost`, `size` `s\|m\|l`, `disabled`, `onClick` |
+| `image` | `src` | `w`, `h`, `radius`, `stroke` |
 | `spacer` | — | `min` |
 | `divider` | — | — |
 | `chart` | `points: number[]` | `color`, `fill` |
@@ -79,7 +121,7 @@ positioning, no CSS.
 | `toggle` | `on` | `disabled`, `onChange({on})` |
 | `segment` | `options`, `value` | `onChange({value})` |
 | `stepper` | `value` | `min`, `max`, `step`, `format`, `onChange({value})` |
-| `progress` | `value` | `rate` — read-only; never fake a slider with it |
+| `progress` | `value` | `rate`, `color` — read-only; never fake a slider with it |
 | `spinner` | — | — |
 | `pill` | `label` | `tone` |
 | `wing` | `side="left"` | children — mounts into the panel's top-left zone |
@@ -92,7 +134,40 @@ positioning, no CSS.
 `violet`. `gradient`: `accent` `green` `red` `violet` `cyan`. `pill` `tone`:
 `accent` `green` `red` `violet` `cyan` `neutral`.
 
+`progress` `color`: `accent` `green` `red` `violet` `cyan` — **default is ink,
+and ink is usually right.** A meter takes a hue when the moment it is measuring
+is the point of the panel (Focus's running session, which is what design.html
+§01 draws in accent); a panel where every bar is coloured has told you nothing.
+
 Use the tokens, never a hex string — the shell owns the palette.
+
+**A row keeps its children together — you do not need a trailing spacer.** A
+row (`axis="h"`) that a column stretched puts its children side by side at its
+leading edge and leaves the rest of the width over. It used to fling them to
+opposite ends, so `<text size="display">27°</text>` beside a phrase read as two
+unrelated facts, and apps ended every such row with a `<spacer />` to stop it.
+That is no longer needed. A row that *does* hold a `<spacer />` — or anything
+else with no width of its own: a divider, chart, slider, progress or input —
+still fills, which is what makes `label · spacer · value` put the value hard
+against the right-hand edge. `distribute="equal"` still shares the width evenly.
+
+**`align` centres things — you do not need a spacer.** A column with no `align`
+stretches every child to its width, which is how rows, cards and charts span the
+panel. `align="center"` (or `"trailing"`) **places** them instead: a `<text>` is
+sized to its own words and put where you said, and a `<button>` wrapping one is
+the size of the thing it wraps rather than a panel-wide press target. Anything
+too wide is capped at the column and truncates, so a long line stays inside the
+panel. The words are `leading` · `center` · `trailing` — in a row they mean
+top/middle/bottom, because `align` is always the **cross** axis. A `<divider />`
+(and a chart, slider, progress or input) spans the column whatever the alignment
+says: those have no width of their own.
+
+```jsx
+<stack axis="v" pad={16} gap={8} align="center">
+  <text content="FOCUS" size="xs" caps />
+  <text content="25:00" size="display" />
+</stack>
+```
 
 **`gradient` is a wash, not a fill.** You name the hue family; the shell paints
 it at the top of the container and fades it out by 60% of the height, behind the
@@ -126,7 +201,7 @@ Declaring `<summary>` is what makes your session **heavy**: a rested pointer
 shows that line instead of opening you. A session that declares none is its own
 summary, and the same rested pointer opens the panel directly. A heavy visit
 owes a summary; a light one is its own summary — chess and weather owe one,
-`radio` in this folder does not. The shell draws a small chevron
+`radio` and `nowplaying` in this folder do not. The shell draws a small chevron
 on the end of every summary — the promise that another click opens the full
 thing — and you cannot remove it, so do not draw your own.
 
@@ -179,14 +254,55 @@ retracts on its dwell; `"alert"` **holds** until the user acts on it or dismisse
 it — for an alarm going off, not for a track change. Urgency is ink, never
 geometry: an alert is the same shape, it just does not leave.
 
+**A notification's action is just a `<button>` in the `<mini>`.** There is no
+actions API and no "dismiss" call: put one button in the row, give it your
+ordinary `onClick`, and the shell retracts the swell itself the moment the event
+comes back — that is what makes an alert-class swell leave. So the handler only
+does the app's own work:
+
+```jsx
+<mini>
+  <stack axis="h" gap={10}>
+    <image src="sf:bell.fill" w={18} h={18} />
+    <text content="Alarm" size="s" weight="semibold" color="red" />
+    <spacer />
+    <button label="Stop" variant="plain" size="s" onClick={() => stop()} />
+  </stack>
+</mini>
+```
+
+**Do not call `ctx.collapse()` in that handler.** It is the obvious wrong guess
+and it is wrong twice: the swell is not the panel, so `collapse` is not
+addressed to it, and the shell has already retracted by the time your worker
+sees the click. One action, at most — a swell with two decisions on it is a
+dialog, and a dialog is what the panel is for.
+
+**The `class` and the `<mini>` are two separate things, and keeping them in sync
+is yours.** `<mini>` is *what* the row says and is declarative — it renders
+whatever your current props say, always, whether or not a swell is up.
+`ctx.peek(ms, { class })` is only *when*, plus how insistent. Nothing links
+them: peeking `"alert"` does not turn the row red, and rendering a red row does
+not make it hold. Set the state first, then ask — the worker→host channel is
+FIFO, so a synchronous `ctx.update()` lands ahead of the peek that follows it:
+
+```jsx
+kind = "alert";
+commit();                          // <mini> is now the alarm row…
+ctx.peek(6000, { class: kind });   // …and only then is it raised
+```
+
+Peek first and the user gets one frame of the previous notification — the
+track that just ended, the alarm you already cleared.
+
 ### The collapsed notch, in detail
 
 `ctx.wing(spec)` owns the collapsed pill until you release it with
-`ctx.wing(null)`. The spec is three optional fields, and each is a different
+`ctx.wing(null)`. The spec is four optional fields, and each is a different
 kind of presence:
 
 ```js
 ctx.wing({ text: "3:41", width: 220, canvas: { id: artCanvasId, w: 30 } })
+ctx.wing({ text: "12:04", meter: { value: 0.42 } })     // the stock bar
 ```
 
 - **`text`** — a short label in the **left** wing (48 chars, then it is cut).
@@ -194,6 +310,13 @@ ctx.wing({ text: "3:41", width: 220, canvas: { id: artCanvasId, w: 30 } })
   canvas node's id, the same id you pass to `ctx.draw` — so a canvas in your
   panel and a wing canvas can be **the same node, drawn in two places**. Height
   is the notch's; `w` is a request the shell clamps (~160 pt).
+- **`meter`** — `{ value }`, `0…1`: a bar in the **right** wing that the *shell*
+  draws. Reach for this before a canvas whenever the answer is "how far along is
+  it" — it costs one number per update and no draw loop, and every app's meter
+  is then the same object (64 × 3 pt, capsule, ink — never a hue). Out-of-range
+  values clamp, so a fraction that briefly computes 1.02 is a full bar rather
+  than a glitch. A `canvas` in the same spec wins the wing: those are your
+  pixels, this is the shell's shape.
 - **`width`** — the total pill width. On its own, with no text and no canvas, it
   is a bare shape request: the notch simply grows.
 
@@ -277,6 +400,28 @@ monitor pass landing while the page is open should update it in place. And
 first page; anything that must survive that belongs in `ctx.update` state or a
 file.
 
+**Reach for `variant="ghost"` before anything else.** Ledge has two control
+tiers, and an app owns the lower one: a ghost is a **bare pure-white glyph** with
+no background at all, and a capsule appears only under the cursor. Chips and
+filled buttons belong to the shell's chrome; a transport pair, a dismiss, a
+well's one action are all ghosts. (`variant="bead"` is the shell's own convex
+control — an app that names it gets `plain`, deliberately.)
+
+```jsx
+<button icon="sf:pause.fill" variant="ghost" onClick={pause} />
+```
+
+**`image` takes a `stroke`.** Artwork letterboxes, and a sleeve that does not
+fill its box would otherwise lose the frame the layout drew for it — so the
+hairline goes on the picture, not on a wrapper:
+
+```jsx
+<image src={art} w={72} h={72} radius={14} stroke="hairline" />
+```
+
+Do not wrap the image in a stroked `<stack>` to get the same thing: that
+double-frames it the moment a bitmap *does* fill the box.
+
 **A long list scrolls with `<stack scroll>`,** and its ceiling is the *panel's*
 whole content height. Every point a parent above it spends on `pad` is a point
 the list asks for and cannot have, and the symptom is the last row hiding under
@@ -289,12 +434,13 @@ Passed to `monitor`, `onLifecycle`, and `onEvent`. It contains **only** things
 the platform cannot do — everything else is just Bun.
 
 ```
+ctx.reduceMotion                     boolean — the user asked for less motion
 ctx.update(patch)                    merge into App's props + re-render
 ctx.notify(text, { attention?, title?, actions? })
 ctx.attention()                      notch glow, no notification
 ctx.peek(ms?, { class? })            swell the notch with <mini> briefly (default 4 s; class: ambient | alert)
 ctx.expand() / ctx.collapse()        open or close the panel
-ctx.wing(spec | null)                collapsed-notch live activity: { text?, width?, canvas? }
+ctx.wing(spec | null)                collapsed-notch live activity: { text?, width?, canvas?, meter? }
 ctx.draw(id, ops)                    imperative canvas drawing, bypasses React
 ctx.capture({ interactive? })        screenshot → file path
 ctx.agent(prompt, { schema?, files?, timeoutMs? })   one turn of the user's agent CLI
@@ -382,6 +528,39 @@ tokens — a canvas is pixels, not a view, and a token here silently draws white
 drawing faster than ~60 Hz. **Stop drawing when `onLifecycle` reports
 `"collapsed"`**; a game that renders into a closed notch is just burning battery.
 
+### Reduce Motion — `ctx.reduceMotion`
+
+**A canvas that animates must go still when this is true.** It is the system's
+Reduce Motion switch (macOS Settings → Accessibility → Display), which a worker
+cannot read for itself, so the shell reads it and puts it on `ctx`. It is always
+current: it arrives with the `lifecycle` your app gets when it starts, and the
+shell re-sends one to every running app the moment the user flips it.
+
+Read it as a **property, inside the loop** — not from an argument, and not once
+at boot: the switch can flip while your interval is running.
+
+```jsx
+function tick() {
+  if (ctx.reduceMotion) return still();   // one frame per state, then nothing
+  frame += 1;
+  paint();
+}
+
+export function onLifecycle(phase, ctx) {
+  paint();      // the flag may have just flipped; draw the frame it implies
+}
+```
+
+Still, **not slower and not blank**. The meter keeps reading — it stops moving
+between readings. In practice:
+
+- a level meter or waveform → a fixed profile that still says "playing";
+- a progress bar → quantise it (ten steps, not a creeping pixel);
+- `<progress rate>` → send `rate: 0`, because the shell's self-advance between
+  commits is an animation too;
+- data that happens to change (a clock, a track title) → **keep changing it**.
+  A radio that stopped rotating tracks would be broken, not accessible.
+
 ## Persistence
 
 Apps own their own storage, in their own folder, via `import.meta.dir`:
@@ -401,11 +580,18 @@ Data files are yours and are never reloaded on. Only **source** files
 
 ## Dependencies
 
-`react` is already installed at the apps root and can be imported bare — and it
-is the *only* thing that is, deliberately. Prefer Bun's built-ins over a package
-— HTTP is `fetch`, SQLite is `bun:sqlite`, shelling out is `Bun.$`. Anything
-else goes in the apps root's `package.json` and is paid for in the .app bundle,
-so it needs a reason.
+`react` is already installed at the apps root and can be imported bare. Prefer
+Bun's built-ins over a package — HTTP is `fetch`, SQLite is `bun:sqlite`,
+shelling out is `Bun.$`. Anything else goes in the apps root's `package.json`
+and is **paid for in the .app bundle**, so it needs a reason.
+
+Two packages have one: `chess.js` (legality and SAN — 784 KB) and `stockfish`.
+Stockfish is the cautionary tale. The package is 239 MB because it ships every
+build it can make, and all but ~7 MB of that is builds no app loads;
+`scripts/bundle-app.sh` prunes it to the single `lite-single` pair before the
+seed is tarred, which is the pattern any heavy dependency has to follow. An app
+that cannot degrade without its heavy dependency should not have one — chess
+can, and falls back to a built-in search with no evaluation.
 
 ## Splitting a large app
 
