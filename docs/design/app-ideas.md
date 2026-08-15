@@ -1,94 +1,84 @@
-# Ledge app backlog
+# Ledge apps — launch & later
 
-Demo and showcase apps, each tagged with the platform APIs it exercises.
-API legend: **META** (meta extraction + `panel{width,maxHeight}`), **DRAW**
-(worker→shell draw frames, §3.4), **WING** (live-activity wings: text /
-canvas / width, §3.3 extension), **CHROME** (worker-requested
-expand/collapse, §3.3), **PEER** (`ctx.peer`, deferred). "none" = buildable
-on today's platform (HTTP, timers, `Bun.$` for system signals, notify,
-persistence in the app folder are all already available to workers).
+The idea inbox. Two lists; add freely to Later, promote deliberately to Launch.
+Tags: **APPLE** (`ctx.apple`) · **AGENT** (`ctx.agent`) · **DRAW** (§3.4 frames) ·
+**WING** / **MINI** (ambient surfaces) · none = plain HTTP, timers, `Bun.$`.
+No sprites anywhere except chess's grandfathered set (principle 12). The old
+demo apps were archived to `protocol/demo-apps-archive/` in the design reset —
+they predate it and are reference only. `protocol/demo-apps` now holds three
+small **exercise** apps (timer, radio, beacon) plus Settings, whose whole job is
+to make the interaction machine feel-testable on device; carrying one of the
+archived apps forward means rewriting it against the principles, not restoring
+the folder.
 
-## Agentic apps — sense → decide → act → report
+## Launch
 
-The notch is the ideal "agent proposes, human approves in one glance"
-surface: interruptions are cheap, glanceable, dismissible. Monitors already
-run 24/7; what agentic apps add is hands, senses, and (optionally) the
-user's own agent as a brain — Ledge itself never calls a model API.
+### Ships in the app
 
-Capability legend — **all four now exist** (wire shapes in
-`protocol/README.md`): **APPLE** (shell-executed `ctx.apple` — sense and hand in
-one), **NOTIFY+** (shell-side notifications with action buttons; buttons need a
-bundled shell, text always works), **AGENT** (`ctx.agent(prompt, {files?,
-schema?})` — one headless turn of the user's own agent CLI, §8 adapters reused;
-one turn per app at a time), **INTAKE** (drop-onto-notch shelf events as id-0
-app events + `ctx.capture()` shell-owned interactive screenshot).
+| app | job | signature | needs |
+|---|---|---|---|
+| **Chess** | carried over | the sprite set (grandfathered) · big-panel proof | DRAW |
+| **Tetris** | carried over | frame-rate draw + keyboard proof · score is a bare number | DRAW |
+| **Now Playing** | what's playing; skip/pause without switching apps · owns the resting pill | the live waveform in the wing | APPLE, WING |
+| **Weather** | the sky, glanceable; drag the ruler to time-travel | the pane: drops that refract the scene, fog that wipes clear, light that swings with the real sun | DRAW, canvas drag (0001-A1), Open-Meteo |
+| **Focus** | timers and gentle alarms; calm by construction | the display numeral + the mini swell — the design doc's own specimen | WING, MINI, notify |
 
-| app | loop | needs |
-|---|---|---|
-| Paper trader | strategy over live quotes → SQLite ledger → "[Execute] [Skip]" approval tree → wings P&L (paper only, by design) | none |
-| CI medic | red GitHub run → pull log → agent diagnoses → "[Rerun] [Open PR]" via `gh` | none (better with AGENT, NOTIFY+) |
-| Download janitor | fs.watch ~/Downloads → classify → propose moves → one-tap approve | none (better with AGENT) |
-| Package tracker via clipboard | `pbpaste` poll → tracking number detected anywhere → quiet parcel wing (loudly opt-in: clipboard) | none |
-| Dependency sentinel | releases/CVEs for your lockfile → agent changelog summary → "[bump + test]" branch | none (better with AGENT) |
-| Flight tracker | drop/capture a boarding pass → agent extracts flight → OpenSky live position → delay pings | INTAKE, AGENT |
-| Inbox triager | mail source → agent classifies → only real interruptions surface → drafts reply for approval | AGENT, APPLE (send), NOTIFY+ |
-| Meeting shepherd | calendar sense → pre-meeting brief → auto-join at T-0 → nudge for notes after | APPLE |
-| Screen-time coach | frontmost app + idle time → gentle wing nudges ("Slack: 47 min") | APPLE (or `Bun.$` osascript) |
-| **"Point the notch at anything"** | the generalization: drop/capture any artifact → agent turns it into a monitor (boarding pass → flight, receipt → package, listing → price watch) | INTAKE, AGENT |
+Weather pane notes (the "how it feels real"): simulate the glass, not the
+weather. Droplets are lenses — sharp, inverted, squeezed copy of the blurred
+scene inside each, specular dot, merge-and-run with shed micro-drops; cold +
+humid fogs the pane and runs wipe clear tracks; sun is directional light
+computed from real time + location (the scrubber's payoff); snow sticks,
+melts, and accumulates along the well's bottom edge; lightning is a full-pane
+flash. Scene is a pure function of `(t, weather(t))`; scrub eases back to now.
 
-Capability build order (each unblocked the next tier): APPLE + NOTIFY+
-(existing spec debt) → AGENT → INTAKE. **No grant UI**, by decision: apps are
-trusted local code (spec §6) and macOS TCC already prompts — attributed to the
-shell, which is the process the user recognizes. The token question AGENT raises
-is answered by shape rather than by a dialog: one turn per app at a time, refused
-rather than queued while busy, so a runaway monitor cannot quietly spend in a
-loop.
+### Built live on X
 
-## Wave 1 — committed
+| app | job / hook | signature | needs |
+|---|---|---|---|
+| **Breath** | mindfulness: Box, 4-7-8, Nadi Shodhana; gentle break pings on your cadence | the notch is the pacer — pill swells at breath pace; Nadi Shodhana tints the mini's left/right half for the held nostril | WING (width), MINI |
+| **Overhead** | real aircraft above you cross the wings at true heading/speed; click for callsign | "wait, it's *real*?" — bare triangles + trails | DRAW, WING · adsb.lol / airplanes.live (keyless), OpenSky fallback |
+| **Screen-time coach** | frontmost app + idle time → quiet nudges | the wing ticker everyone feels attacked by: "Slack · 47m" | WING · `Bun.$` osascript/ioreg |
+| **Departures** | your day as a split-flap board — theatre is the job in this tier | staggered per-character flips, type only, amber data · Reduce Motion swaps flips for fades | DRAW or text, APPLE (calendar read) |
+| **CI medic** | red run → agent diagnoses → mini offers Rerun | the alert system + agent story on stream | AGENT, MINI, notify · demo mode polls a big OSS repo unauthenticated (`oven-sh/bun` — on brand; 60 req/hr is plenty); real users connect `gh` |
 
-| app | what it proves | APIs |
-|---|---|---|
-| Chess (stockfish.js, fallback engine) | big panel, interactivity, background compute | META |
-| Stocks grid (2×3 live cards, keyless API) | live HTTP, charts | none |
-| Tetris | imperative draw at frame rate, keyboard | DRAW |
-| Alarm | multi-state views, notifications, self-expand | WING, CHROME |
-| Deals live (scrapes books.toscrape.com) | cheerio scraping, notify-on-hit | none |
-| Ledge Aviary 🐦 (boids perch on the notch, scatter on attention) | wings + draw + attention as pure delight | WING, DRAW |
+## Later
 
-## Wave 2 — living things & tiny theatre
+**The bell genre** — a bell for a thing you care about, rung as a mini.
+Reliable feeds only; Elon Bell itself is parked (X read API is paywalled,
+scraping is ToS-hostile and brittle):
 
-| app | notes | APIs |
-|---|---|---|
-| The Ledge Cat 🐈 | sleeps on the warm notch; pupils/tail track CPU load (`Bun.$ sysctl`/`top`), stretches on idle (`ioreg` HIDIdleTime), stares at you in hour three | WING (canvas) |
-| The Landlord | tiny resident hangs signs off the ledge: "disk 92% full", "4 PRs need review" | WING (canvas), DRAW |
-| The Overseer 👁 | a usually-closed eye where the camera lives; pupil dilates with CPU, squints on low battery; unsettling on purpose | WING (canvas) |
-| Merge-Conflict Boxing 🥊 | stick figures brawl on the notch while CI is red / PR has conflicts; stops when you fix it | WING (canvas), DRAW |
+- **Launch bell** — rocket launches: T−minus wing during countdown, liftoff
+  mini with stream link (Launch Library 2, free). The Elon-adjacent one.
+- **Quake bell** — USGS GeoJSON feed; the notch literally shakes with
+  magnitude (Reduce Motion: red pulse instead).
+- **HN bell** — your keyword/story hits the front page (Algolia HN API, free).
+- **Whale bell** — outsized on-chain moves (blockchain.com websocket, free).
 
-## Wave 2 — the real world, mapped onto the ledge
+**Kept from the old backlog** (changed where noted):
 
-| app | notes | APIs |
-|---|---|---|
-| Overhead ✈️ | real aircraft above you (OpenSky anonymous + IP geolocation) cross the wings at true heading/speed; hover for callsign + destination | WING (canvas), DRAW |
-| Weather diorama | actual rain falls in the notch when it rains outside; snow accumulates on the ledge; pill flashes on nearby lightning (Open-Meteo, keyless) | WING (canvas), DRAW |
-| Moon ledge 🌙 | tonight's real moon phase as a sliver at the pill's edge; nearly nothing, exactly enough | WING (canvas) |
+- **Status board** — GitHub / Claude API / OpenAI status via their Statuspage
+  JSON (keyless). A wing dot that is only visible when something is red.
+  Natural swap-in for CI medic on stream week if wanted.
+- **Paper trader** — bench alternate for the five; approval-tree drama,
+  paper-only by design.
+- **Package tracker via clipboard** — `pbpaste` poll; quiet parcel wing
+  (loudly opt-in: it reads the clipboard).
+- **Download janitor** — fs.watch ~/Downloads → classify → one-tap moves.
+- **Dependency sentinel** — releases/CVEs for your lockfile → "[bump + test]".
+- **Moon ledge** — too sparse for promo, the right size for real life.
+- **World clock** — city rows; its scrubber idea moved to Weather.
+- **Teleprompter** — paste text, it scrolls through the wings at reading pace.
+- **The Hourly Contraption** — a Rube Goldberg run on the hour; expensive,
+  gloriously pointless.
+- **Inbox tide** — the notch fills with unread mail; needs Mail access
+  posture first.
+- **Calendar peek** — calendar returns someday as a *peek*, never a ticking
+  countdown (Next Up retired for anxiety).
+- **Inbox triager / Meeting shepherd** — APPLE+AGENT; parked with calendar.
+- **Flight tracker from a boarding pass** — parked on the drop/INTAKE design.
+- **Pigeon post** — PEER, someday; still the app that would sell the peer API
+  by itself.
 
-## Wave 2 — body & time
-
-| app | notes | APIs |
-|---|---|---|
-| Breathing ledge | box-breathing pacer: the pill itself swells/contracts at breathing pace; no UI, peripheral-vision sync; doubles as a spring-system torture test | WING (width) |
-| Departures 🚉 | calendar as a Solari split-flap board, letters flipping mechanically; missed meetings clack to DEPARTED | DRAW |
-| The Hourly Contraption | a Rube Goldberg run plays across the notch on the hour; a cuckoo clock for people who ship software | DRAW |
-| Inbox tide 🌊 | the notch fills with water as unread mail accumulates; clearing it drains the tide (IMAP count or mailbox file) | WING (canvas), DRAW |
-
-## Someday — needs `ctx.peer`
-
-| app | notes | APIs |
-|---|---|---|
-| Pigeon post 🕊 | a pigeon flies across a friend's screen into their notch carrying your note; the reply comes back the same way; would sell the peer API by itself | PEER, WING, DRAW |
-
-## Stretch utilities
-
-| app | notes | APIs |
-|---|---|---|
-| Teleprompter | paste text, it scrolls at reading pace through the wings while you present | WING (text) |
+**Retired with the sprite direction:** Shelf, Focus Garden, Night Sky, Ledge
+Cat, Landlord, Merge-conflict boxing, The Overseer (too weird — ruled
+2026-08-14). Aviary remains as a fixture only.

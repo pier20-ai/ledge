@@ -1,0 +1,899 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge · Design System v2</title>
+<style>
+  /* ── tokens, transcribed from Theme.swift / Metrics.swift ──────────── */
+  :root {
+    --page: #141417;
+    --panel: #030304;            /* stand-in for glass: black @ .92 over blur */
+    --sunken: rgba(0,0,0,.35);
+    --raised: rgba(255,255,255,.055);
+    --raised-hover: rgba(255,255,255,.085);
+    --raised-hover2: rgba(255,255,255,.10);
+    --frost-fill: rgba(255,255,255,.115);
+    --frost-fill-hover: rgba(255,255,255,.15);
+    --frost-ring: rgba(255,255,255,.12);
+    --frost-shadow: rgba(0,0,0,.26);
+    --selected: rgba(255,255,255,.12);
+    --track: rgba(255,255,255,.14);
+    --ink-fill: rgba(255,255,255,.85);
+    --hairline: rgba(255,255,255,.09);
+    --hairline-hover: rgba(255,255,255,.14);
+    --primary: rgba(255,255,255,.94);
+    --secondary: rgba(255,255,255,.56);
+    --tertiary: rgba(255,255,255,.32);
+    --accent: #FFB454;
+    --green: #30D158;
+    --red: #FF453A;
+    --violet: #8F61FF;
+    --cyan: #2ED1F0;
+    --blue: #3D8AFF;
+    --r-track: 2px; --r-chip: 8px; --r-card: 12px; --r-content: 14px; --r-panel: 26px;
+    --font: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--page); color: var(--primary); font-family: var(--font);
+         -webkit-font-smoothing: antialiased; padding: 56px 24px 140px; }
+  .rail { max-width: 980px; margin: 0 auto; }
+  a { color: inherit; text-decoration-color: rgba(255,255,255,.28); text-underline-offset: 2px; }
+  a:hover { text-decoration-color: currentColor; }
+
+  /* gallery scaffolding */
+  h1 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+  h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .lede { color: var(--secondary); font-size: 13px; margin-top: 6px; max-width: 66ch; line-height: 1.5; }
+  .sect { margin-top: 84px; }
+  .note { color: var(--secondary); font-size: 12.5px; margin: 6px 0 22px; max-width: 72ch; line-height: 1.55; }
+  .note code, .spec code { font-family: var(--mono); font-size: 11px; color: var(--primary); }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em;
+         color: var(--tertiary); border: 1px solid var(--hairline); border-radius: 99px;
+         padding: 3px 9px; margin-bottom: 10px; text-transform: uppercase; }
+  .chip-proposed { display: inline-block; font-family: var(--mono); font-size: 8.5px; letter-spacing: .07em;
+         color: var(--accent); border: 1px solid rgba(255,180,84,.35); border-radius: 99px;
+         padding: 2px 7px; vertical-align: 2px; margin-left: 8px; }
+  .chip-shipped, .chip-concept { display: inline-block; font-family: var(--mono); font-size: 8.5px;
+         letter-spacing: .07em; border-radius: 99px; padding: 2px 7px; vertical-align: 2px; margin-left: 8px; }
+  .chip-shipped { color: var(--green); border: 1px solid rgba(48,209,88,.34); }
+  .chip-concept { color: var(--cyan); border: 1px solid rgba(46,209,240,.34); }
+  .spec { font-family: var(--mono); font-size: 10px; color: var(--tertiary); letter-spacing: .04em; line-height: 1.7; }
+  .pair { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .eyebrow { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: .07em;
+             text-transform: uppercase; color: var(--secondary); }
+  .eyebrow.dim { color: var(--tertiary); }
+
+  /* ── 1 · color tokens ──────────────────────────────────────────────── */
+  .tok-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; }
+  .tok { display: flex; align-items: center; gap: 11px; border: 1px solid var(--hairline);
+         border-radius: var(--r-card); padding: 10px 12px; background: rgba(0,0,0,.25); }
+  .tok .sw { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--hairline); flex: none;
+             background-image: linear-gradient(45deg, #17171a 25%, transparent 25%, transparent 75%, #17171a 75%),
+                               linear-gradient(45deg, #17171a 25%, #0d0d0f 25%, #0d0d0f 75%, #17171a 75%);
+             background-size: 12px 12px; background-position: 0 0, 6px 6px; position: relative; overflow: hidden; }
+  .tok .sw i { position: absolute; inset: 0; }
+  .tok b { display: block; font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: .02em; }
+  .tok span { display: block; font-family: var(--mono); font-size: 9px; color: var(--tertiary); margin-top: 2px; }
+
+  /* ── 2 · typography ────────────────────────────────────────────────── */
+  .spec-row { display: flex; align-items: baseline; gap: 22px; padding: 13px 2px; }
+  .spec-row + .spec-row { border-top: 1px solid var(--hairline); }
+  .spec-row .k { font-family: var(--mono); font-size: 10px; color: var(--tertiary); width: 190px; flex: none;
+                 letter-spacing: .06em; }
+  .t-hero    { font-size: 48px; font-weight: 300; letter-spacing: -.015em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .t-display { font-size: 36px; font-weight: 300; letter-spacing: -.01em; font-variant-numeric: tabular-nums; line-height: 1.05; }
+
+  /* ── 3 · shape & metrics ───────────────────────────────────────────── */
+  .radii-row { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
+  .rad { background: var(--raised); border: 1px solid var(--hairline-hover); display: grid; place-items: center; }
+  .rad span { font-family: var(--mono); font-size: 9px; color: var(--secondary); }
+  .ramp-row { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; margin-top: 18px; }
+
+  /* ── panels & shell surfaces ───────────────────────────────────────── */
+  .panel { width: 440px; background: var(--panel); border-radius: var(--r-panel);
+           border: 1px solid var(--hairline); overflow: hidden; position: relative;
+           box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .wingrow { display: flex; align-items: center; height: 34px; padding: 0 12px; position: relative; z-index: 2; }
+  .wingrow .name { font-size: 11.5px; font-weight: 600; color: var(--secondary); }
+  .wingrow .dead { position: absolute; left: 50%; transform: translateX(-50%); top: 2px; bottom: 2px; width: 205px; }
+  .wingrow .dead.show { border: 1px dashed rgba(255,255,255,.14); border-radius: 8px; }
+  .wingrow .dead.show::after { content: "dead zone · cutout + 8"; position: absolute; inset: 0; display: grid;
+        place-items: center; font-family: var(--mono); font-size: 8.5px; letter-spacing: .06em; color: var(--tertiary); }
+  .editbtn { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px;
+             border-radius: 14px; font-size: 11.5px; font-weight: 600; color: var(--primary); }
+  .editbtn:hover { background: var(--raised-hover); }
+  .editbtn.previewing { background: var(--accent); color: #fff; }
+  .editbtn svg { display: block; }
+  .hair { height: 1px; background: var(--hairline); }
+
+  /* app strip */
+  .strip { height: 42px; display: flex; align-items: center; border-top: 1px solid var(--hairline);
+           padding-left: 10px; position: relative; }
+  .strip .icon { width: 34px; height: 34px; margin: 0 3px; border-radius: 50%; display: grid; place-items: center;
+                 color: var(--secondary); font-size: 14px; position: relative; }
+  .strip .icon:hover { color: var(--primary); }
+  .strip .icon.active { color: var(--primary); }
+  .strip .icon.active::after { content: ""; position: absolute; bottom: 3px; left: 50%; transform: translateX(-50%);
+                 width: 4px; height: 4px; border-radius: 50%; background: var(--primary); }
+  .strip .divider { width: 1px; height: 16px; background: var(--hairline); position: absolute; right: 52px; }
+  .strip .gear { position: absolute; right: 46px; transform: translateX(50%); }
+
+  /* collapsed pill + wings scene */
+  .menubar-scene { width: 660px; max-width: 100%; }
+  .menubar { height: 26px; background: #1d1d21; border-radius: 8px 8px 0 0; position: relative;
+             display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+  .menubar .mi { font-family: var(--mono); font-size: 9px; color: var(--tertiary); letter-spacing: .08em; }
+  .pill-shape { position: absolute; left: 50%; top: 0; transform: translateX(-50%); height: 26px;
+                background: #000; border-radius: 0 0 12px 12px; display: flex; align-items: center; }
+  .pill-shape .wing-l { font-size: 11px; font-weight: 600; color: var(--secondary); padding: 0 6px 0 14px;
+                        white-space: nowrap; }
+  .pill-shape .cutout { width: 189px; height: 100%; flex: none; }
+  .pill-shape .wing-r { display: flex; align-items: flex-end; gap: 2px; height: 12px; padding: 0 14px 0 6px; }
+  .pill-shape .wing-r i { width: 2.5px; border-radius: 1px; background: var(--accent); }
+
+  /* mini */
+  .mini { width: 244px; margin: 0 auto; background: #000; border-radius: 0 0 18px 18px;
+          padding: 6px 14px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          box-shadow: 0 14px 34px rgba(0,0,0,.55); }
+  .mini.attached { margin-top: 7px; width: 306px; border-radius: 16px; padding: 9px 12px;
+                   border: 1px solid var(--hairline-hover); }
+
+  /* chat/editor surface bits */
+  .transcript { padding: 10px 14px 4px; display: flex; flex-direction: column; gap: 10px; }
+  .bubble-user { align-self: flex-end; max-width: 85%; background: rgba(255,255,255,.15); border-radius: 11px;
+                 padding: 6px 10px; font-size: 12.5px; }
+  .reasoning { font-size: 12.5px; font-style: italic; color: rgba(255,255,255,.58); line-height: 1.45; }
+  .tmarker { display: flex; align-items: center; gap: 10px; font-family: var(--mono); font-size: 10px;
+             color: rgba(255,255,255,.58); letter-spacing: .04em; }
+  .tmarker::before, .tmarker::after { content: ""; height: 1px; background: rgba(255,255,255,.16); flex: 1; }
+  .reply { font-size: 12.5px; color: rgba(255,255,255,.80); line-height: 1.45; }
+  .composer { display: flex; gap: 8px; padding: 8px 12px 12px; }
+  .composer .field { flex: 1; background: rgba(255,255,255,.09); border: 1px solid transparent; border-radius: 11px;
+                     min-height: 30px; display: flex; align-items: center; padding: 0 10px; font-size: 12.5px;
+                     color: rgba(255,255,255,.58); }
+  .composer .send { height: 30px; padding: 0 12px; border-radius: 11px; background: var(--accent); color: #fff;
+                    font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+
+  /* error / placeholder cards */
+  .pill-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px;
+                font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .05em; }
+  .card { background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--r-card); }
+  .card.well { background: var(--sunken); }
+
+  /* ── components gallery ────────────────────────────────────────────── */
+  .gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .cell { border: 1px solid var(--hairline); border-radius: var(--r-content); background: var(--panel);
+          padding: 18px; }
+  .cell h3 { font-family: var(--mono); font-size: 10px; font-weight: 500; letter-spacing: .07em;
+             text-transform: uppercase; color: var(--secondary); margin-bottom: 14px; }
+  .cell .demo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; min-height: 44px; }
+  .cell .spec { margin-top: 12px; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 11.5px;
+         font-weight: 600; color: var(--primary); border-radius: 999px; position: relative; isolation: isolate;
+         overflow: hidden; box-shadow: 0 0 0 1px var(--frost-ring), 0 4px 12px var(--frost-shadow);
+         transition: transform 80ms ease-out, box-shadow 140ms ease, background 140ms ease; }
+  .btn::before { content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+         opacity: .18; background-image:
+         radial-gradient(circle at 25% 35%, rgba(255,255,255,.24) 0 .45px, transparent .7px),
+         radial-gradient(circle at 70% 65%, rgba(255,255,255,.15) 0 .4px, transparent .65px);
+         background-size: 4px 4px, 5px 5px; }
+  .btn.s { height: 28px; padding: 0 10px; } .btn.m { height: 34px; padding: 0 14px; } .btn.l { height: 40px; padding: 0 18px; }
+  .btn.plain { background: transparent; box-shadow: none; }
+  .btn.plain::before { opacity: 0; }
+  .btn.plain:hover { background: var(--raised-hover); }
+  .btn.glass { background: var(--frost-fill); backdrop-filter: blur(16px) saturate(1.08); }
+  .btn.glass:hover { background: var(--frost-fill-hover);
+                     box-shadow: 0 0 0 1px rgba(255,255,255,.17), 0 6px 16px rgba(0,0,0,.30); }
+  .btn.accent { background: color-mix(in srgb, var(--accent) 82%, transparent); color: #000;
+                box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 55%, white), 0 4px 12px var(--frost-shadow); }
+  .btn.icononly { width: 34px; padding: 0; font-size: 14px; }
+  .btn.icononly.s { width: 28px; }
+  .btn.disabled { opacity: .35; pointer-events: none; }
+  .btn:active { transform: scale(.96); }
+  .btn.icononly:active { transform: scale(.96); }
+
+  .toggle { width: 36px; height: 20px; border-radius: 10px; position: relative; flex: none;
+            transition: background .15s ease-in-out; cursor: pointer; }
+  .toggle .knob { position: absolute; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff;
+            box-shadow: 0 1px 3px rgba(0,0,0,.4); transition: left .15s ease-in-out; }
+  .toggle.on { background: var(--accent); } .toggle.on .knob { left: 18px; }
+  .toggle.off { background: var(--track); } .toggle.off .knob { left: 2px; }
+
+  .segment { display: inline-flex; padding: 2px; background: var(--frost-fill); box-shadow: 0 0 0 1px var(--frost-ring);
+             border-radius: 14px; position: relative; }
+  .segment i { height: 24px; padding: 0 12px; display: grid; place-items: center; font-size: 11.5px; font-weight: 600;
+               font-style: normal; color: var(--secondary); border-radius: 12px; cursor: pointer; position: relative; z-index: 1; }
+  .segment i.sel { color: var(--primary); background: var(--selected); }
+
+  .stepper { display: inline-flex; align-items: center; height: 28px; background: var(--frost-fill);
+             box-shadow: 0 0 0 1px var(--frost-ring); border-radius: 14px; }
+  .stepper b { width: 28px; height: 28px; display: grid; place-items: center; font-size: 12px; font-weight: 600; cursor: pointer; }
+  .stepper span { min-width: 52px; text-align: center; font-size: 12px; font-weight: 600;
+                  font-variant-numeric: tabular-nums; }
+
+  .sliderd { width: 180px; height: 22px; position: relative; display: flex; align-items: center; padding: 0 6px; }
+  .sliderd .tr { width: 100%; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .sliderd .tr i { display: block; height: 100%; width: 62%; background: var(--ink-fill); border-radius: 2px; }
+  .sliderd .knob { position: absolute; left: calc(62% - 7px); width: 14px; height: 14px; border-radius: 50%;
+                   background: rgba(255,255,255,.78); backdrop-filter: blur(12px);
+                   box-shadow: 0 0 0 1px rgba(255,255,255,.22), 0 2px 7px rgba(0,0,0,.42); }
+  .progressd { width: 180px; height: 4px; border-radius: 2px; background: var(--track); overflow: hidden; }
+  .progressd i { display: block; height: 100%; width: 40%; background: var(--ink-fill); border-radius: 2px; }
+
+  .spinner { width: 16px; height: 16px; flex: none; position: relative; }
+  .spinner svg { animation: spin .9s linear infinite; display: block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .lpill { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px;
+           font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .05em; }
+
+  .inputd { height: 34px; border-radius: 17px; background: var(--frost-fill); box-shadow: 0 0 0 1px var(--frost-ring);
+            display: flex; align-items: center; padding: 0 14px; font-size: 12.5px; color: var(--tertiary); width: 200px; }
+  .inputd.focus { box-shadow: 0 0 0 1px rgba(255,180,84,.7); color: var(--primary); }
+
+  .segment, .stepper, .inputd, .toggle, .sliderd .knob {
+    background-image: radial-gradient(circle, rgba(255,255,255,.045) 0 .45px, transparent .7px);
+    background-size: 3px 3px;
+    backdrop-filter: blur(16px) saturate(1.08);
+  }
+
+  .srow { display: flex; align-items: center; gap: 14px; padding: 11px 16px; }
+  .srow:hover { background: var(--raised-hover); }
+
+  /* odometer */
+  .odo { display: inline-flex; overflow: hidden; }
+  .odo .digit { display: inline-block; height: 1.05em; overflow: hidden; }
+  .odo .strip2 { display: flex; flex-direction: column; transition: transform .34s cubic-bezier(.3,.9,.25,1); }
+  .odo .strip2 span { height: 1.05em; line-height: 1.05; }
+  .odo .static { display: inline-block; }
+
+  /* motion table */
+  table.mo { border-collapse: collapse; font-size: 12px; }
+  table.mo th { font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase;
+                color: var(--tertiary); text-align: left; padding: 8px 22px 8px 0; font-weight: 500; }
+  table.mo td { padding: 8px 22px 8px 0; border-top: 1px solid var(--hairline); color: var(--secondary); }
+  table.mo td:first-child { color: var(--primary); font-weight: 600; font-size: 12px; }
+  table.mo td code { font-family: var(--mono); font-size: 10.5px; color: var(--secondary); }
+
+  .laws { counter-reset: law; max-width: 72ch; }
+  .laws li { list-style: none; counter-increment: law; padding: 12px 0 12px 44px; position: relative;
+             border-top: 1px solid var(--hairline); font-size: 13px; color: var(--secondary); line-height: 1.5; }
+  .laws li::before { content: "L" counter(law); position: absolute; left: 0; top: 13px; font-family: var(--mono);
+             font-size: 10px; color: var(--tertiary); border: 1px solid var(--hairline); border-radius: 99px;
+             padding: 2px 7px; }
+  .laws li b { color: var(--primary); font-weight: 600; }
+
+  .contract { display: grid; grid-template-columns: 150px 1fr; max-width: 780px; border-top: 1px solid var(--hairline); }
+  .contract > div { padding: 12px 0; border-bottom: 1px solid var(--hairline); font-size: 12.5px; line-height: 1.5; }
+  .contract .key { font-family: var(--mono); font-size: 10px; color: var(--tertiary); padding-right: 20px; }
+  .contract .value { color: var(--secondary); }
+  .contract .value b { color: var(--primary); }
+  pre.api { font-family: var(--mono); font-size: 10.5px; line-height: 1.7; color: var(--secondary);
+            background: var(--sunken); border: 1px solid var(--hairline); border-radius: 12px;
+            padding: 14px; overflow-x: auto; max-width: 780px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spinner svg { animation: none; }
+    .odo .strip2 { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="rail">
+
+  <h1>Ledge · Design System v2</h1>
+  <p class="lede">The target design for a Mac-native app platform that happens to live around the notch.
+  This document deliberately separates <span class="chip-shipped" style="margin-left:0">shipped</span>,
+  <span class="chip-proposed" style="margin-left:0">platform proposal</span>, and
+  <span class="chip-concept" style="margin-left:0">showcase concept</span>. Unmarked token values are transcribed
+  from <code>Theme.swift</code> / <code>Metrics.swift</code>; proposed contracts are decisions for the next host and
+  protocol revision, not descriptions of the current build.</p>
+
+  <!-- ═══ 1 · COLOR ═══ -->
+  <div class="sect">
+    <span class="tag">1 · Color</span>
+    <p class="note">One dark theme. Whites at fixed alphas do all structural work; color is reserved for
+    meaning (status, accent, agent). Every accent carries a derived <code>tint</code> (8–10% fill) and
+    <code>stroke</code> (20–25% border) so tinted chips look related by construction.</p>
+    <div class="tok-grid">
+      <div class="tok"><span class="sw"><i style="background:rgba(0,0,0,.92)"></i></span><div><b>glass</b><span>black @ .92 — the panel itself</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(0,0,0,.35)"></i></span><div><b>sunken</b><span>black @ .35 — wells, cut into glass</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.055)"></i></span><div><b>raised</b><span>white @ .055 — default surface</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.085)"></i></span><div><b>raisedHover</b><span>white @ .085</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.10)"></i></span><div><b>raisedHover2</b><span>white @ .10 — frosted-control hover</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.12)"></i></span><div><b>selected</b><span>white @ .12 — segment selection</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.14)"></i></span><div><b>track</b><span>white @ .14 — slider/progress rail</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.85)"></i></span><div><b>inkFill</b><span>white @ .85 — progress is ink, not accent</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.09)"></i></span><div><b>hairline</b><span>white @ .09 · hover .14</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.94)"></i></span><div><b>primary</b><span>white @ .94</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.56)"></i></span><div><b>secondary</b><span>white @ .56</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:rgba(255,255,255,.32)"></i></span><div><b>tertiary</b><span>white @ .32</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#FFB454"></i></span><div><b>accent</b><span>#FFB454 — amber; actions &amp; the builder</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#30D158"></i></span><div><b>green</b><span>#30D158 — live, gains, on</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#FF453A"></i></span><div><b>red</b><span>#FF453A — crashed, losses</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#8F61FF"></i></span><div><b>violet</b><span>P3 .56/.38/1 — the agent's color</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#2ED1F0"></i></span><div><b>cyan</b><span>P3 .18/.82/.94</span></div></div>
+      <div class="tok"><span class="sw"><i style="background:#3D8AFF"></i></span><div><b>blue</b><span>P3 .24/.54/1</span></div></div>
+    </div>
+  </div>
+
+  <!-- ═══ 2 · TYPOGRAPHY ═══ -->
+  <div class="sect">
+    <span class="tag">2 · Typography</span>
+    <p class="note">San Francisco only. Every non-mono <code>text</code> renders with tabular digits
+    (monospaced-digit system font) — ticking values never jitter, for free. Single-line by default (L7);
+    wrapping is an explicit <code>maxLines</code> opt-in. The display tier and <code>caps</code> eyebrow
+    are the v0.3 additions that give a panel a protagonist.</p>
+    <div style="max-width:620px">
+      <div class="spec-row"><span class="k">hero · 48 · light <span class="chip-proposed">proposed</span></span><span class="t-hero">06:47</span></div>
+      <div class="spec-row"><span class="k">display · 36 · light <span class="chip-proposed">proposed</span></span><span class="t-display">21:03:44</span></div>
+      <div class="spec-row"><span class="k">xl · 30</span><span style="font-size:30px;font-weight:600;font-variant-numeric:tabular-nums">$214.62</span></div>
+      <div class="spec-row"><span class="k">l · 15</span><span style="font-size:15px;font-weight:500">San Francisco</span></div>
+      <div class="spec-row"><span class="k">m · 12.5 (default)</span><span style="font-size:12.5px">Body copy, control labels, rows</span></div>
+      <div class="spec-row"><span class="k">s · 11.5 · semibold</span><span style="font-size:11.5px;font-weight:600">Button labels — always this, never larger</span></div>
+      <div class="spec-row"><span class="k">xs · 10</span><span style="font-size:10px;color:var(--secondary)">Fine print, totals, captions</span></div>
+      <div class="spec-row"><span class="k">xs · mono · caps <span class="chip-proposed">proposed</span></span><span class="eyebrow">−9H / PDT · Yesterday</span></div>
+      <div class="spec-row"><span class="k">mono (full)</span><span style="font-family:var(--mono);font-size:12px">stocks.jsx · depth 18 · 60 fps</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ 3 · SHAPE & METRICS ═══ -->
+  <div class="sect">
+    <span class="tag">3 · Shape &amp; metrics</span>
+    <p class="note"><b>Capsule rule:</b> anything pressed or typed into gets <code>radius = height/2</code>,
+    continuous curve. <b>Concentric rule:</b> a nested container's radius = parent's − inset (floor 4):
+    panel 26 − 12 pad = content 14. Control size ramp: <code>s 28/10 · m 34/14 · l 40/18</code>
+    (height/padX). Stack gap 8, card pad 12.</p>
+    <div class="radii-row">
+      <div class="rad" style="width:64px;height:40px;border-radius:2px"><span>rTrack 2</span></div>
+      <div class="rad" style="width:76px;height:52px;border-radius:8px"><span>rChip 8</span></div>
+      <div class="rad" style="width:96px;height:64px;border-radius:12px"><span>rCard 12</span></div>
+      <div class="rad" style="width:110px;height:76px;border-radius:14px"><span>rContent 14</span></div>
+      <div class="rad" style="width:140px;height:96px;border-radius:26px"><span>rPanel 26</span></div>
+      <div class="rad" style="width:120px;height:34px;border-radius:17px"><span>capsule h/2</span></div>
+    </div>
+    <div class="ramp-row">
+      <span class="btn glass s">Size s · 28</span>
+      <span class="btn glass m">Size m · 34</span>
+      <span class="btn glass l">Size l · 40</span>
+    </div>
+  </div>
+
+  <!-- ═══ 4 · SURFACES ═══ -->
+  <div class="sect">
+    <span class="tag">4 · Surfaces — ownership, not a ladder</span>
+    <p class="note">The surfaces have different owners. The <b>active app</b> owns the wings and panel; any
+    running app may publish a bounded <b>mini notification</b>; the builder owns chat. A mini is an event overlay,
+    not a smaller panel state, so it can arrive without stealing selection, lifecycle, wings, or the app the pill
+    reopens. <span class="chip-proposed">platform proposal</span></p>
+
+    <h2>4.1 Collapsed pill + wings</h2>
+    <p class="note">The pill is anchored to the hardware cutout (never centered — wings are asymmetric).
+    Fillet 12, bottom radius 12. Left wing: text, 11.5 semibold secondary, max 160 pt. Right wing:
+    a chromeless canvas — it <i>is</i> the pill. Wings are decoration: hit-tests pass through.
+    Hover: haptic + bump (+14 w, +2.5 h), open after 0.20 s dwell; click opens instantly. Only the active app's
+    latest wing declaration is visible; background declarations may be retained for the next activation but never
+    replace the current app's wing. <span class="chip-proposed">ownership change</span></p>
+    <div class="menubar-scene">
+      <div class="menubar">
+        <span class="mi">LEDGE</span>
+        <div class="pill-shape">
+          <span class="wing-l">AAPL ▲ 1.2%</span>
+          <span class="cutout"></span>
+          <span class="wing-r"><i style="height:5px"></i><i style="height:9px"></i><i style="height:12px"></i><i style="height:7px"></i><i style="height:10px"></i></span>
+        </div>
+        <span class="mi">SAT 10:18</span>
+      </div>
+    </div>
+    <p class="spec">pill = cutout + 2×12 fillet · wing ≤ 160/side · bump spring .30/.75 · open .42/.80 · close .45/1.0 · openSlop 26</p>
+
+    <h2 style="margin-top:34px">4.2 Mini — a background-capable notification</h2>
+    <p class="note">Mini is a separate React root exported by each app, not an element nested inside its panel.
+    When Ledge is collapsed it morphs out of the pill; when another app's panel is open it attaches below that panel
+    as a prominent notch-shaped toast. It never changes the active app. Height 34–80, default duration 4 s; hovering
+    pauses dismissal and clicking may perform the notification action or activate its source app.</p>
+    <div class="menubar-scene">
+      <div class="menubar">
+        <span class="mi">LEDGE</span>
+        <div class="notch-cut" style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:189px;height:26px;background:#000"></div>
+        <span class="mi">SAT 10:18</span>
+      </div>
+      <div class="mini">
+        <div style="display:flex;flex-direction:column;align-items:flex-start"><span class="eyebrow dim">Standup · Zoom</span><div style="font-size:24px;font-weight:300;font-variant-numeric:tabular-nums">in 12 min</div></div>
+        <span class="btn glass s" style="color:var(--cyan);border-color:rgba(46,209,240,.4)">Join</span>
+      </div>
+    </div>
+    <div style="margin-top:24px;width:440px">
+      <div class="panel" style="width:440px">
+        <div class="wingrow"><span class="name">Chess · your move</span><span class="dead"></span><span class="editbtn">✦ Edit</span></div>
+        <div class="hair"></div>
+        <div style="padding:20px;text-align:center;color:var(--secondary);font-size:12.5px">The board stays active and untouched.</div>
+        <div class="strip"><span class="icon active">♞</span><span class="icon">♪</span><span class="icon">◷</span></div>
+      </div>
+      <div class="mini attached">
+        <div><span class="eyebrow dim">Departures</span><div style="font-size:13px;margin-top:2px">Platform changed · train in 6 min</div></div>
+        <span class="btn glass s">View</span>
+      </div>
+    </div>
+    <p class="spec" style="margin-top:54px">one visible mini · queue up to 3 · same app + key coalesces · expiry 0.5–20 s · normal events don't preempt · no transient wing API in v0.4</p>
+
+    <h2 style="margin-top:34px">4.3 Mini authoring contract <span class="chip-proposed">platform proposal</span></h2>
+    <p class="note"><code>Mini</code> owns presentation and hooks; <code>ctx.peek</code> supplies an ephemeral,
+    JSON-safe event and asks the shell to show it. Shared app state continues to arrive through the normal update
+    path, so panel and mini can render the same model without sharing a React tree. The shell mounts one independent
+    mini root per running app and disposes the event payload after dismissal.</p>
+    <pre class="api"><span style="color:var(--tertiary)">export default function App({ track })</span> { /* panel */ }
+
+<span style="color:var(--tertiary)">export function Mini({ track, event, onOpen })</span> {
+  return &lt;row&gt;&lt;text&gt;{event.title}&lt;/text&gt;&lt;button onClick={onOpen}&gt;Open&lt;/button&gt;&lt;/row&gt;
+}
+
+ctx.update({ track: next, onOpen: () =&gt; ctx.expand() })
+await ctx.peek(
+  { key: "track-changed", title: next.title },
+  { duration: 4000, prominence: "normal" }
+)</pre>
+    <p class="spec">the JSX never crosses the socket · payload must be JSON-safe · callbacks are declared in the mini tree · background peek does not emit visible/hidden or change active app</p>
+
+    <h2 style="margin-top:34px">4.4 Expanded panel — anatomy</h2>
+    <p class="note">Width 440 (app may ask 320–640 via <code>meta.panel.width</code>); height measured from
+    content, capped ~70% of screen. Top row = <b>panel wings</b> at cutout height: left is the app's
+    <code>&lt;wing side="left"&gt;</code> or its name; the center dead zone is never drawn on; right is
+    <b>always</b> the Edit capsule — the one place the builder is always reachable. Bottom: the 42 pt app
+    strip — scrolling icons (34 circle in 40 cell, active dot 4), then [+], then the pinned Settings gear
+    behind a hairline.</p>
+    <div class="panel">
+      <div class="wingrow">
+        <span class="name">Stocks</span>
+        <span class="dead show"></span>
+        <span class="editbtn"><svg width="11" height="11" viewBox="0 0 11 11"><path d="M6.2 1l.7 1.8L8.7 3.5l-1.8.7L6.2 6l-.7-1.8L3.7 3.5l1.8-.7zM2.5 6.5l.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2L1.3 8.2l1.2-.5z" fill="currentColor"/></svg> Edit</span>
+      </div>
+      <div class="hair"></div>
+      <div style="padding:26px 20px;display:flex;align-items:center;justify-content:center;min-height:110px">
+        <span class="spec" style="text-align:center">content zone — measured height, concentric r14 cards<br>rows full-bleed, hairline-separated (L11)</span>
+      </div>
+      <div class="strip">
+        <span class="icon">〜</span><span class="icon active">♪</span><span class="icon">◷</span><span class="icon">♞</span><span class="icon">▦</span><span class="icon">+</span>
+        <span class="divider"></span>
+        <span class="icon gear">⚙︎</span>
+      </div>
+    </div>
+    <p class="spec">wing row h = cutout h · pad 12 · dead zone = cutout + 8/side · strip 42 · icon 34/40 cell · glyph 14 med · settings @46, divider @52 · scroll hints 24</p>
+
+    <h2 style="margin-top:34px">4.5 Edit ↔ Preview — the builder surface</h2>
+    <p class="note">One control, two full-size surfaces. The wing-row capsule reads <b>Edit</b> (plain, wand)
+    over the live app, and <b>Preview</b> (filled amber, eye) over the chat — never a split view. The chat
+    is a fixed 384 pt surface; its transcript speaks in reasoning italics, labeled hairline tool-markers, and
+    quiet outcomes ("a turn that completed says so by simply stopping"). Reload pulses the panel outline
+    green once; a crash pulses red once. The composer's send is the only filled-amber control in the shell
+    besides Preview — amber is the builder's color.</p>
+    <div class="pair">
+      <div class="panel" style="width:440px">
+        <div class="wingrow">
+          <span class="name">Stocks</span>
+          <span class="editbtn previewing"><svg width="12" height="9" viewBox="0 0 12 9"><path d="M6 0C3.5 0 1.4 1.7.3 4.5 1.4 7.3 3.5 9 6 9s4.6-1.7 5.7-4.5C10.6 1.7 8.5 0 6 0zm0 7.2a2.7 2.7 0 110-5.4 2.7 2.7 0 010 5.4z" fill="currentColor"/></svg> Preview</span>
+        </div>
+        <div class="hair"></div>
+        <div class="transcript">
+          <div class="bubble-user">make the price green when it's up</div>
+          <div class="reasoning">Looking at how the price row renders — the color is hardcoded primary…</div>
+          <div class="tmarker">Editing app.jsx</div>
+          <div class="reply">Done — the price now maps to <b>green</b>/<b>red</b> on the day's delta.</div>
+        </div>
+        <div class="composer">
+          <span class="field">Ask for a change…</span>
+          <span class="send">↑</span>
+        </div>
+      </div>
+    </div>
+    <p class="spec">chat surface 384 pt fixed · web tokens run brighter (ink .98/.80/.58, raised .09/.15, r11) — legibility over glass · CSP: no network, links never followed</p>
+
+    <h2 style="margin-top:34px">4.6 Chrome cards — crash, placeholder, empty</h2>
+    <div class="pair">
+      <div class="panel" style="width:320px">
+        <div style="display:flex;align-items:center;gap:8px;padding:10px 16px 0">
+          <span style="width:5px;height:5px;border-radius:50%;background:var(--tertiary)"></span>
+          <span style="font-size:11.5px;font-weight:600;color:var(--secondary)">trader</span>
+          <span style="margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--secondary)">crashed</span>
+        </div>
+        <div style="padding:12px 16px 18px">
+          <span class="pill-badge" style="color:var(--red);background:rgba(255,69,58,.09);border:1px solid rgba(255,69,58,.25)">CRASHED</span>
+          <div style="font-size:12.5px;font-weight:600;margin:10px 0">worker exited: TypeError in poll()</div>
+          <div class="card well" style="padding:10px;font-family:var(--mono);font-size:10px;color:var(--red);line-height:1.6">at poll (app.jsx:112)<br>at tick (app.jsx:88)</div>
+        </div>
+      </div>
+      <div class="panel" style="width:320px">
+        <div class="wingrow"><span class="name">Music</span><span class="editbtn">✦ Edit</span></div>
+        <div style="padding:26px 20px 30px;text-align:center">
+          <div style="font-size:38px;font-weight:200;color:var(--tertiary);line-height:1">♪</div>
+          <div style="font-size:13px;color:var(--secondary);margin:12px 0 16px">Play something and it lands here.</div>
+          <span class="btn glass s">Open Music</span>
+        </div>
+      </div>
+    </div>
+    <p class="spec">crash: red pill + 12.5 semibold message + sunken 10-mono trace (8 lines max) · empty pattern <span class="chip-proposed">proposed</span>: one glyph, one sentence, one action — never "no data"</p>
+  </div>
+
+  <!-- ═══ 5 · COMPONENTS ═══ -->
+  <div class="sect">
+    <span class="tag">5 · Frosted controls <span class="chip-proposed" style="margin-left:0">platform proposal</span></span>
+    <p class="note">Controls use one translucent, softly textured frost over the app's content. Every button,
+    segmented control, stepper, slider thumb, toggle, and field shares the same blur, neutral white veil, fine grain,
+    edge ring, and shadow. There is no simulated lens, travelling highlight, refraction, or merging behavior. That
+    restraint makes the animated content underneath visible without making the controls look wet or unstable.</p>
+    <p class="note">The material changes only by state: hover raises opacity and shadow slightly, press scales the
+    complete control to .96, selection adds a quiet inner wash, and the single primary action receives an accent tint
+    over the same frost. Native implementation should use one shared <code>NSVisualEffectView</code>-backed material;
+    Reduce Transparency substitutes an opaque neutral with the same ring and metrics.</p>
+    <p class="note"><b>Legibility over generative content is a mechanism, not an aspiration.</b> "Controls remain
+    readable over every generated frame" cannot be left to the app — a performance that drifts pale will eat the
+    transport. Two rules, deliberately <b>deterministic</b> rather than adaptive: the frost carries a
+    <b>contrast floor</b> (a veil component tuned so worst case — full white behind — still clears the ink), and a
+    scene declares a <b>quiet band</b> the generative grammar must keep below a luminance and detail cap. Sampling
+    the scene per frame and adjusting the veil is the obvious alternative and it is wrong here: an adaptive scrim
+    shimmers as content moves, which is exactly the wet, unstable look the frost exists to avoid.
+    <span class="chip-proposed">platform proposal</span></p>
+    <div class="gal">
+      <div class="cell"><h3>Button · variants</h3>
+        <div class="demo"><span class="btn plain m">Plain</span><span class="btn glass m">Frosted</span><span class="btn accent m">Accent</span><span class="btn glass m disabled">Disabled</span></div>
+        <p class="spec">label 11.5 semibold always · one frosted texture across variants · press .96 · hover raises fill + shadow only · no moving highlight or refraction · disabled α .35</p>
+      </div>
+      <div class="cell"><h3>Button · icon-only &amp; sizes</h3>
+        <div class="demo"><span class="btn glass icononly s">✦</span><span class="btn glass icononly">♪</span><span class="btn accent icononly">↑</span><span class="btn glass s">Small</span><span class="btn glass l">Large</span></div>
+        <p class="spec">icon-only = perfect square → circle · glyph 14 medium · beside label: 11 semibold, gap 5</p>
+      </div>
+      <div class="cell"><h3>Toggle</h3>
+        <div class="demo"><span class="toggle on" onclick="this.classList.toggle('on');this.classList.toggle('off')"><span class="knob"></span></span>
+        <span class="toggle off" onclick="this.classList.toggle('on');this.classList.toggle('off')"><span class="knob"></span></span></div>
+        <p class="spec">36×20 · knob 16, inset 2 · on = accent, off = track · 150 ms ease · whole control is the target</p>
+      </div>
+      <div class="cell"><h3>Segment</h3>
+        <div class="demo"><span class="segment"><i>1D</i><i class="sel">1W</i><i>1M</i><i>1Y</i></span></div>
+        <p class="spec">item 24 h, padX 12 · group pad 2 → 28 h · ONE selection layer slides 120 ms — never per-item fills</p>
+      </div>
+      <div class="cell"><h3>Stepper</h3>
+        <div class="demo"><span class="stepper"><b>−</b><span>07:30</span><b>+</b></span></div>
+        <p class="spec">h 28 · buttons 28² · value min 52, 12 semibold tabular · hold: 0.4 s delay then 12.5/s · clamps silently</p>
+      </div>
+      <div class="cell"><h3>Slider &amp; progress</h3>
+        <div class="demo" style="flex-direction:column;align-items:flex-start;gap:16px">
+          <span class="sliderd"><span class="tr"><i></i></span><span class="knob"></span></span>
+          <span class="progressd"><i></i></span>
+        </div>
+        <p class="spec">track 4, frosted knob 14 (18 while active), fill = inkFill · hover reveals the time/value label before drag · progress = track without knob · rate prop self-advances 30 Hz, drag suspends</p>
+      </div>
+      <div class="cell"><h3>Spinner</h3>
+        <div class="demo">
+          <span class="spinner"><svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="2"/><path d="M8 1 a7 7 0 0 1 6.06 3.5" fill="none" stroke="rgba(255,255,255,.94)" stroke-width="2" stroke-linecap="round"/></svg></span>
+          <span class="spec">for latency without a fraction — determinate work uses progress</span>
+        </div>
+        <p class="spec">16² · stroke 2 · cap = 25% of ring · 0.9 s/turn linear · stops off-window</p>
+      </div>
+      <div class="cell"><h3>Pill · tones</h3>
+        <div class="demo">
+          <span class="lpill" style="color:var(--green);background:rgba(48,209,88,.09);border:1px solid rgba(48,209,88,.25)">LIVE</span>
+          <span class="lpill" style="color:var(--secondary);background:var(--raised);border:1px solid var(--hairline)">PAPER</span>
+          <span class="lpill" style="color:var(--red);background:rgba(255,69,58,.09);border:1px solid rgba(255,69,58,.25)">CRASHED</span>
+          <span class="lpill" style="color:var(--accent);background:rgba(255,180,84,.10);border:1px solid rgba(255,180,84,.25)">PENDING</span>
+          <span class="lpill" style="color:var(--violet);background:rgba(143,97,255,.08);border:1px solid rgba(143,97,255,.20)">AGENT</span>
+          <span class="lpill" style="color:var(--cyan);background:rgba(46,209,240,.09);border:1px solid rgba(46,209,240,.25)">SYNCED</span>
+        </div>
+        <p class="spec">h 20 · padX 8 · 10 semibold · tone = {ink, tint 8–10%, stroke 20–25%} triples from theme</p>
+      </div>
+      <div class="cell"><h3>Input</h3>
+        <div class="demo" style="flex-direction:column;align-items:flex-start"><span class="inputd">Search timezones…</span><span class="inputd focus">Warsaw</span></div>
+        <p class="spec">h 34 → capsule 17 · frosted fill + shadow ring · focus ring = accent @ .70 · placeholder tertiary</p>
+      </div>
+      <div class="cell"><h3>Chart · sparkline</h3>
+        <div class="demo"><svg width="240" height="44" viewBox="0 0 240 44"><defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="rgba(48,209,88,.25)"/><stop offset="1" stop-color="rgba(48,209,88,0)"/></linearGradient></defs><path d="M0,32 40,28 80,33 120,20 160,24 200,12 240,15 V44 H0 Z" fill="url(#cg)"/><polyline points="0,32 40,28 80,33 120,20 160,24 200,12 240,15" fill="none" stroke="#30D158" stroke-width="1.8" stroke-linejoin="round"/></svg></div>
+        <p class="spec">h 44 fixed · stroke 1.8 · insetY 3 · fill = color @ .25 → 0 gradient · sparkline only, no axes</p>
+      </div>
+      <div class="cell"><h3>Row idiom <span class="chip-proposed">proposed</span></h3>
+        <div class="demo" style="flex-direction:column;align-items:stretch;gap:0;margin:0 -18px">
+          <div class="srow"><span style="font-size:14px;font-weight:600">AAPL</span><span style="flex:1"></span><span style="font-size:15px;font-variant-numeric:tabular-nums">229.11</span></div>
+          <div class="hair" style="margin:0 16px"></div>
+          <div class="srow"><span style="font-size:14px;font-weight:600">NVDA</span><span style="flex:1"></span><span style="font-size:15px;font-variant-numeric:tabular-nums">181.40</span></div>
+        </div>
+        <p class="spec">full-bleed + hairline between · hover = raisedHover wash only · boxes are for true containers (boards, wells, artwork)</p>
+      </div>
+      <div class="cell"><h3>Materials <span class="chip-proposed">proposed</span></h3>
+        <div class="demo"><div style="width:100%;height:64px;border-radius:12px;border:1px solid var(--hairline);background:linear-gradient(180deg, rgba(46,209,240,.22), rgba(46,209,240,0) 92%)"></div></div>
+        <p class="spec">wash: 1–3 hexes, standard geometry (22% → 0 by 60% height) · <b style="color:var(--primary)">drift</b> crossfades between them shell-side on a ~14 s cycle — a layer animation, so it costs the socket nothing and keeps breathing while the worker is idle · canvas gradient op for bespoke skies · meta.accent tints selected states + hairlines only</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 6 · MOTION ═══ -->
+  <div class="sect">
+    <span class="tag">6 · Motion</span>
+    <p class="note">The window never animates — the shape morphs inside a fixed 520×440 panel via layer
+    springs. Content changes get one opt-in transition. The live value below rolls with the proposed
+    <code>transition: "roll"</code>; everything else on this page holds still, which is the point.</p>
+    <div class="pair" style="align-items:center;margin-bottom:26px">
+      <span class="t-display">T−<span id="mo-odo">11:52</span></span>
+      <span class="spec">per-digit odometer, .34 s spring curve · numeral-only diffs roll, others crossfade <span class="chip-proposed">proposed</span></span>
+    </div>
+    <table class="mo">
+      <tr><th>Gesture</th><th>Spring / timing</th><th>Notes</th></tr>
+      <tr><td>Open</td><td><code>response .42 · damping .80</code></td><td>after 0.20 s hover dwell; click skips the dwell</td></tr>
+      <tr><td>Close</td><td><code>response .45 · damping 1.00</code></td><td>after 0.60 s exit debounce — never slams</td></tr>
+      <tr><td>Morph</td><td><code>response .40 · damping .85</code></td><td>app switch / height change; exits forgiven 0.9 s (morphGrace)</td></tr>
+      <tr><td>Hover bump</td><td><code>response .30 · damping .75</code></td><td>+14 w / +2.5 h, haptic on entry</td></tr>
+      <tr><td>Content swap</td><td><code>out .10 s · in .26 s @ (.2,0,0,1), +6 y, .12 s delay</code></td><td>cross-fade, incoming rises</td></tr>
+      <tr><td>Press</td><td><code>scale .96 · 80 ms in, 120 ms out</code></td><td>all controls, center-compensated</td></tr>
+      <tr><td>Attention</td><td><code>glow [0,.9,0,.7,0] · 1.1 s</code></td><td>double pulse = attention; single pulse = build status (green/red)</td></tr>
+      <tr><td>Strip fade</td><td><code>in .24 s (delay .14) · out .10 s</code></td><td>the strip arrives after the panel, leaves first</td></tr>
+    </table>
+  </div>
+
+  <!-- ═══ 7 · SETTINGS ═══ -->
+  <div class="sect">
+    <span class="tag">7 · Settings — a native window <span class="chip-proposed" style="margin-left:0">proposed</span></span>
+    <p class="note">Settings stops being an app in the strip and becomes a real macOS window. The decisive
+    argument isn't taste, it's architecture: <b>an app's settings must be editable while that app is disabled
+    or has never started</b>, so the schema has to live in the catalog the host already owns — not in a running
+    worker's React tree. It also deletes a whole special case: the privileged bridge exists mostly so one app
+    could enable/disable the others, and the shell already owns that state.</p>
+    <p class="note">An app declares <code>meta.settings</code>. It must be <b>plain JSON, not Zod</b> — the
+    renderer lives in another process, so the schema crosses a socket; a Zod schema is closures and can't.
+    Types map to real AppKit controls, so a Ledge app's preferences look like every other Mac app's.</p>
+
+    <div class="pair" style="align-items:flex-start">
+      <div style="width:560px;border-radius:11px;overflow:hidden;border:1px solid rgba(255,255,255,.12);
+                  background:#1E1E20;box-shadow:0 22px 60px rgba(0,0,0,.55)">
+        <div style="height:38px;display:flex;align-items:center;gap:8px;padding:0 13px;background:#2A2A2D;
+                    border-bottom:1px solid rgba(0,0,0,.4)">
+          <span style="width:11px;height:11px;border-radius:50%;background:#FF5F57"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#FEBC2E"></span>
+          <span style="width:11px;height:11px;border-radius:50%;background:#28C840"></span>
+          <span style="margin-left:10px;font-size:12.5px;font-weight:600;color:rgba(255,255,255,.75)">Ledge Settings</span>
+        </div>
+        <div style="display:flex;min-height:326px">
+          <div style="width:172px;flex:none;background:#252527;border-right:1px solid rgba(0,0,0,.35);padding:8px 8px">
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">⚙︎&nbsp;&nbsp;General</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">🔒&nbsp;&nbsp;Permissions</div>
+            <div style="font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:rgba(255,255,255,.32);
+                        padding:13px 9px 5px">APPS</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">♪&nbsp;&nbsp;Now Playing</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;background:#0A64D2;color:#fff">☂&nbsp;&nbsp;Weatherglass</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">⇢&nbsp;&nbsp;Departures</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">♧&nbsp;&nbsp;Focus Garden</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.82)">▤&nbsp;&nbsp;Shelf</div>
+            <div style="font-size:12.5px;padding:6px 9px;border-radius:6px;color:rgba(255,255,255,.4)">♞&nbsp;&nbsp;Chess</div>
+          </div>
+          <div style="flex:1;padding:20px 24px">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:4px">
+              <span style="font-size:15px;font-weight:600;color:rgba(255,255,255,.9)">Weather</span>
+              <span style="font-family:var(--mono);font-size:9.5px;color:rgba(255,255,255,.35)">v1 · by you</span>
+            </div>
+            <div style="font-size:11.5px;color:rgba(255,255,255,.45);margin-bottom:18px">Forecast, minutecast, and a sky you can scrub.</div>
+
+            <div style="display:grid;grid-template-columns:126px 1fr;gap:13px 14px;align-items:center;font-size:12.5px">
+              <span style="text-align:right;color:rgba(255,255,255,.62)">Show in Ledge</span>
+              <span><span style="display:inline-block;width:38px;height:22px;border-radius:11px;background:#0A64D2;position:relative;vertical-align:middle">
+                <span style="position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff"></span></span></span>
+
+              <span style="text-align:right;color:rgba(255,255,255,.62)">Units</span>
+              <span><span style="display:inline-flex;align-items:center;gap:20px;height:22px;padding:0 8px;border-radius:6px;
+                background:#3A3A3D;border:1px solid rgba(255,255,255,.12);font-size:12px;color:rgba(255,255,255,.9)">Celsius <span style="opacity:.6">⌄</span></span></span>
+
+              <span style="text-align:right;color:rgba(255,255,255,.62)">Location</span>
+              <span><span style="display:inline-block;width:210px;height:22px;border-radius:5px;background:#141416;
+                border:1px solid rgba(255,255,255,.14);font-size:12px;color:rgba(255,255,255,.35);padding:3px 7px">Use my location</span></span>
+
+              <span style="text-align:right;color:rgba(255,255,255,.62)">Notify</span>
+              <span style="display:flex;align-items:center;gap:8px">
+                <span style="display:inline-block;width:38px;height:22px;border-radius:11px;background:#0A64D2;position:relative">
+                  <span style="position:absolute;top:2px;left:18px;width:18px;height:18px;border-radius:50%;background:#fff"></span></span>
+                <span style="color:rgba(255,255,255,.62);font-size:12px">before rain starts</span></span>
+
+              <span style="text-align:right;color:rgba(255,255,255,.62)">Lead time</span>
+              <span style="display:flex;align-items:center;gap:10px">
+                <span style="position:relative;width:158px;height:4px;border-radius:2px;background:rgba(255,255,255,.18)">
+                  <span style="position:absolute;left:0;top:0;height:4px;width:32%;border-radius:2px;background:#0A64D2"></span>
+                  <span style="position:absolute;left:calc(32% - 8px);top:-6px;width:16px;height:16px;border-radius:50%;background:#EDEDED;box-shadow:0 1px 3px rgba(0,0,0,.5)"></span></span>
+                <span style="font-variant-numeric:tabular-nums;color:rgba(255,255,255,.9);font-size:12px">15 min</span></span>
+
+              <span></span>
+              <span style="font-size:11px;color:rgba(255,255,255,.38)">Ledge asks the forecast every 10 minutes. Nothing leaves your Mac but the location lookup.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="width:384px">
+        <p class="spec" style="margin-top:0">The schema that drew that pane:</p>
+        <pre style="font-family:var(--mono);font-size:10px;line-height:1.7;color:var(--secondary);
+                    background:var(--sunken);border:1px solid var(--hairline);border-radius:12px;
+                    padding:14px;overflow-x:auto"><span style="color:var(--tertiary)">export const</span> meta = {
+  name: <span style="color:var(--green)">"Weather"</span>,
+  settings: {
+    units: { type: <span style="color:var(--green)">"enum"</span>, label: <span style="color:var(--green)">"Units"</span>,
+      options: [[<span style="color:var(--green)">"c"</span>,<span style="color:var(--green)">"Celsius"</span>],[<span style="color:var(--green)">"f"</span>,<span style="color:var(--green)">"Fahrenheit"</span>]],
+      default: <span style="color:var(--green)">"c"</span> },
+    place: { type: <span style="color:var(--green)">"text"</span>, label: <span style="color:var(--green)">"Location"</span>,
+      placeholder: <span style="color:var(--green)">"Use my location"</span> },
+    alerts: { type: <span style="color:var(--green)">"toggle"</span>, label: <span style="color:var(--green)">"Notify"</span>,
+      suffix: <span style="color:var(--green)">"before rain starts"</span>, default: <span style="color:var(--accent)">true</span> },
+    lead: { type: <span style="color:var(--green)">"number"</span>, label: <span style="color:var(--green)">"Lead time"</span>,
+      min: <span style="color:var(--accent)">5</span>, max: <span style="color:var(--accent)">60</span>, step: <span style="color:var(--accent)">5</span>, unit: <span style="color:var(--green)">"min"</span>,
+      default: <span style="color:var(--accent)">15</span>, enabledIf: { alerts: <span style="color:var(--accent)">true</span> } },
+    apiKey: { type: <span style="color:var(--green)">"secret"</span>, label: <span style="color:var(--green)">"Provider key"</span>,
+      service: <span style="color:var(--green)">"com.ledge.weather"</span>, optional: <span style="color:var(--accent)">true</span> },
+    note: { type: <span style="color:var(--green)">"note"</span>, text: <span style="color:var(--green)">"Ledge asks…"</span> },
+  },
+}</pre>
+        <p class="spec">types → controls: <b style="color:var(--primary)">toggle</b> NSSwitch ·
+        <b style="color:var(--primary)">enum</b> NSPopUpButton · <b style="color:var(--primary)">number</b>
+        slider+value (or stepper) · <b style="color:var(--primary)">text</b> NSTextField ·
+        <b style="color:var(--primary)">secret</b> NSSecureTextField backed by Keychain ·
+        <b style="color:var(--primary)">note</b> help text. <code>enabledIf</code> greys a row rather than
+        hiding it — the Mac idiom.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:22px"><b>Where the values live and how they get back.</b> The shell owns
+    them (it draws the UI and outlives every worker), persisted per app beside the existing
+    <code>settings.json</code> — which today holds exactly one key, the disabled list. They reach the worker as
+    a frozen <code>ctx.settings</code> at boot and as an app-level event on change, so
+    <b>both <code>monitor()</code> and the component see the same object</b>. Apps that need to react to a
+    change export <code>onSettings(values, ctx)</code>; everything else just re-renders.</p>
+    <p class="spec">consequences: the Settings demo app is deleted · the strip gear opens this window ·
+    <code>ctx.permissions()</code> becomes "open this window at Permissions" · <code>reorder</code> (never
+    implemented) becomes drag-to-reorder in the sidebar · secrets never enter settings.json or logs</p>
+  </div>
+
+  <!-- ═══ 8 · CADENCE ═══ -->
+  <div class="sect">
+    <span class="tag">8 · Cadence &amp; animation</span>
+    <p class="note">There are <b>three</b> clocks in Ledge and conflating them is the main way apps go wrong.
+    The monitor is not an animation clock — it's a data loop with a 1 s spin floor, and every app that animates
+    today already bypasses it entirely: <code>monitor()</code> captures <code>ctx</code>, does its setup, then
+    parks on <code>await new Promise(() =&gt; {})</code> while a plain <code>setInterval</code> owns the frame
+    clock. That's the shipped pattern, not a workaround.</p>
+    <table class="mo">
+      <tr><th>Clock</th><th>Rate</th><th>Cost per tick</th><th>Use for</th></tr>
+      <tr><td>Monitor loop</td><td><code>≥ 1 s</code> (spin floor, not an interval)</td>
+        <td>whatever your poll costs</td><td>fetching data. never motion.</td></tr>
+      <tr><td><code>ctx.draw</code> + own interval</td><td>app-chosen; <b>60 Hz is the hard ceiling</b></td>
+        <td>JSON encode → socket → 3 JSON passes in Swift → raster</td><td>pixels: scenes, games, charts</td></tr>
+      <tr><td><code>rate</code> prop</td><td>30 Hz, shell-side</td><td><b>zero</b> — no wire traffic at all</td>
+        <td>one predictably-moving number</td></tr>
+      <tr><td style="color:var(--tertiary)">React commit</td><td style="color:var(--tertiary)">event-driven only</td>
+        <td style="color:var(--tertiary)">reconcile + validate + relayout — milliseconds</td>
+        <td style="color:var(--tertiary)">never for animation</td></tr>
+    </table>
+    <p class="note" style="margin-top:20px"><b>Why 60 Hz is a ceiling and not a target.</b> The shell coalesces
+    draw frames per canvas and flushes on a 60 Hz timer, so a 120 fps app pays full JSON-encode, socket, and
+    decode cost for frames that are <b>discarded before they are ever drawn</b>. Worse, coalescing happens on
+    the receiving side — there is no backpressure anywhere in the chain, and the host's outbound queue is
+    unbounded. Drawing faster than the screen is pure waste that the platform cannot currently refuse.</p>
+    <p class="note"><b>The house numbers:</b> 15 fps for ambient scenes (the shipped default — weather, flocks),
+    up to 30 fps for anything with a cursor following it, 60 Hz only for a game that earns it. And the
+    non-negotiable: <b>hidden surfaces don't animate.</b> The panel canvas stops when closed, inactive mini roots
+    are event-driven, and a visible bounded mini may animate only for its on-screen lifetime. The active app's wing
+    may keep moving at around 2 fps.</p>
+    <p class="note" style="margin-top:20px"><b>Op budget — the generative scene is the first thing that strains
+    this.</b> Frame <i>rate</i> was never the constraint; frame <i>size</i> is. Today's heaviest app, a full Tetris
+    well, is ~120 ops ≈ 8.5 KB. A per-particle performance is a different order: 1,000 particles ≈ 60 KB a frame,
+    and at 15 fps that's ~900 KB/s of JSON — encoded in Bun and then decoded <b>three times</b> in Swift, because
+    <code>decodePayload</code> re-encodes before it re-decodes. That bug is a nitpick at Tetris scale and a real
+    cost here.</p>
+    <p class="note">Three answers, in order of preference. <b>Choose grammars with few rich ops rather than many
+    poor ones</b> — forty flowing paths of fifty points each say more than a thousand loose particles and cost a
+    third as much; this is a design constraint before it is an engineering one. <b>Quantize coordinates</b> — the
+    canvas is 200–440 pt wide, so sub-half-pixel precision is invisible and integers cut a points array roughly in
+    half. And if a grammar genuinely needs thousands of primitives per frame, that is the first honest case for the
+    stubbed <code>"use native"</code> transducer — the one the earlier verdict said not to build, because Tetris
+    and aviary never justified it. <span class="chip-proposed">platform proposal</span></p>
+    <p class="spec">verdict on a new meta knob: <b style="color:var(--primary)">not needed for capability</b> — apps
+    can already animate at any rate. what's missing is a <b style="color:var(--primary)">cap</b>: a declared
+    <code>meta.canvas.fps</code> the shell may enforce, so a runaway app degrades visibly instead of silently
+    eating a core. two adjacent bugs found while checking: <code>decodePayload</code> re-encodes then re-decodes
+    every draw frame (3 JSON passes where 1 would do), and the <code>hidden</code>/<code>visible</code>
+    lifecycle phases are specified but never actually sent.</p>
+  </div>
+
+  <!-- ═══ 9 · PLATFORM CONTRACT ═══ -->
+  <div class="sect">
+    <span class="tag">9 · Platform contract v0.4 <span class="chip-proposed" style="margin-left:0">platform proposal</span></span>
+    <p class="note">The platform should let Codex author an app as a small durable program with four independent
+    responsibilities: observe, decide, present, and notify. A panel-only React demo proves rendering; these contracts
+    prove that Ledge can host useful software that keeps working after the user switches away.</p>
+    <div class="contract">
+      <div class="key">panel root</div><div class="value"><b>Default export.</b> The selected app's full interactive view; mounted only when needed and never treated as a background process.</div>
+      <div class="key">mini root</div><div class="value"><b>Named <code>Mini</code> export.</b> Independently reconciled for every running app and shown only after <code>ctx.peek(event, options)</code>.</div>
+      <div class="key">background</div><div class="value"><b><code>monitor(ctx)</code>.</b> Continues under explicit cadence and energy budgets when another app is active; the shell can suspend it and reports the lifecycle honestly.</div>
+      <div class="key">wings</div><div class="value"><b>Active app only.</b> Each app retains its latest declaration, but the shell renders the declaration belonging to the selected app and restores it after a mini.</div>
+      <div class="key">notification queue</div><div class="value"><b>Shell-owned arbitration.</b> One visible, three queued, coalesced by app + key, rate-limited per app, hover-paused, and accessible through a notification history.</div>
+      <div class="key">scene canvas v2</div><div class="value"><b>Generative work without sprite packs.</b> Add paths, circles/ellipses, linear and radial gradients, transforms, alpha, clip, and blend modes in atomic frames; keep high-rate React commits out of animation.</div>
+      <div class="key">permissions</div><div class="value"><b>Capability-scoped and revocable.</b> Location, Calendar, Photos, and user-selected folders are separate grants; apps declare why before the native prompt and render a useful limited mode after denial.</div>
+      <div class="key">secrets</div><div class="value"><b>Keychain-backed settings.</b> API keys are never ordinary props, JSON files, chat context, crash reports, or generated source literals.</div>
+    </div>
+    <p class="note" style="margin-top:20px"><b>Mini and wings stay separate for v0.4.</b> A mini already supplies
+    bounded transient attention, so allowing background apps to borrow the wings adds arbitration and restoration
+    rules without unlocking a new user outcome. Revisit only if a real showcase needs a notification that cannot fit
+    34–80 pt.</p>
+  </div>
+
+  <!-- ═══ 10 · CODEX DEMOS ═══ -->
+  <div class="sect">
+    <span class="tag">10 · Codex-authored demos <span class="chip-concept" style="margin-left:0">recorded / live only</span></span>
+    <p class="note">These are demonstrations of <b>Codex targeting the platform</b>, not bundled AI products.
+    The impressive act is turning one person's peculiar need into ordinary inspectable software, then leaving that
+    software running. Avoid purple assistant chrome, fake autonomous commentary, and generic chat panels; show the
+    source, the hot reload, the useful state, and the later background mini.</p>
+    <div class="contract">
+      <div class="key">make it observable</div><div class="value"><b>Point Codex at any command, JSON endpoint, log, or page.</b> It builds a wing for the one ambient value, a panel for history, and a keyed mini for the condition the user describes. Swap the source between recordings to prove it is a platform pattern, not a prebuilt monitor.</div>
+      <div class="key">make it controllable</div><div class="value"><b>Give Codex a local script, device API, or repetitive command.</b> It turns safe operations into a tactile control surface with status, confirmation for risky actions, and receipts. The before/after is visible in the real system, so the demo doesn't depend on prose.</div>
+      <div class="key">teach a standing order</div><div class="value"><b>Perform one file task, then say “always do that for these.”</b> Codex adds a Shelf container, matcher, preview, transform chain, failure state, and undo; the next real file travels through it while another app is active.</div>
+      <div class="key">build my odd instrument</div><div class="value"><b>Combine facts no product team would prioritize.</b> “Tell me when direct sun reaches my desk” can join window orientation, local solar geometry, and cloud cover into a tiny instrument with a live shadow diagram and a future mini. Specificity is the proof.</div>
+    </div>
+    <p class="note" style="margin-top:20px"><b>Every recording has the same five beats:</b> a concrete desire,
+    one real source inspected, code written in view, hot reload into all relevant surfaces, then a time jump showing
+    the monitor delivering a mini while a different app is active. A second natural-language change proves the app
+    remains editable. CI Medic is removed because repository triage is already a familiar agent demo and says little
+    about why this platform belongs around the notch.</p>
+  </div>
+
+  <!-- ═══ 11 · LAWS ═══ -->
+  <div class="sect">
+    <span class="tag">11 · Laws</span>
+    <p class="note">Product laws explain what the system should feel like. Engineering laws keep that feeling
+    from decaying in implementation. Both are review criteria; status labels still decide what is shipped.</p>
+    <h2>Product laws</h2>
+    <ol class="laws">
+      <li style="border-top:none"><b>Useful before delightful.</b> Every flagship performs a recurring job; its surprise makes the job worth revisiting rather than disguising the absence of one.</li>
+      <li><b>Delight compounds.</b> Sessions leave history, mastery, a landscape, a rule, or a changed model. A reset-to-zero spectacle is a demo, not a relationship.</li>
+      <li><b>One signature per app.</b> Name the one device people will describe to a friend; controls and supporting content stay quiet enough to frame it.</li>
+      <li><b>Frost controls, content lives.</b> A uniform translucent control material sits over expressive content. Cards and backgrounds stay quieter, so hierarchy survives the effect.</li>
+      <li><b>Background events don't steal foreground state.</b> A mini may interrupt visually for a bounded moment, but it never changes selection, wings, lifecycle, or reopen history.</li>
+      <li><b>Time remains calm.</b> Ambient surfaces use human units and show available action. Seconds belong to user-controlled clocks and games, not unavoidable countdown anxiety.</li>
+      <li><b>Permission is part of the experience.</b> Ask at the moment of value, scope the grant, explain the local index, provide a useful denied state, and make deletion obvious.</li>
+      <li><b>Empty states invite.</b> One glyph, one sentence, one action — never an apology and never “no data.”</li>
+    </ol>
+
+    <h2 style="margin-top:34px">Engineering laws preserved from v1</h2>
+    <ol class="laws">
+      <li style="border-top:none"><b>One ruler.</b> Every color comes from <code>LedgeTheme</code> and every metric from <code>LedgeMetrics</code>. An inline component literal is a defect even when its value is correct.</li>
+      <li><b>Centering is measured, never trusted.</b> AppKit cell metrics lie; measure strings and center the complete content group. Empty content contributes zero width and zero gap.</li>
+      <li><b>Radii come from two rules.</b> Controls are continuous capsules; nested containers are concentric, using parent radius minus inset with a floor of 4.</li>
+      <li><b>Press scales about the visual center.</b> Compensate the layer anchor; use .96 for every control, 80 ms in and 120 ms out.</li>
+      <li><b>Hover is verified against the live pointer.</b> Tracking areas become stale when the panel morphs beneath a stationary cursor; resync from <code>NSEvent.mouseLocation</code>.</li>
+      <li><b>State changes animate; layout ticks don't.</b> Hover washes ease over 120 ms; drag ticks, chart updates, and corner changes disable implicit Core Animation actions.</li>
+      <li><b>Text never wraps silently.</b> Default to one line with tail truncation and measured intrinsic width; multiline is explicit through <code>maxLines</code>.</li>
+      <li><b>One white.</b> Ink and structural whites use named alpha tokens. A new gray or alpha needs a token and a semantic reason.</li>
+      <li><b>Hue is meaning.</b> Apps name intent, the shell owns values, each card uses one hue family, and a filled accent appears once per panel.</li>
+      <li><b>Draw against bounds, never <code>dirtyRect</code>.</b> Prefer layer backgrounds where possible; partial invalidation must never alter geometry or leave a halo.</li>
+      <li><b>Know which clock you're on.</b> Data polls through the monitor, pixels use <code>ctx.draw</code>, and one predictable number may use <code>rate</code>. React commits never drive continuous motion.</li>
+      <li><b>Hidden surfaces are idle.</b> Stop panel animation when closed and mini animation after dismissal; only the active wing has a low-rate collapsed budget.</li>
+    </ol>
+  </div>
+
+</div>
+
+<script>
+  function makeOdo(el) {
+    const value = el.textContent.trim(); el.classList.add('odo'); el.textContent = '';
+    const digits = [];
+    for (const ch of value) {
+      if (ch >= '0' && ch <= '9') {
+        const d = document.createElement('span'); d.className = 'digit';
+        const s = document.createElement('span'); s.className = 'strip2';
+        for (let i = 0; i <= 9; i++) { const n = document.createElement('span'); n.textContent = i; s.appendChild(n); }
+        d.appendChild(s); el.appendChild(d); digits.push(s);
+      } else { const c = document.createElement('span'); c.className = 'static'; c.textContent = ch; el.appendChild(c); digits.push(null); }
+    }
+    return { set(str) { let di = 0; for (const ch of str) { const strip = digits[di++];
+      if (strip && ch >= '0' && ch <= '9') strip.style.transform = `translateY(-${(+ch) * 1.05}em)`; } } };
+  }
+  const fmt2 = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+  const mo = makeOdo(document.getElementById('mo-odo'));
+  let down = 712;
+  mo.set(fmt2(down));
+  setInterval(() => { down = down > 0 ? down - 1 : 712; mo.set(fmt2(down)); }, 1000);
+</script>
+</body>
+</html>

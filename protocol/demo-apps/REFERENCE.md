@@ -12,6 +12,24 @@ machine, and searching for it finds nothing, slowly.
 
 ---
 
+## The apps in this folder
+
+Four, and each one is here to be *felt* on the notch — every surface in this
+document is exercised by at least one of them. Read them as syntax; read
+`docs/design/principles.md` before you copy their taste.
+
+| app | what it exercises |
+|---|---|
+| `timer` | `<summary>` (heavy session: hover shows the line, not the panel) · a wing **meter** (a `<canvas>` node mirrored into the right wing) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons |
+| `radio` | **no `<summary>`** — the law's other half: a rested pointer must open the visit directly · a wing **canvas** animating at ~8 fps off `ctx.draw`, the same node drawn in the panel · a wing held as live activity and released when it stops |
+| `beacon` | both notification classes back to back: **ambient** (glyph, one line, no action, retracts on Ti) and **alert** (one action, holds) · the three clicks on a swell — the action, elsewhere → visit, and nothing · `hero` numeral, `disabled` controls |
+| `settings` | the privileged app (spec §8): `ctx.platform.enable/disable/stats/quit/permissions`, a `<wing side="left">`, `toggle` rows, `useState` |
+
+The nine apps that used to live here predate the design reset and now sit in
+`protocol/demo-apps-archive/`. That folder is **not** an apps root: nothing
+scans it, nothing installs its dependencies, and nothing in it is a model for
+new work.
+
 ## Exports the host looks for
 
 | export | signature | purpose |
@@ -48,8 +66,8 @@ positioning, no CSS.
 
 | element | required props | optional props |
 |---|---|---|
-| `stack` | — | `axis` `"h"\|"v"`, `gap`, `pad`, `align` `"leading"\|"center"\|"trailing"`, `distribute` `"fill"\|"equal"`, `flex`, `scroll`, `fill`, `stroke`, `radius` |
-| `text` | `content` | `size` `xs\|s\|m\|l\|xl`, `weight` `regular\|medium\|semibold\|bold`, `color`, `mono`, `maxLines`, `truncate` |
+| `stack` | — | `axis` `"h"\|"v"`, `gap`, `pad`, `align` `"leading"\|"center"\|"trailing"`, `distribute` `"fill"\|"equal"`, `flex`, `scroll`, `fill`, `stroke`, `radius`, `gradient` |
+| `text` | `content` | `size` `xs\|s\|m\|l\|xl\|display\|hero`, `weight` `light\|regular\|medium\|semibold\|bold`, `color`, `mono`, `maxLines`, `truncate`, `caps` |
 | `button` | — | `label` **or a child**, `icon`, `variant` `plain\|glass\|accent`, `size` `s\|m\|l`, `disabled`, `onClick` |
 | `image` | `src` | `w`, `h`, `radius` |
 | `spacer` | — | `min` |
@@ -57,7 +75,7 @@ positioning, no CSS.
 | `chart` | `points: number[]` | `color`, `fill` |
 | `slider` | `value` | `min`, `max`, `step`, `rate`, `onChange({value})` |
 | `input` | — | `value`, `placeholder`, `onChange({value})`, `onSubmit({value})` |
-| `canvas` | `w`, `h` | `focusable`, `onKey({key,down})` — pixels come from `ctx.draw` |
+| `canvas` | `w`, `h` | `focusable`, `onKey({key,down})`, `onClick({x,y})`, `onDrag({phase,x,y})` — pixels come from `ctx.draw` |
 | `toggle` | `on` | `disabled`, `onChange({on})` |
 | `segment` | `options`, `value` | `onChange({value})` |
 | `stepper` | `value` | `min`, `max`, `step`, `format`, `onChange({value})` |
@@ -65,14 +83,23 @@ positioning, no CSS.
 | `spinner` | — | — |
 | `pill` | `label` | `tone` |
 | `wing` | `side="left"` | children — mounts into the panel's top-left zone |
-| `mini` | — | children — the small surface below the notch, shown by `ctx.peek()`. Must be a direct child of the root. |
+| `mini` | — | children — one row in the notch's swell, shown by `ctx.peek()`: **the notification**. Must be a direct child of the root. |
+| `summary` | — | children — one row in the same swell: **the summary**, shown when the user rests the pointer on the notch. Declaring it makes your session *heavy*. Must be a direct child of the root. |
 
 **Tokens.** `color`: `primary` `secondary` `tertiary` `green` `red` `accent`
 `cyan` `violet`. `fill`: `raised` `raisedHover` `accentTint` `greenTint`
 `redTint` `violetTint` `black`. `stroke`: `hairline` `accent` `green` `red`
-`violet`. `pill` `tone`: `accent` `green` `red` `violet` `cyan` `neutral`.
+`violet`. `gradient`: `accent` `green` `red` `violet` `cyan`. `pill` `tone`:
+`accent` `green` `red` `violet` `cyan` `neutral`.
 
 Use the tokens, never a hex string — the shell owns the palette.
+
+**`gradient` is a wash, not a fill.** You name the hue family; the shell paints
+it at the top of the container and fades it out by 60% of the height, behind the
+children. Every app's wash is the same material, which is what keeps panels
+looking related — so there is no angle, no stops and no second colour. It
+composes with `fill` (background) and `stroke`. For a gradient you control,
+draw one in a `canvas`.
 
 **`rate` on `slider`/`progress`** lets the shell advance the value itself
 between updates (units per second). A progress bar for a known-duration task
@@ -86,12 +113,28 @@ what makes it feel native:
 | surface | how | when |
 |---|---|---|
 | **wing** | `ctx.wing({ text })` | Always-on and glanceable, inside the collapsed pill. A timer counting down, a live price. |
-| **mini** | `<mini>…</mini>` + `ctx.peek(ms)` | A moment worth interrupting for, briefly. A track change, an alarm firing, your turn. |
-| **panel** | the default export | Everything. Shown when the user hovers or clicks. |
+| **notification** | `<mini>…</mini>` + `ctx.peek(ms)` | A moment worth interrupting for, briefly. A track change, an alarm firing, your turn. |
+| **summary** | `<summary>…</summary>` | What the notch says when the user *rests the pointer on it*. You declare it; the shell decides when. |
+| **panel** | the default export | Everything. Shown when the user clicks. |
 
-`<mini>` goes **inside** your root stack — like `<wing>`, it is a direct child
-of the root, not a sibling of it. Returning a fragment with `<mini>` next to
-your panel gives the renderer two roots, and the shell rejects the whole commit.
+The notification and the summary are the same shape of thing — one row, in the
+notch's swell — and differ in who raises them: a notification is you
+interrupting, a summary is the user asking. You cannot request a summary and you
+cannot refuse one; you only say what it would read.
+
+Declaring `<summary>` is what makes your session **heavy**: a rested pointer
+shows that line instead of opening you. A session that declares none is its own
+summary, and the same rested pointer opens the panel directly. A heavy visit
+owes a summary; a light one is its own summary — chess and weather owe one,
+`radio` in this folder does not. The shell draws a small chevron
+on the end of every summary — the promise that another click opens the full
+thing — and you cannot remove it, so do not draw your own.
+
+`<mini>` and `<summary>` go **inside** your root stack — like `<wing>`, each is a
+direct child of the root, not a sibling of it. Returning a fragment with one next
+to your panel gives the renderer two roots, and the shell rejects the whole
+commit. Nesting one inside a card is the same rejection: it would render into a
+surface its parent cannot see.
 
 ```jsx
 const NOTHING_PLAYING = { title: "—", artist: "", art: "sf:music.note" };
@@ -107,6 +150,11 @@ export default function App({ track = NOTHING_PLAYING }) {
         </stack>
       </mini>
 
+      {/* A heavy session would also declare, say:
+          <summary><text content="White +0.8 · your move" size="s" /></summary>
+          Now Playing does not: it IS its own summary, so a rested pointer
+          opens it rather than showing a line about it. */}
+
       {/* …the rest is the full panel */}
       <text content={track.title} size="l" weight="bold" />
     </stack>
@@ -119,11 +167,17 @@ export function onEvent(name, data, ctx) {
 }
 ```
 
-`<mini>` is **declarative**: keep it rendering the current state and the shell
-always has it ready, so a peek appears instantly and a hover promotes straight
-to the full panel. `ctx.peek()` only says *when*. Peeks are clamped to
-0.5–20 s (default 4 s) — it is a glance, not a way to hold the notch open. Use
-`ctx.expand()` when you genuinely want the panel.
+`<mini>` and `<summary>` are both **declarative**: keep them rendering the
+current state and the shell always has them ready, so a swell appears instantly
+and a click promotes straight to the panel. `ctx.peek()` only says *when*, and
+only for the notification. Peeks are clamped to 0.5–20 s (default 4 s) — it is a
+glance, not a way to hold the notch open. Use `ctx.expand()` when you genuinely
+want the panel.
+
+`ctx.peek(ms, { class })` picks the priority class. `"ambient"` (the default)
+retracts on its dwell; `"alert"` **holds** until the user acts on it or dismisses
+it — for an alarm going off, not for a track change. Urgency is ink, never
+geometry: an alert is the same shape, it just does not leave.
 
 ### The collapsed notch, in detail
 
@@ -142,6 +196,11 @@ ctx.wing({ text: "3:41", width: 220, canvas: { id: artCanvasId, w: 30 } })
   is the notch's; `w` is a request the shell clamps (~160 pt).
 - **`width`** — the total pill width. On its own, with no text and no canvas, it
   is a bare shape request: the notch simply grows.
+
+A wing is **glanceable, not interactive**: the only gesture on the collapsed pill
+is the click that opens you. The `"swipe"` event this used to deliver is
+withdrawn — a horizontal swipe now walks the user's session strip, everywhere,
+and belongs to the shell.
 
 To draw artwork in the notch, render a `<canvas>` anywhere in your tree, keep
 its id, and draw an `image` op into it:
@@ -233,7 +292,7 @@ the platform cannot do — everything else is just Bun.
 ctx.update(patch)                    merge into App's props + re-render
 ctx.notify(text, { attention?, title?, actions? })
 ctx.attention()                      notch glow, no notification
-ctx.peek(ms?)                        show <mini> below the notch briefly (default 4 s)
+ctx.peek(ms?, { class? })            swell the notch with <mini> briefly (default 4 s; class: ambient | alert)
 ctx.expand() / ctx.collapse()        open or close the panel
 ctx.wing(spec | null)                collapsed-notch live activity: { text?, width?, canvas? }
 ctx.draw(id, ops)                    imperative canvas drawing, bypasses React
@@ -251,7 +310,13 @@ ctx.platform.observe(kind, name) / unobserve(kind, name)
 ```
 
 `observe` kinds: `distributedNotification`, `workspace`, `pasteboard`, `power`,
-`reachability`, `audio`. Observations arrive at `onEvent`.
+`reachability`, `audio`, `focus`. Observations arrive at `onEvent`.
+
+`focus` — `{ active, modeName? }` — is Do Not Disturb and the named Focus modes.
+It is read from the user's Focus database, so it is **silent when it cannot be
+read**: no Full Disk Access (or a format change in some future macOS) means no
+events, never a false `active: false`. Write the app so "no focus event yet"
+looks like "we don't know", not like "focus is off".
 
 **Settings-only.** Five more calls exist, and only the app whose folder is
 `settings` may make them — anything else is refused with a reason, by the host
@@ -295,6 +360,22 @@ ctx.draw(board.current.id, [
 | `line` | `points: [[x,y], …]`, `stroke`, `width` |
 | `text` | `x`, `y`, `content`, `size`, `color` |
 | `image` | `src` (an absolute file path), `x`, `y`, `w`, `h`, and `sx`/`sy`/`sw`/`sh` to draw one cell of a spritesheet, in image pixels from the top-left |
+| `gradient` | `x`, `y`, `w`, `h`, `from`, `to`, `angle` (degrees clockwise from top-to-bottom, default 0), `radius` |
+
+**Scrubbing a canvas.** `onDrag` reports the whole gesture — `phase` is
+`"down"`, `"move"` or `"up"`, with the point in the same y-down space as the
+ops:
+
+```jsx
+<canvas w={416} h={44} onDrag={({ phase, x }) => {
+  setPreview(timeAt(x));            // `move` arrives throttled to ~30 Hz
+  if (phase === "up") commit(timeAt(x));   // …and `up` is the exact final point
+}} />
+```
+
+The point is **not clamped** to the canvas — drag past the edge and `x` goes
+negative or past `w`, so your track decides whether it saturates or wraps.
+`click` and `drag` are independent: declare both and you get both on press.
 
 Draw ops take **hex colours** (`#30D158`, `#FFF`, `#30D158CC`), not the palette
 tokens — a canvas is pixels, not a view, and a token here silently draws white. Frames arriving faster than the display refreshes are coalesced — only the latest survives, so there is no point
@@ -320,9 +401,11 @@ Data files are yours and are never reloaded on. Only **source** files
 
 ## Dependencies
 
-`react`, `cheerio`, `chess.js`, and `stockfish` are already installed at the
-apps root and can be imported bare. Prefer Bun's built-ins over a package — HTTP
-is `fetch`, SQLite is `bun:sqlite`, shelling out is `Bun.$`.
+`react` is already installed at the apps root and can be imported bare — and it
+is the *only* thing that is, deliberately. Prefer Bun's built-ins over a package
+— HTTP is `fetch`, SQLite is `bun:sqlite`, shelling out is `Bun.$`. Anything
+else goes in the apps root's `package.json` and is paid for in the .app bundle,
+so it needs a reason.
 
 ## Splitting a large app
 

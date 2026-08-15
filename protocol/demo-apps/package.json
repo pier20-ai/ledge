@@ -5,11 +5,9 @@
   "type": "module",
   "//": "The apps root's shared dependency set — the repo analogue of ~/.ledge/node_modules (spec §6). Apps import these bare; nothing here is a build tool. Versions are pinned exactly and bun.lock is committed, per spec §6 ('always ship the lockfile').",
   "//react": "react AND react-reconciler are pinned HERE, at the apps root, because the apps root is what both sides resolve against: an app's `import react` and the worker's reconciler (host/src/render/runtime.ts) each walk up from here and find this one copy. Hooks live in module-level state (ReactCurrentDispatcher), so two copies is `dispatcher.useState of null` on an app's first useState. This was `react: file:../../host/node_modules/react`, which made the HOST's copy authoritative — that inverts the real relationship and cannot survive compilation, since `bun build --compile` produces a host with no node_modules at all. react-reconciler must be here too, so that ITS own `require(react)` lands on this same copy. Keep both versions in lockstep with host/package.json, which needs its own copies for the tests.",
+  "//pruned": "cheerio, chess.js and stockfish left with the apps that used them (protocol/demo-apps-archive, the pre-design-reset set). They were 250 MB of node_modules and 239 MB of the .app bundle for apps no apps root loads any more. The archive is reference, not a package: nothing installs it.",
   "dependencies": {
-    "cheerio": "1.2.0",
-    "chess.js": "1.4.0",
     "react": "18.3.1",
-    "react-reconciler": "0.29.2",
-    "stockfish": "18.0.8"
+    "react-reconciler": "0.29.2"
   }
 }

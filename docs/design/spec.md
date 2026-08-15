@@ -69,7 +69,9 @@ On `crashed`, Swift shows a built-in error card in that app's panel (spec §7) �
 ### 3.3 `chrome`
 App-level presentation requests: `{ "request": "expand" | "collapse" | "attention" | "peek" | "wing" }`. `attention` = subtle glow on the notch wing (used by `monitor()` pings). Swift may deny `expand` (e.g. user is in a fullscreen game); denial is silent.
 
-**`peek` — the mini view.** `{ "request": "peek", "ms": 4000 }` shows the app's `mini` node (§5) in a small surface below the notch, then puts it away. This is the middle rung of three: a **wing** is always-on and glanceable inside the collapsed pill, a **peek** is a moment worth interrupting for, and the **panel** is everything. A track change, an alarm firing, your turn in a game.
+**`wing` — the collapsed notch.** `{ "request": "wing", "wing": { "text"?, "width"?, "canvas"?: { "id", "w" }, "meter"?: { "value" } } }`, and `"wing": null` releases it. One notch, one wing, latest asker wins (protocol/README.md, "collapsed wings"). The four fields are flow.md's four wing forms: **`text`** is the left wing's label (glyph or ticker); **`canvas`** is a drawable strip in the right wing, naming one of the app's own canvas nodes so its §3.4 frames land in both places; **`meter`** is the right wing's *stock* bar — `value` is `0…1` (clamped, both ends of the wire) and the shell owns its width, thickness, radius and ink, so two apps' meters are the same object rather than two hand-drawn rectangles; **`width`** is a total pill width, a floor when there is content and pure shape when there is not. `canvas` and `meter` both claim the right wing: the canvas wins, because those are the app's own pixels.
+
+**`peek` — the notification.** `{ "request": "peek", "ms": 4000, "class": "ambient" | "alert" }` swells the notch with the app's `mini` node (§5), then retracts it. `class` is the priority class (flow.md): **ambient** retracts on its dwell (`ms`, or the shell's Ti ≈ 6 s), **alert** holds until it is acted on or dismissed. Absent is ambient — an app that says nothing is not raising an alarm, and an unknown value is read as ambient too, so a forward-compatible wire can never produce a swell that never goes away. This is the middle rung of three: a **wing** is always-on and glanceable inside the collapsed pill, a **peek** is a moment worth interrupting for, and the **panel** is everything. A track change, an alarm firing, your turn in a game.
 
 The split between the two halves is deliberate: `mini` is *what* (declarative, kept current by the app's ordinary renders) and `peek` is *when* (imperative, one moment). Because Swift already holds a live view of the mini, a peek costs no round trip — and hovering one promotes straight to the full panel, which is the gesture that has to feel immediate. A "which view am I in" prop would put a worker hop in that path instead.
 
@@ -88,6 +90,8 @@ Imperative drawing for one `canvas` instance — bypasses the reconciler so game
 ```
 
 Swift double-buffers and blits on the next display link tick. Ops beyond these four (`arc`, `image`, `path`) can be added without a version bump — unknown ops are skipped. Coalescing rule: if frames arrive faster than the display refreshes, Swift keeps only the latest per canvas.
+
+**`gradient`** — `{ "op": "gradient", "x", "y", "w", "h", "from", "to", "angle"?, "radius"? }` fills one rect with an axial ramp between two hex colors. `angle` is degrees **clockwise from top-to-bottom**, matching the y-down op space (0 washes downward, 90 to the right), and defaults to 0; `radius` rounds the rect exactly as it does for `rect`. Free-form colors here are deliberate and are the opposite of the container rule (§5 `gradient`): a canvas is pixels the app owns, so it names real colors — a palette token inside a draw op would silently draw white.
 
 ### 3.5 `native` — transducers executed in the shell
 
@@ -137,20 +141,28 @@ For hot loops (games), the bundler extracts any function marked `"use native"` a
 ```json
 { "id": 7, "name": "click", "data": { } }
 ```
-Names: `click`, `change` (`{ "value": ... }` for slider/input), `hover` (`{ "in": true }`), and `key` (`{ "key": "ArrowLeft", "down": true }`) for a focused `canvas`. Host routes to the worker; reconciler dispatches to the prop handler (`onClick` etc.). Unknown `id` (stale after reload) → dropped silently.
+Names: `click`, `change` (`{ "value": ... }` for slider/input), `hover` (`{ "in": true }`), `key` (`{ "key": "ArrowLeft", "down": true }`) for a focused `canvas`, and `drag` (`{ "phase": "down" | "move" | "up", "x": 214.5, "y": 22 }`) for a `canvas` that declared `onDrag`. Host routes to the worker; reconciler dispatches to the prop handler (`onClick` etc.). Unknown `id` (stale after reload) → dropped silently.
+
+**Id 0 is the app itself** — node ids start at 1 (§3.1), so an event addressed to 0 belongs to the running app rather than to any view in its tree, and the worker dispatches it to the app's optional `onEvent(name, data, ctx)` export: `drop` (`{ "paths": [...] }`), `notification` (`{ "id": 7, "action": "execute" }`), `platform` (§6 observe), and (historically) `swipe`. **`swipe` is no longer emitted.** Principle 9 leaves the product three gestures — click, a horizontal swipe that walks the session strip, and a drag that parks the panel — and all three belong to the shell. A horizontal flick across the visit walks the strip; one across the collapsed pill or a swell does nothing. Apps that still export a `swipe` handler simply never hear from it.
+
+**`drag`** is the gesture press-drag-release, in the canvas-local y-down space `click` and the draw ops already use. Three rules make it a scrubber rather than a firehose: `move` is throttled **shell-side** (~30 Hz) so a fast wiggle cannot flood the socket; `down` and `up` are never throttled, and `up` carries the final position, so a coalesced `move` is never the last word on where the gesture ended; and the point is **not clamped to the canvas** — a knob dragged past the edge keeps tracking, and what an out-of-range x means is the app's decision. A canvas that declares both `onClick` and `onDrag` gets both on press; neither is synthesized from the other, because the threshold that separates a tap from a drag is app policy.
 
 ### 4.2 `lifecycle`
 ```json
 { "phase": "expanded" | "collapsed" | "hidden" | "visible",
+  "reduceMotion": false,
   "screen": { "notchWidth": 210, "menubarHeight": 34, "scale": 2 } }
 ```
 Sent per app when its panel state changes and once on connect. Workers use this to pause rendering work while collapsed (monitors keep running regardless).
+
+**`reduceMotion`** is the system's `accessibilityDisplayShouldReduceMotion`, and it rides here rather than in its own envelope because it is the same kind of fact as `phase`: an instruction about how hard to work, delivered on the channel an app already reads to decide that. The shell re-sends `lifecycle` — same phase, new flag — to every running app when the setting changes, so the flag is always current without any app polling for it. Absent means `false`. On the host it lands as **`ctx.reduceMotion`**, a plain boolean an app can read from inside a draw loop (where a callback is no use), updated in place before `onLifecycle` is called. Principle 10 in one line: *a canvas that animates must go still when this is true.*
 
 ### 4.3 Control plane (shell-level, `app: ""`)
 
 - **`hello`** — reply to Node's hello: `{ "v": 1, "gen": 7, "screen": { "notchWidth": 210, "menubarHeight": 34, "scale": 2, "maxPanelHeight": 480 } }`.
 - **`selection`** — the user switched apps via the strip: `{ "app": "music" }`, or `{ "app": null, "surface": "settings" | "new" }`. The host is the source of truth for what "selected" *means* (which worker gets `expanded` lifecycle), but the gesture originates in Swift.
 - **`builderInput`** — the user typed into an app's chat: `{ "app": "stocks", "text": "make the price green when it's up" }`, or `{ "app": "stocks", "cancel": true }` to interrupt the running turn. `app` may name a not-yet-existing id when coming from the **[+]** surface; the host scaffolds first, then starts the session.
+- **`appControl`** — `{ "app": "stocks", "action": "stop" }`; the shell asking the host to stop a session. Sent by exactly one control — the ✕ on **the ledge**, the only ✕ in the product (flow.md, "The strip") — and handled by the host's existing enable/disable path (§8, `ctx.platform.disable`): the worker is torn down, the app stays installed, and Settings is the way back. A second *trigger* for one mechanism, deliberately, so "is this app running" keeps one answer in one place.
 - **`resyncRequest`** — `{ "app": "stocks" }`; the host responds with a fresh full commit for that app (and a `catalog` if `app` is `""`).
 
 ## 5. Component vocabulary
@@ -159,19 +171,28 @@ Small on purpose. Everything maps to a native view; layout is stack-based only.
 
 | kind     | AppKit                | props |
 |----------|-----------------------|-------|
-| `stack`  | NSStackView           | `axis` (`h`/`v`), `gap`, `pad`, `align`, `distribute`, `flex` |
-| `text`   | NSTextField (label)   | `content`, `size` (`xs..xl`), `weight`, `color` (semantic: `primary`, `secondary`, `green`, `red`, `accent`), `mono`, `truncate` |
-| `button` | NSButton (custom)     | `label` **or child** — a child fills the button and brings its own size, which is how a list row becomes the tap target; `variant` (`plain`/`glass`/`accent`), `onClick` |
-| `image`  | NSImageView           | `src` (host-fetched URL or `sf:play.fill` for SF Symbols), `w`, `h`, `radius` |
+| `stack`  | NSStackView           | `axis` (`h`/`v`), `gap`, `pad`, `align`, `distribute`, `flex`, `fill`, `stroke`, `radius`, `gradient` (a hue family: `accent`, `green`, `red`, `violet`, `cyan` — the shell owns the wash's geometry, so every app's looks alike; composes with `fill`) |
+| `text`   | NSTextField (label)   | `content`, `size` (`xs`·10, `s`·11.5, `m`·12.5, `l`·15, `xl`·30, `display`·36, `hero`·48), `weight` (`light`, `regular`, `medium`, `semibold`, `bold`), `color` (semantic: `primary`, `secondary`, `green`, `red`, `accent`), `mono`, `truncate`, `caps` (uppercases **and** tracks out +6% — one prop, because uppercase at natural spacing is a jam) |
+| `button` | NSButton (custom)     | `label` **or child** — a child fills the button and brings its own size, which is how a list row becomes the tap target; `variant` (`plain`/`glass`/`accent`/`ghost`), `onClick` |
+| `image`  | NSImageView           | `src` (host-fetched URL or `sf:play.fill` for SF Symbols), `w`, `h`, `radius`, `stroke` (the `stack` hairline vocabulary, drawn on the picture itself) |
 | `spacer` | spacer view           | `min` |
 | `divider`| hairline view         | — · a rule between rows. Propless: no container can express one (an empty `stack` is zero points tall, so `stroke` has no edge to draw), and horizontal only — in a row the separation is already `gap` and `spacer`. |
 | `chart`  | custom sparkline view | `points` (number[]), `color`, `fill` |
 | `slider` | NSSlider              | `value`, `min`, `max`, `onChange` |
 | `input`  | NSTextField           | `value`, `placeholder`, `onChange`, `onSubmit` |
-| `canvas` | custom CGContext view | `w`, `h`, `focusable`, `onKey` — pixels via `draw` frames (§3.4), for games |
-| `mini`   | shell peek surface    | children — the small view shown below the notch by `ctx.peek` (§3.3). A **direct child of the root**, like `wing`: it is a shell zone, not a box in the app's layout. |
+| `canvas` | custom CGContext view | `w`, `h`, `focusable`, `onKey`, `onClick`, `onDrag` (§4.1 `drag`) — pixels via `draw` frames (§3.4), for games and scrubbers |
+| `mini`   | shell swell surface   | children — one row, shown in the notch's **swell** by `ctx.peek` (§3.3). A **direct child of the root**, like `wing`: it is a shell zone, not a box in the app's layout. The wire name is historical; the surface it fills is the *notification* (flow.md). |
+| `summary`| shell swell surface   | children — one row, the session's **hover summary** (flow.md). Same shape and same placement rule as `mini`, and the same zone discipline; the difference is who raises it — a notification is the app interrupting, a summary is the user asking, and the shell decides both. Declaring one makes the session *heavy*: a hover past **Th** shows this. A session that declares none is its own summary and hovers straight into the visit. The shell draws a trailing chevron on it that the app cannot remove — the promise that another click opens the full thing. |
 
 Event handler props (`onClick`, …) serialize as `true` over the wire; the reconciler keeps the function on the host side keyed by `(id, name)`.
+
+**`button.variant` — the two-tier control law** (design.html §06). An app's controls live *among content*, so the wire's fourth word is **`ghost`**: a bare pure-white glyph, no background at all, a `raisedHover` capsule only under the cursor. It is the honest form for a transport pair or a well's one action, and it is what every app should reach for before `glass` or `accent`. The shell's own tier — the convex **bead** on the wing bar — is *not* on the wire: `variant="bead"` from an app resolves to `plain`, because an app that could dress its buttons as chrome would make Ledge's controls indistinguishable from its content's.
+
+**`image.stroke`.** The same hairline token set as `stack.stroke` (`hairline`, `accent`, `green`, `red`, `violet`), drawn as a 1 pt ring on the image view. It exists because artwork letterboxes: a sleeve whose bitmap does not fill its box, or whose file has not landed yet, still has to keep the frame the layout drew for it — and wrapping the picture in a stroked `stack` to get one double-frames it the moment the bitmap *does* fill the box.
+
+**`align` — the cross axis.** `leading` · `center` · `trailing`, and those are the words (`start`/`end` are accepted aliases and nothing else is: an unknown value falls back to the axis default). In a column they mean left/middle/right; in a row, top/middle/bottom. **A column that names an alignment places its children instead of stretching them:** a `text` is sized to its words and put where the alignment says, capped at the column's width so a long line truncates rather than overrunning the panel. Without an alignment a column still stretches every child to its width, which is what makes rows, cards and charts span it. The exception either way is a child with no width of its own — a `divider`, a `chart`, a `slider`, a `progress`, an `input` — which spans the column whatever the alignment says, because "centred" for a rule would resolve to nothing.
+
+**Rows place their children too.** A row (`axis="h"`) whose width was imposed from outside — a column stretched it, which is the ordinary case — lays its children out **side by side at its leading edge and leaves the leftover width over**. It used to spread them: the first child pinned to the leading edge, the last to the trailing edge, and the slack given to whichever measured least, so `[27° · Overcast through the evening]` came out as a numeral stretched across two thirds of the panel with a phrase stranded at the far edge — two facts where the app wrote one sentence. The exception is the column rule's own exception, in the same words: **a row holding a child with no width of its own** — a `spacer`, `divider`, `chart`, `slider`, `progress` or `input` — keeps filling, because that child is where the slack is supposed to go. A `spacer` is how an app *says* so, and a row with a trailing value (`label · spacer · value`) is written exactly that way and behaves exactly as before. `distribute="equal"` is untouched. Rows that were never stretched in the first place — one placed by a centred column, or hosted by a `button` — are already the size of their contents and are untouched as well; `align` on a row still means the cross axis (top/middle/bottom) and nothing else.
 
 **Layout & sizing.** The root view's width is fixed by the shell (440 pt expanded; apps don't choose widths). Panel height = the root's intrinsic fitting height + shell chrome (34 pt header + 42 pt app strip), clamped to `maxPanelHeight` from `hello` (default 480 pt, shell-computed from screen size). Content past the clamp **clips** — there is no implicit scrolling; a `stack` can opt in with `scroll: true`, which maps to an `NSScrollView` (non-flashing overlay scrollers). Height changes animate with the standard curve; Swift re-measures after every applied commit.
 
