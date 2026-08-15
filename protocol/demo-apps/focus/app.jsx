@@ -231,16 +231,8 @@ export default function Focus({
 
   return (
     <stack axis="v" pad={20} gap={14}>
-      {/* The hover's glance surface; the shell adds the chevron. Idle, the news
-          is the armed alarm, not a preset nobody started — so the line reads
-          whichever number is actually doing something. */}
-      <summary>
-        <stack axis="h" gap={7} align="center">
-          <text content={state === "idle" && alarm ? alarm : time} size="s" weight="medium" />
-          {state === "paused" ? <image src="sf:pause.fill" w={9} h={9} /> : null}
-          {ringing || (state === "idle" && alarm) ? <image src="sf:bell.fill" w={9} h={9} /> : null}
-        </stack>
-      </summary>
+      {/* Summary UX deferred by ruling (2026-08-15): the shell still implements
+          <summary>, but no app declares one — a rested pointer opens the visit. */}
 
       {/* The interruption. One glyph, one line, one action (flow.md). */}
       <mini>

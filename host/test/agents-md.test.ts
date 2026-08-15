@@ -51,9 +51,13 @@ async function ctxMembers(interfaceName: string): Promise<string[]> {
 
 describe("AGENTS.md tracks the real API", () => {
   test("every component kind is documented", async () => {
+    // `summary` is implemented but deliberately undocumented: the Summary UX
+    // was deferred by ruling (2026-08-15, flow.md "States") — the shell keeps
+    // the machinery, apps stop declaring it, and the docs stop teaching it.
+    const deferred = new Set(["summary"]);
     const missing = (await intrinsicElements()).filter(
       // Documented in the component table as `| \`name\` |`.
-      (kind) => !new RegExp(`\`${kind}\``).test(doc),
+      (kind) => !deferred.has(kind) && !new RegExp(`\`${kind}\``).test(doc),
     );
     expect(missing).toEqual([]);
   });

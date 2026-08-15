@@ -53,10 +53,6 @@
   --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
-  /* How much of the pane the native stage occupies at the top. Swift owns this
-     number (`ChatSurfaceView`); the transcript starts below it and the newest
-     bubble is allowed to float back over its bottom edge. */
-  --stage-inset: 0px;
 }
 
 * {
@@ -96,27 +92,16 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 14px 12px 12px;
-}
-
-/* The room the native stage takes at the top of the pane. Not a view of the
-   stage — the stage is a real AppKit tree behind this page, dimmed and scaled
-   by Swift. This is the hole the transcript leaves for it. */
-.stagegap {
-  flex: none;
-  height: var(--stage-inset);
+  padding: 18px 12px 12px;
 }
 
 /* --------------------------------------------------------------- the scroller
-   At rest the last exchange lingers at the bottom; everything older is a scroll
-   away, sliding under a top fade (design.html §08). */
-/* The 14 pt of overlap design.html §08 draws on the first bubble: history
-   slides *under* the stage's bottom edge as it scrolls away, rather than
-   stopping politely below it. The mask does the rest. */
+   The transcript OVERLAYS the stage (G2.3 ruling): bubbles occlude the app —
+   that is why the pill's ⌄ exists. At rest the last exchange lingers at the
+   bottom; everything older is a scroll away, under the top fade. */
 .scroll {
   flex: 1 1 auto;
   min-height: 0;
-  margin-top: -14px;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22px);
@@ -352,6 +337,7 @@ body {
 }
 
 .pill textarea {
+  align-self: center;
   flex: 1 1 auto;
   min-width: 0;
   height: 18px;

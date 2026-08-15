@@ -23,13 +23,13 @@ taste.
 
 | app | what it exercises |
 |---|---|
-| `nowplaying` | the resting pill's owner: a **live-activity wing** (ticker + animated canvas) held while music plays and released when it stops · `ctx.apple` transport against Music.app and Spotify **without ever launching them** · `ctx.platform.observe("distributedNotification", …)` as a latency fix over a slow poll · `progress` with `rate` · a file-path `<image>` well · **no `<summary>`, no `<mini>`** — and an empty state that is one glyph and one line |
+| `nowplaying` | the resting pill's owner: a **live-activity wing** (ticker + animated canvas) held while music plays and released when it stops · `ctx.apple` transport against Music.app and Spotify **without ever launching them** · `ctx.platform.observe("distributedNotification", …)` as a latency fix over a slow poll · `progress` with `rate` · a file-path `<image>` well · **no `<mini>`** — and an empty state that is one glyph and one line |
 | `focus` | design.html §01's Stage panel, running: `meta.panel.width` asked down to the specimen's 336 pt · the `display` numeral **as its own control** (press it to cycle the preset) beside two ghosts on one row · a shell-drawn `<progress rate>` instead of a hand-drawn bar, with `rate: 0` + ten steps under `ctx.reduceMotion` · one **alert-class** `ctx.peek` reused by two different events, each with its own `<mini>` row · `ctx.notify` as the *gentle* half of an alarm (no `attention`, no actions) · app-owned JSON persistence (temp file + `rename`) |
-| `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · `<summary>` declared, so the session is **heavy** · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
-| `timer` | `<summary>` (heavy session: hover shows the line, not the panel) · a wing **meter** (`meter: { value }` — the shell draws the bar) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons · a `setInterval` clock with a parked monitor |
-| `radio` | **no `<summary>`** — the law's other half: a rested pointer must open the visit directly · a wing **canvas** animating at ~8 fps off `ctx.draw`, the same node drawn in the panel · a wing held as live activity and released when it stops |
+| `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
+| `timer` | a wing **meter** (`meter: { value }` — the shell draws the bar) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons · a `setInterval` clock with a parked monitor |
+| `radio` | a wing **canvas** animating at ~8 fps off `ctx.draw`, the same node drawn in the panel · a wing held as live activity and released when it stops |
 | `beacon` | both notification classes back to back: **ambient** (glyph, one line, no action, retracts on Ti) and **alert** (one action, holds) · the three clicks on a swell — the action, elsewhere → visit, and nothing · `hero` numeral, `disabled` controls |
-| `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · `<summary>` carrying the engine's *evaluation*, the one reading the board cannot give · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
+| `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
 | `tetris` | principle 5's worked example: **a score is a number**, so a 36 pt `display` numeral sits directly on the glass with `lv 6` beside it and nothing around either — the `SCORE`/`LINES`/`LEVEL` boxes are what the design reset was about · a `focusable` `<canvas>` with `onKey`, driven by a `setInterval` game loop and parked `monitor` · the next piece drawn *inside* the well rather than in a second framed canvas · a commit signature so a soft-drop point does not re-reconcile the panel · one ghost that starts, pauses, resumes and restarts · Reduce Motion audited and found to have nothing to switch off — every moving pixel is gameplay |
 
 There is no `settings` app any more: Settings is a **native macOS window** drawn
@@ -131,7 +131,6 @@ positioning, no CSS.
 | `pill` | `label` | `tone` |
 | `wing` | `side="left"` | children — mounts into the panel's top-left zone |
 | `mini` | — | children — one row in the notch's swell, shown by `ctx.peek()`: **the notification**. Must be a direct child of the root. |
-| `summary` | — | children — one row in the same swell: **the summary**, shown when the user rests the pointer on the notch. Declaring it makes your session *heavy*. Must be a direct child of the root. |
 
 **Tokens.** `color`: `primary` `secondary` `tertiary` `green` `red` `accent`
 `cyan` `violet`. `fill`: `raised` `raisedHover` `accentTint` `greenTint`
@@ -194,23 +193,11 @@ what makes it feel native:
 |---|---|---|
 | **wing** | `ctx.wing({ text })` | Always-on and glanceable, inside the collapsed pill. A timer counting down, a live price. |
 | **notification** | `<mini>…</mini>` + `ctx.peek(ms)` | A moment worth interrupting for, briefly. A track change, an alarm firing, your turn. |
-| **summary** | `<summary>…</summary>` | What the notch says when the user *rests the pointer on it*. You declare it; the shell decides when. |
 | **panel** | the default export | Everything. Shown when the user clicks. |
 
-The notification and the summary are the same shape of thing — one row, in the
-notch's swell — and differ in who raises them: a notification is you
-interrupting, a summary is the user asking. You cannot request a summary and you
-cannot refuse one; you only say what it would read.
+A rested pointer on the notch opens the panel directly.
 
-Declaring `<summary>` is what makes your session **heavy**: a rested pointer
-shows that line instead of opening you. A session that declares none is its own
-summary, and the same rested pointer opens the panel directly. A heavy visit
-owes a summary; a light one is its own summary — chess and weather owe one,
-`radio` and `nowplaying` in this folder do not. The shell draws a small chevron
-on the end of every summary — the promise that another click opens the full
-thing — and you cannot remove it, so do not draw your own.
-
-`<mini>` and `<summary>` go **inside** your root stack — like `<wing>`, each is a
+`<mini>` goes **inside** your root stack — like `<wing>`, it is a
 direct child of the root, not a sibling of it. Returning a fragment with one next
 to your panel gives the renderer two roots, and the shell rejects the whole
 commit. Nesting one inside a card is the same rejection: it would render into a
@@ -230,11 +217,6 @@ export default function App({ track = NOTHING_PLAYING }) {
         </stack>
       </mini>
 
-      {/* A heavy session would also declare, say:
-          <summary><text content="White +0.8 · your move" size="s" /></summary>
-          Now Playing does not: it IS its own summary, so a rested pointer
-          opens it rather than showing a line about it. */}
-
       {/* …the rest is the full panel */}
       <text content={track.title} size="l" weight="bold" />
     </stack>
@@ -247,10 +229,9 @@ export function onEvent(name, data, ctx) {
 }
 ```
 
-`<mini>` and `<summary>` are both **declarative**: keep them rendering the
-current state and the shell always has them ready, so a swell appears instantly
-and a click promotes straight to the panel. `ctx.peek()` only says *when*, and
-only for the notification. Peeks are clamped to 0.5–20 s (default 4 s) — it is a
+`<mini>` is **declarative**: keep it rendering the current state and the shell
+always has it ready, so a swell appears instantly and a click promotes straight
+to the panel. `ctx.peek()` only says *when*. Peeks are clamped to 0.5–20 s (default 4 s) — it is a
 glance, not a way to hold the notch open. Use `ctx.expand()` when you genuinely
 want the panel.
 

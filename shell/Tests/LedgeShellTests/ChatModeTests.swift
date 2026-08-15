@@ -116,9 +116,11 @@ struct ChatModeTests {
 
     // MARK: - ⌄ / ⌃
 
-    /// The pill's ⌄ clears the pane to *watch* — it does not make the stage
-    /// touchable, and it does not close anything. The panel is simply shorter.
-    @Test("Collapsing the transcript shortens the pane and leaves the stage inert")
+    /// The pill's ⌄ hides the bubbles to *watch* — it does not make the stage
+    /// touchable, it does not close anything, and (G2.3 ruling) it does NOT
+    /// resize the surface: the transcript is a layer over the stage, so
+    /// revealing the stage costs nothing in geometry.
+    @Test("Collapsing the transcript never resizes the pane; the stage stays inert")
     func collapsing() {
         let (chat, stage) = makeChat()
         var remeasured = 0
@@ -126,11 +128,8 @@ struct ChatModeTests {
 
         post(["type": "transcript", "collapsed": true], to: chat)
         #expect(chat.collapsed)
-        #expect(remeasured == 1)
-        #expect(
-            ChatSurfaceView.panelHeight(stageHeight: Self.stageHeight, collapsed: true)
-                < ChatSurfaceView.panelHeight(stageHeight: Self.stageHeight)
-        )
+        // No re-measure and no height change: collapse is a web-layer fact.
+        #expect(remeasured == 0)
         // Still inert, still one step back: "collapsing only clears the view to
         // watch; Done is the way to touch."
         #expect(chat.hitTest(CGPoint(x: chat.bounds.midX, y: 40)) !== stage)
@@ -138,7 +137,7 @@ struct ChatModeTests {
 
         post(["type": "transcript", "collapsed": false], to: chat)
         #expect(!chat.collapsed)
-        #expect(remeasured == 2)
+        #expect(remeasured == 0)
     }
 
     /// flow.md: "A blank slot has no stage: chat only." Same glass, same pill,
@@ -166,7 +165,7 @@ struct ChatModeTests {
         #expect(chat.bridge.emitted.count == before + 1)
         let script = try! #require(chat.bridge.emitted.last)
         #expect(script.contains("\"stage\""))
-        #expect(script.contains("153.5"))                // 160 × 0.96, half-point rounded
+        #expect(script.contains("144"))                  // 160 × 0.90
 
         // A re-layout that changed nothing costs nothing: `layout` runs on every
         // applied commit, and a live app commits several times a second.

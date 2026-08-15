@@ -158,13 +158,7 @@ export default function Timer({
   );
   return (
     <stack axis="v" pad={16} gap={8} align="center">
-      {/* The hover's glance surface; the shell adds the chevron. */}
-      <summary>
-        <stack axis="h" gap={7}>
-          <text content={time} size="s" weight="medium" />
-          <image src={running ? "sf:pause.fill" : "sf:play.fill"} w={9} h={9} />
-        </stack>
-      </summary>
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
 
       {/* The interruption. One glyph, one line, one action (flow.md). */}
       <mini>

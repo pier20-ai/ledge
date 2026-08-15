@@ -546,10 +546,6 @@ const points = (n) => n.toLocaleString("en-US");
 
 export default function Tetris({ score: value = 0, level: tier = 1, phase: state = "ready" }) {
   const live = state === "playing";
-  const glance =
-    state === "ready"
-      ? "ready"
-      : `${points(value)} · ${state === "playing" ? `lv ${tier}` : state === "paused" ? "paused" : "game over"}`;
 
   return (
     // `align="center"` places the column at its own width instead of stretching
@@ -560,9 +556,7 @@ export default function Tetris({ score: value = 0, level: tier = 1, phase: state
     <stack axis="v" pad={14} align="center">
       {/* Heavy on purpose: a rested pointer should read the score, not open a
           well that is about to start dropping pieces at you. */}
-      <summary>
-        <text content={glance} size="s" weight="medium" />
-      </summary>
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
 
       <stack axis="v" gap={10}>
         {/* The well — the one framed region for drawn content (§09). `focusable`

@@ -622,7 +622,6 @@ const INITIAL = snapshot();
 
 export default function ChessApp({
   line = INITIAL.line,
-  glance = INITIAL.glance,
   tone = INITIAL.tone,
   canUndo = false,
   onNewGame = newGame,
@@ -633,9 +632,7 @@ export default function ChessApp({
       {/* The hover's glance surface; the shell adds the chevron. This is the
           only place the evaluation appears — a number the board cannot draw,
           on the surface that exists for exactly that. */}
-      <summary>
-        <text content={glance} size="s" weight="medium" color={tone === "secondary" ? "primary" : tone} />
-      </summary>
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
 
       {/* The well: the one framed region for drawn content (§09). The frame is
           a `stack`, not pixels, so the mount tree says "there is a board here"

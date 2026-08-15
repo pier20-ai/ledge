@@ -11,13 +11,12 @@ the window (parked).
 - **Resting** — the bare notch.
 - **Ambient** — an app holds a wing: glyph, ticker, meter, or fixed-slot
   canvas. Nothing interactive beyond click-to-visit.
-- **Summary** — the hover's glance surface: the notch swells and shows the
-  focused session's declared summary — the chess position in plain lingo,
-  temp and the next hour. App-declared and optional: a session with no
-  summary opens straight to Visit on hover (a heavy visit owes a summary; a
-  light one is its own summary). The summary always shows a quiet open
-  affordance — it must be obvious that a click opens the full thing. Fixed
-  geometry while shown; retracts on pointer exit.
+- **Summary** — *deferred by ruling (2026-08-15): implemented in the shell
+  but dormant — no app declares one, so hover ≥ Th always opens the Visit.
+  The UX confused more than it glanced; revisit later.* The design as
+  ratified: the hover's glance surface — the notch swells and shows the
+  focused session's declared summary. App-declared and optional; always
+  shows a quiet open affordance; fixed geometry; retracts on pointer exit.
 - **Interruption** — the notification: the notch swells downward and outward.
   The cutout is an exclusion zone — nothing renders behind it; the payload
   sits below it. One row — glyph, one line, at most one action.

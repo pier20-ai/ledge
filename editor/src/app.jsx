@@ -304,7 +304,7 @@ export function App() {
     const node = viewport.current;
     if (!node || !following) return;
     node.scrollTop = node.scrollHeight;
-  }, [turns, following, collapsed, stage.inset]);
+  }, [turns, following, collapsed]);
 
   const onScroll = useCallback(() => {
     const node = viewport.current;
@@ -409,7 +409,10 @@ export function App() {
     const node = composer.current;
     if (!node) return;
     node.style.height = "auto";
-    const height = Math.min(node.scrollHeight, 54);
+    // Floor at one line-height: WebKit's scrollHeight runs a pixel or two
+    // over the line box, and a 20 pt textarea around 18 pt text sits its
+    // content visibly low in a centered pill (Manu's G2.3 screenshot).
+    const height = Math.max(18, Math.min(node.scrollHeight, 54));
     node.style.height = `${height}px`;
     setGrown(height > 18);
   }, [draft]);
@@ -433,10 +436,8 @@ export function App() {
   return (
     <div
       className={`pane${collapsed ? " collapsed" : ""}`}
-      style={{ "--stage-inset": `${stage.inset}px` }}
       onMouseUp={reclaimFocus}
     >
-      <div className="stagegap" />
 
       {blocked ? (
         // Ledge builds apps with the user's own agent and never talks to a

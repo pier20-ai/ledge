@@ -605,8 +605,7 @@ final class NotchPanelController {
             // cutout exclusion row, capped by what the screen allows.
             height = min(
                 ChatSurfaceView.panelHeight(
-                    stageHeight: stage.map { max(0, $0.height - session.chromeHeight) },
-                    collapsed: chat.collapsed
+                    stageHeight: stage.map { max(0, $0.height - session.chromeHeight) }
                 ) + session.chromeHeight,
                 size.maxHeight
             )

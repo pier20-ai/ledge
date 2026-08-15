@@ -1929,9 +1929,14 @@ final class ShellSurfaceView: FlippedView {
             return
         }
 
+        // A true crossfade, concurrent with the size spring. The old sequence —
+        // fade the old out, wait 120 ms, fade the new in — left a beat where
+        // the panel was resizing around *nothing*, which read on device as
+        // "the old app resizes, then the new one appears" (Manu, G2.3). Both
+        // animations now run in the same breath the geometry moves.
         if let previous, owned {
             NSAnimationContext.runAnimationGroup({ context in
-                context.duration = 0.10
+                context.duration = 0.14
                 previous.animator().alphaValue = 0
             }, completionHandler: {
                 previous.removeFromSuperview()
@@ -1945,14 +1950,11 @@ final class ShellSurfaceView: FlippedView {
 
         next.alphaValue = 0
         next.setFrameOrigin(CGPoint(x: 0, y: 6))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak next] in
-            guard let next, next === self?.currentContent else { return }
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.26
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
-                next.animator().alphaValue = 1
-                next.animator().setFrameOrigin(.zero)
-            }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.22
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+            next.animator().alphaValue = 1
+            next.animator().setFrameOrigin(.zero)
         }
     }
 

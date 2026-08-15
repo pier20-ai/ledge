@@ -32,31 +32,32 @@ import QuartzCore
 final class ChatSurfaceView: FlippedView {
     // MARK: - The measurements (design.html §01 `.glasspanel` / `.stage-min`)
 
-    /// `.glasspanel` padding-top: the breath above the stage.
-    static let topPad: CGFloat = 14
+    /// The breath above the stage (Manu at G2.3: more air around the stage).
+    static let topPad: CGFloat = 18
     /// The pill and the air around it — `margin-top: 10` + 40 pt capsule +
     /// `padding-bottom: 12`. The pill never moves, so this never changes.
     static let pillRoom: CGFloat = 62
-    /// What the conversation itself gets below the stage: enough for the last
-    /// exchange to linger (design.html §08) without the panel becoming a window.
-    static let transcriptRoom: CGFloat = 152
+    /// What the conversation gets below the stage. The transcript *overlays*
+    /// the stage (it occludes; that is why the ⌄ exists), so this is breathing
+    /// room for the last exchange, not a reserved band.
+    static let transcriptRoom: CGFloat = 168
     /// A slot with no stage is pure conversation, and takes the whole pane.
     static let blankPanelHeight: CGFloat = 384
     /// The stage's reduced prominence. Not a thumbnail and not a screenshot —
-    /// the live tree, one step back.
-    static let stageScale: CGFloat = 0.96
+    /// the live tree, one step back — with real air on every side.
+    static let stageScale: CGFloat = 0.90
     static let stageDim: CGFloat = 0.92
     /// Scrolled into the past, it recedes further (design.html §08).
     static let recededDim: CGFloat = 0.55
     static let recededBlur: CGFloat = 6
 
     /// The panel height chat wants. `stageHeight` is the session's measured tree
-    /// height, or nil for a slot with no stage; `collapsed` is the pill's ⌄,
-    /// which leaves the stage and the pill and takes everything between them.
-    static func panelHeight(stageHeight: CGFloat?, collapsed: Bool = false) -> CGFloat {
+    /// height, or nil for a slot with no stage. **Constant while chat is up**:
+    /// the pill's ⌄ hides the bubbles to watch the stage — it never resizes the
+    /// surface (Manu at G2.3: the collapse resizing the panel was the defect).
+    static func panelHeight(stageHeight: CGFloat?) -> CGFloat {
         guard let stageHeight else { return blankPanelHeight }
-        let stage = topPad + stageHeight * stageScale
-        return collapsed ? stage + pillRoom : stage + transcriptRoom + pillRoom
+        return topPad + stageHeight * stageScale + transcriptRoom + pillRoom
     }
 
     // MARK: - Parts
@@ -206,10 +207,9 @@ final class ChatSurfaceView: FlippedView {
     private func setCollapsed(_ next: Bool) {
         guard next != collapsed else { return }
         collapsed = next
-        // Collapsing does not give the stage back its prominence: it is still
-        // inert, and a stage that brightened while it was still untouchable
-        // would be lying about it.
-        onPaneChange?()
+        // Collapsing hides the bubbles and nothing else: the stage stays inert
+        // at the same prominence, and the surface does not change size — the
+        // transcript is a layer over the stage, not a band beside it.
     }
 
     /// Scrolled into the past: the stage dims further and blurs, and comes back

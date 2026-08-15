@@ -277,7 +277,7 @@ export function onLifecycle(phase, ctx) {
 
 // ---------------------------------------------------------------- the panel
 
-export default function Weather({ temp = null, line = "", glance = "" }) {
+export default function Weather({ temp = null, line = "" }) {
   // The invitation (design.html §09): one glyph, one line, no button, no
   // apology, and never the word "error".
   if (!temp) {
@@ -293,9 +293,7 @@ export default function Weather({ temp = null, line = "", glance = "" }) {
     <stack axis="v" pad={14} gap={10}>
       {/* Heavy visit, so it owes a summary (principle 8): temp and the next
           hour, about NOW — the notch does not time-travel. */}
-      <summary>
-        <text content={glance} size="s" weight="medium" />
-      </summary>
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
 
       {/* The well — the app's one framed region (design.html §09). */}
       <canvas ref={(node) => { pane = node; }} w={PANE_W} h={PANE_H} />
