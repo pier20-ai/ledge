@@ -51,42 +51,21 @@ HOST_DIR="$REPO_ROOT/host"
 DEMO_APPS="$REPO_ROOT/protocol/demo-apps"
 OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 
-# Strip order = spec §8 (installed apps left to right); Settings is pinned to the
-# far right by the shell, so its order only decides the snapshot sequence.
+# Strip order = spec §8 (installed apps left to right), so this order only
+# decides the snapshot sequence.
 #
 # The list is the whole of protocol/demo-apps. Everything else that used to be
-# here predates the design reset and lives in protocol/demo-apps-archive, which
-# is not an apps root and is never scanned — chess and tetris came back out of
-# it in D4, rewritten against principles.md rather than restored.
+# here lives in protocol/demo-apps-archive, which is not an apps root and is
+# never scanned — chess and tetris came back out of it in D4, rewritten against
+# principles.md rather than restored, and `settings` went the other way when
+# Settings became a native macOS window in the shell.
 #
 # Both are canvas apps whose panel is a well, and both now paint into it here:
 # `--wing` runs their monitor, the monitor draws, and the `draws` map carries
 # those frames to the shell. To see a *particular* state rather than the opening
 # one (a mid-game position, a live score), pass `--props` to dump-commits
 # directly and read the panel.
-APPS=(nowplaying weather focus timer radio beacon chess tetris settings)
-
-# Mount props for the apps whose opening state is not their real one. Settings
-# is the whole of the list: its rows come from `ctx.platform.stats()`, which is
-# answered by the host — there is no host here, so the mount frame is its "no
-# catalog yet" line and the panel that gets reviewed shows none of the rows the
-# app is *for*. This is the `--props` escape hatch documented above, used for
-# exactly the reason it exists: the object a monitor would have handed it.
-app_props() {
-  case "$1" in
-    settings) cat <<'JSON'
-{"ready":true,"apps":[
-  {"id":"nowplaying","name":"Now Playing","icon":"sf:music.note","enabled":true},
-  {"id":"weather","name":"Weather","icon":"sf:cloud.sun","enabled":true},
-  {"id":"focus","name":"Focus","icon":"sf:timer","enabled":true},
-  {"id":"tetris","name":"Tetris","icon":"sf:square.grid.3x3.fill","enabled":false},
-  {"id":"settings","name":"Settings","icon":"sf:slider.horizontal.3","enabled":true}
-]}
-JSON
-      ;;
-    *) printf '' ;;
-  esac
-}
+APPS=(nowplaying weather focus timer radio beacon chess tetris)
 
 COMMITS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ledge-commits.XXXXXX")"
 
@@ -113,17 +92,12 @@ log "dumping mount commits…"
 order=0
 for app in "${APPS[@]}"; do
   [ -f "$DEMO_APPS/$app/app.jsx" ] || fail "missing $DEMO_APPS/$app/app.jsx"
-  props="$(app_props "$app")"
-  if [ -n "$props" ]; then
-    ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
-        "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" --wing \
-        --props "$props" ) \
-      || fail "dump-commits failed for $app"
-  else
-    ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
-        "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" --wing ) \
-      || fail "dump-commits failed for $app"
-  fi
+  # No app here needs `--props` any more: every panel's opening state is its own
+  # (Settings was the one that needed a catalog handed to it, and it is gone).
+  # For a particular state, call dump-commits directly with --props.
+  ( cd "$HOST_DIR" && bun scripts/dump-commits.ts \
+      "$DEMO_APPS/$app/app.jsx" "$COMMITS_DIR/$app.json" --order "$order" --wing ) \
+    || fail "dump-commits failed for $app"
   order=$((order + 1))
 done
 

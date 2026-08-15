@@ -169,6 +169,15 @@ function frame() {
 
 let lastProps = "";
 let lastWing = "";
+let wingSentAt = 0;
+
+/** Re-declare the wing at least this often. The shell takes an idle wing back
+ * after Ta (flow.md, "Ambient | holder idle > Ta, or released | Resting") and
+ * every request from the holder re-arms that timer. A temperature can easily go
+ * an hour without changing by a degree, so with nothing but change-detection
+ * behind it this app's ticker vanished from the notch and — because it believed
+ * it had already asked for exactly this wing — never came back. */
+const WING_HEARTBEAT_MS = 45_000;
 
 function commit(weather, t) {
   if (!ctxRef) return;
@@ -188,8 +197,9 @@ function commit(weather, t) {
   // here, it is simply true, so it must never outrank a timer or a track. And
   // it reads *now*, never the scrub: the collapsed notch is not time-travelling.
   const text = `${Math.round(weatherAt(forecast, Date.now()).temp)}°`;
-  if (text === lastWing) return;
+  if (text === lastWing && Date.now() - wingSentAt < WING_HEARTBEAT_MS) return;
   lastWing = text;
+  wingSentAt = Date.now();
   ctxRef.wing({ text });
 }
 

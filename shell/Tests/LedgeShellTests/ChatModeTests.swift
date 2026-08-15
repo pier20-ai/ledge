@@ -261,11 +261,19 @@ struct ChatGlassTests {
 
         // The top of the pane is the notch's own black — the stage sits in it.
         #expect(underTheNotch > 0.9)
-        // The bottom is glass you can see the desktop through, and that is where
-        // the pill lives. `.18` in design.html; a few points of the bottom
-        // radius' antialiasing keeps this a range rather than a value.
-        #expect(atThePill < 0.4)
-        #expect(atThePill > 0.05)
+        // The bottom is still the clearest glass in the product, and that is
+        // where the pill lives — but it is a *material* now rather than the
+        // near-nothing design.html drew over its own dark page.
+        //
+        // The old bound here was `< 0.4`, matching a `.18` floor, and on device
+        // that floor meant a bright window came through the bottom of the pane
+        // almost intact: ink-2 measured 1.26:1 against white. The floor is `.55`
+        // (see `LedgeGlass.chat` and `ChatGlassLegibilityTests`), so the range
+        // moves with it. What has to stay true is the *shape* of the material —
+        // opaque at the notch, clearest at the pill — and that is the third
+        // assertion, which is the one that was ever really the point.
+        #expect(atThePill < 0.75)
+        #expect(atThePill > 0.4)
         #expect(underTheNotch > atThePill)
     }
 

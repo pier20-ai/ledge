@@ -200,26 +200,50 @@ final class NotchPanelController {
         return menu
     }()
 
-    /// Settings opens as an ordinary visit for now. flow.md wants a **native
-    /// macOS window** ("configuration doesn't belong on glass") and that is a
-    /// later phase; the trigger is final, the destination is not.
+    /// Settings is a **native macOS window** (flow.md, Edges: "configuration
+    /// doesn't belong on glass"). It was an app in the strip; it is furniture
+    /// now, and furniture belongs in a window. See `SettingsWindowController`.
     @objc private func menuOpenSettings() { openSettings() }
     @objc private func menuQuit() { NSApp.terminate(nil) }
 
-    /// ⌘, during a visit (flow.md, Edges). Reachable only while the panel holds
-    /// key — it is a non-activating panel, so a ⌘, typed into another app
-    /// belongs to that app. The right-click menu is the path that always works,
-    /// and the native Settings window will make this moot.
+    /// ⌘, (flow.md, Edges).
+    ///
+    /// No longer gated on being in a visit. The old gate existed because
+    /// Settings *was* a visit, so opening it from the collapsed pill made no
+    /// sense; a window can be opened from anywhere, and a shortcut that works
+    /// only in one of the shell's states is a shortcut nobody trusts.
+    ///
+    /// It still only fires while Ledge's panel holds key — the panel is
+    /// non-activating, so a ⌘, typed into another app belongs to that app, and
+    /// it should. The right-click menu is the path that always works.
+    @discardableResult
     func handleSettingsShortcut() -> Bool {
-        guard shellState.isExpanded else { return false }
         openSettings()
         return true
     }
 
+    /// **One reading of the system, two surfaces.**
+    ///
+    /// The permission rows appear in the first-run card on the panel *and* in
+    /// the Settings window. They are two views — a view cannot be in two windows
+    /// at once, and reparenting one between them is exactly the class of bug
+    /// that made the chat stage go black — but they share this probe, so they
+    /// can never disagree about whether Ledge has Accessibility.
+    ///
+    /// Lazy because constructing it reads TCC, and a headless test that only
+    /// wants a panel controller should not be asking macOS about the camera.
+    private lazy var permissionProbe: PermissionProbing = SystemPermissionProbe()
+
+    /// The window is built once and kept. Opening it again brings the same one
+    /// forward, which is what every other settings window on the machine does.
+    private lazy var settingsWindow = SettingsWindowController(
+        session: session,
+        probe: permissionProbe,
+        onQuit: { NSApp.terminate(nil) }
+    )
+
     private func openSettings() {
-        shellState.selectApp(LedgeApps.settings, reselectOpensChat: false)
-        machine.sync(to: shellState.presentation)
-        refresh(animated: true)
+        settingsWindow.show()
     }
 
     // MARK: - Test seams
@@ -228,6 +252,16 @@ final class NotchPanelController {
     /// so asking for it is also what proves it can be built at all.
     var contextMenuForTesting: NSMenu { ledgeMenu }
     func openSettingsForTesting() { openSettings() }
+    /// The `‹|›` beads' own path, without synthesising a click on a bead in a
+    /// window that does not exist headlessly. `-1` is `‹`, `+1` is `›` — the
+    /// same signs the callback uses.
+    func walkForTesting(_ steps: Int) { walk(steps) }
+    /// The left bead: lower the glass, or raise it.
+    func toggleChatForTesting() {
+        shellState.toggleChat()
+        machine.sync(to: shellState.presentation)
+        refresh(animated: false)
+    }
     /// The real window, so the swipe's *routing* can be asserted end to end —
     /// the bug was never in the recognizer, it was in who saw the event first.
     var panelForTesting: NSPanel { panel }
@@ -248,14 +282,12 @@ final class NotchPanelController {
         self.session = session
         var selectApp: ((String) -> Void)!
         var selectNewApp: (() -> Void)!
-        var selectSettings: (() -> Void)!
         var toggleChat: (() -> Void)!
         var walkStrip: ((Int) -> Void)!
         var showOverview: (() -> Void)!
         let callbacks = ShellCallbacks(
             selectApp: { app in selectApp(app) },
             selectNewApp: { selectNewApp() },
-            selectSettings: { selectSettings() },
             toggleChat: { toggleChat() },
             walkStrip: { steps in walkStrip(steps) },
             showOverview: { showOverview() },
@@ -279,18 +311,6 @@ final class NotchPanelController {
             self.refresh(animated: true)
         }
         selectNewApp = { [weak self] in self?.present(.newApp) }
-        selectSettings = { [weak self] in
-            guard let self else { return }
-            // Settings has no editable app surface. Re-selecting it therefore
-            // keeps the settings controls on screen instead of applying the
-            // ordinary app shortcut that toggles into chat/edit mode.
-            self.shellState.selectApp(
-                LedgeApps.settings,
-                reselectOpensChat: false
-            )
-            self.machine.sync(to: self.shellState.presentation)
-            self.refresh(animated: true)
-        }
         toggleChat = { [weak self] in
             guard let self else { return }
             // One bead, three words (`PanelWingBarView.Mode`). In the overview
@@ -444,18 +464,24 @@ final class NotchPanelController {
         presentPermissions()
     }
 
-    /// The chrome request (spec §3.3) that reopens the permission surface. The
-    /// way back to onboarding once it has been dismissed: Settings sends this,
-    /// and nothing else may (see `handleChrome`).
+    /// The chrome request (spec §3.3) an app can send to ask for the permission
+    /// surface — and which is **refused, from every app, always** (see
+    /// `handleChrome`).
     ///
-    /// There is no menu bar of our own and no Dock icon (LSUIElement), and the
-    /// app strip belongs to apps — so the only honest home for "review what
-    /// Ledge asked macOS for" is the surface that already holds every other
-    /// shell-level switch.
+    /// It is kept as a named constant rather than deleted because the refusal is
+    /// the interesting part: chrome is not app content, and an app that could
+    /// raise an official-looking permission panel at a moment of its choosing is
+    /// the ambush the surface exists to prevent. Settings was the one holder of
+    /// an exception here; it is a window now and asks the shell directly, so the
+    /// exception is gone rather than inherited by somebody else.
     static let permissionsChromeRequest = "permissions"
 
-    /// Show the permission surface. First run calls it directly; afterwards it
-    /// arrives as Settings' chrome request.
+    /// Show the permission surface on the panel.
+    ///
+    /// Two callers, both the shell's own: first run (once, ever), and nothing
+    /// else. The way back afterwards is the Settings window, which does not come
+    /// through here at all — it hosts its own `PermissionsCardView` over the
+    /// same probe, because a view cannot be in two windows at once.
     func presentPermissions() {
         present(.permissions)
     }
@@ -625,12 +651,15 @@ final class NotchPanelController {
             .stage
         }
         // No glass to lower on a surface with no stage behind it: the blank slot
-        // is chat-only (flow.md), the placeholder and the permission card have
-        // no session, and Settings is the shell wearing an app's clothes — in
-        // the catalog so the strip can reach it, but with no folder for an agent
-        // to edit. The overview always shows the bead, because there it is Back.
-        let canToggleGlass = presentation == .overview
-            || (presentation.app != nil && presentation.app != LedgeApps.settings)
+        // is chat-only (flow.md), and the placeholder and the permission card
+        // have no session at all. The overview always shows the bead, because
+        // there it is Back.
+        //
+        // Settings used to be the one *app* excepted here — in the catalog so
+        // the strip could reach it, but with no folder for an agent to edit. It
+        // is a window now, so every app in the strip is a real app with a real
+        // folder, and the exception is gone with it.
+        let canToggleGlass = presentation == .overview || presentation.app != nil
 
         // **Whichever body is on screen.** Parked, the visit lives in a window
         // and the notch shows the bare pill; everything above this line is the
@@ -1149,15 +1178,11 @@ final class NotchPanelController {
     /// plus one blank slot reachable past either end.
     private func walk(_ steps: Int) {
         let strip = session.strip
-        switch strip.step(from: strip.slot(for: shellState.presentation), by: steps) {
-        case .app(let app):
-            // `reselectOpensChat: false`: walking onto a session shows the
-            // session, never its transcript. Lowering the glass is the left
-            // wing's job and nothing else's.
-            shellState.selectApp(app, reselectOpensChat: false)
-        case .blank:
-            shellState.present(.newApp)
-        }
+        // **The mode comes with you.** `ShellState.walk(to:)` owns the rule —
+        // chat walks to chat, a stage walks to a stage — because "which surface
+        // am I on" is state, not a view decision, and it has to be the same
+        // answer for the `‹|›` beads and for the swipe.
+        shellState.walk(to: strip.step(from: strip.slot(for: shellState.presentation), by: steps))
         machine.sync(to: shellState.presentation)
         refresh(animated: true)
     }
@@ -1268,14 +1293,21 @@ final class NotchPanelController {
         case "wing":
             setWing(app: app, spec: wing)
         case Self.permissionsChromeRequest:
-            // **Settings only.** This is shell chrome, not app content: an app
-            // that could raise it could put an official-looking permission
-            // panel in front of the user at a moment of its own choosing, which
-            // is precisely the ambush the surface exists to prevent. Settings is
-            // already the shell wearing an app's clothes (spec §8), so it is the
-            // one caller whose ask is the user's own.
-            guard app == LedgeApps.settings else { return }
-            presentPermissions()
+            // **No app may raise the permission surface. Not one.**
+            //
+            // This is shell chrome, not app content: an app that could raise it
+            // could put an official-looking permission panel in front of the
+            // user at a moment of its own choosing, which is precisely the
+            // ambush the surface exists to prevent.
+            //
+            // There used to be a single exception — Settings, which was the
+            // shell wearing an app's clothes (spec §8). Settings is a native
+            // window now and asks the shell directly, so the exception has no
+            // holder and the rule is simply the rule. The request is still
+            // *handled* rather than deleted: the shell refuses what an app asks
+            // for on its own account, and a refusal that is written down is
+            // worth more than a `default:` that happens to ignore it.
+            NSLog("[ledge] refused a permissions request from '%@' — chrome is not app content", app)
         default:
             break                                   // unknown request → ignored
         }
@@ -1507,7 +1539,7 @@ final class NotchPanelController {
     /// Settings — and rebuilding it per presentation would drop both.
     private func permissionsView() -> PermissionsCardView {
         if let permissionsSurface { return permissionsSurface }
-        let card = PermissionsCardView(probe: SystemPermissionProbe())
+        let card = PermissionsCardView(probe: permissionProbe)
         card.onDismiss = { [weak self] in self?.present(.collapsed) }
         // A status changed under us (the user allowed something in Settings and
         // came back), and the row that reported it may have grown or lost its

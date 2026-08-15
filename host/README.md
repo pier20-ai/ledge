@@ -74,7 +74,8 @@ nothing from `src/protocol` or `src/connection`.
   registration need the shell (macOS attributes consent, and a registration, to
   the process with the UI), and `ctx.agent` needs the host (it spawns a
   subprocess in the app's folder). `apple`/`capture`/`agent`/`platform` calls
-  return Promises settled by a host `reply`. Settings (§8) additionally gets the
+  return Promises settled by a host `reply`. A worker booted `privileged` (§8 —
+  the app id `settings`, which nothing ships under today) additionally gets the
   privileged half of `ctx.platform` (`enable`/`disable`/`stats` today,
   `reorder` still unimplemented), attached only when the worker is booted
   `privileged` and answered by the host itself; `observe`/`unobserve`
@@ -139,19 +140,25 @@ resolves React's runtime regardless of this repo's `@ledge/jsx`-flavoured
 never see the `@ledge/jsx` JSX namespace. (Beware: Bun scans **all** comments for
 `@jsxImportSource`, so prose must not repeat that token verbatim.)
 
-## Settings (`../protocol/demo-apps/settings`, `src/settings.ts`)
+## Enabling and disabling apps (`src/settings.ts`)
 
-The Settings app (spec §8) is an ordinary app that ships in the seed payload —
-same worker, same §5 vocabulary, same monitor→props bridge. It differs in
-exactly two ways, and both live in the host:
+Settings is a **native macOS window** in the shell (spec §8), not an app. It
+reads the `catalog` the shell already has and sends `appControl`
+(`{ app, action: "start" | "stop" }`, §4.3) — the same control-plane envelope
+the ledge's ✕ sends, and the same host path either way (`setAppEnabled`). There
+is no undisableable app any more, and nothing in the settings file is exempt.
+
+The privileged machinery it used to need is still here and still gated:
 
 - **The router boots the worker whose folder is named `settings` `privileged`**,
   which is what attaches the app-management half of `ctx.platform`
   (`src/worker/ctx.ts`). An ordinary app cannot see those calls, and the router
   refuses them a second time if one arrives anyway.
-- **It cannot be disabled** — it is the only way back from everything else on
-  that panel, so `SettingsStore` refuses it whether the request comes from the
-  app or from a hand-edited file.
+- **No shipped app claims that name.** The demo that did is archived at
+  `../protocol/demo-apps-archive/settings-app` and is the worked example of the
+  surface. The gate stays because an apps root is a folder a user can drop
+  anything into — a gate matching nothing is cheaper than app management
+  reachable by any app.
 
 `src/settings.ts` owns `~/.ledge/settings.json` — beside the apps root, never
 inside an app's folder, because "may this app run" is the one fact about an app
@@ -165,16 +172,16 @@ spawns rather than starting and being stopped.
 `enable`/`disable` are answered **by the host**, not forwarded to the shell like
 the rest of `ctx.platform`: they mean starting or killing a worker and
 re-publishing the catalog (§3.6, full snapshot), which is host state end to end.
-`stats()` hands back that same snapshot, so the panel and the strip beneath it
-are two renderings of one list. `reorder` is still unimplemented.
+`stats()` hands back that same snapshot, so a privileged panel and the strip
+beneath it would be two renderings of one list. `reorder` is still unimplemented.
 
 `quit()` is the exception that proves the split: it is Settings-only like the
 rest of the family, but it goes **to the shell**, because only the shell can end
 the process — the host is its child and a worker is a thread inside that child.
 The shell answers `ok` and terminates on the next run-loop turn, so the reply
-gets out before the socket does. With the status menu gone and `LSUIElement`
-meaning no Dock icon, that button is the only quit the user has; the app arms it
-on the first press and quits on the second.
+gets out before the socket does. With `LSUIElement` meaning no Dock icon and no
+menu bar, quit is the shell's own surface (its glass context menu) — which is
+why no app draws one.
 
 ## Supervision, routing & hot reload (`src/supervisor.ts`, `src/router.ts`, `src/watcher.ts`)
 
@@ -275,14 +282,14 @@ codebase, and the adapter is the only agent-specific code, as §8 requires.
 
 ## Demo apps + end-to-end smoke (`../protocol/demo-apps`, `../scripts/e2e-smoke.sh`)
 
-`protocol/demo-apps/` holds the hand-written apps: `timer`, `radio`, `beacon`
-and `settings`. The first three are **exercise** apps — between them they hold
-every surface the shell can raise (summary, no-summary, wing meter, wing canvas,
-ambient and alert notifications), so the interaction machine can be felt on a
-real notch. `settings` is the privileged one. They are **not** installed in
-`~/.ledge`; they live in the repo so the host can be pointed at them. See
-`../protocol/README.md` for what each proves. The pre-design-reset set was moved
-to `protocol/demo-apps-archive/` — reference only, never scanned.
+`protocol/demo-apps/` holds the hand-written apps: `timer`, `radio` and
+`beacon` are the **exercise** apps — between them they hold every surface the
+shell can raise (summary, no-summary, wing meter, wing canvas, ambient and alert
+notifications), so the interaction machine can be felt on a real notch. They are
+**not** installed in `~/.ledge`; they live in the repo so the host can be pointed
+at them. See `../protocol/README.md` for what each proves. The pre-design-reset
+set was moved to `protocol/demo-apps-archive/` — reference only, never scanned —
+and `settings` joined it when Settings became a native window.
 
 The apps root is a **real package**: `protocol/demo-apps/package.json` plus a
 committed `bun.lock` (spec §6: always ship the lockfile), holding what apps

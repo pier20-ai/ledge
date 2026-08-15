@@ -8,8 +8,6 @@ struct ShellCallbacks {
     let selectApp: (String) -> Void
     /// The strip's blank slot — what **[+]** used to be (flow.md, "The strip").
     let selectNewApp: () -> Void
-    /// Settings, from the right-click menu or ⌘, (flow.md, Edges).
-    let selectSettings: () -> Void
     /// The left wing's bead: lower the glass onto the conversation, or raise it.
     let toggleChat: () -> Void
     /// The right wing's `‹|›`, and a horizontal swipe: walk the session strip.
@@ -29,7 +27,6 @@ struct ShellCallbacks {
     static let inert = ShellCallbacks(
         selectApp: { _ in },
         selectNewApp: {},
-        selectSettings: {},
         toggleChat: {},
         walkStrip: { _ in },
         showOverview: {},
@@ -153,6 +150,11 @@ final class MiniContentView: FlippedView {
 
     private var content: NSView?
     private let chevron: NSImageView
+    /// The ground under the chevron. See `LedgeMetrics.swellBeadSize`: a bare
+    /// glyph at `ink-3` was invisible on device, and what fixed it was not more
+    /// ink but an *edge* — the same convex swelling every Ledge control is made
+    /// of, at its smallest.
+    private let bead = SwellBeadView()
 
     /// Whether the shell's open affordance is drawn. True for the summary, false
     /// for the notification — a notification promises nothing; it *is* the
@@ -170,13 +172,15 @@ final class MiniContentView: FlippedView {
                 weight: LedgeMetrics.swellChevronWeight
             )
         )
-        // `ink-3` (design.html §03): quiet enough to be an affordance rather
-        // than a control, present enough to be seen at notch scale.
-        chevron.contentTintColor = LedgeTheme.tertiary
+        // `ink-2`, not `ink-3`. It sits on a raised bead now, so it is legible
+        // without being loud — and the bead, not the ink, is what makes it
+        // findable. It is still the quietest control in the product.
+        chevron.contentTintColor = LedgeTheme.secondary
         chevron.imageScaling = .scaleProportionallyDown
-        chevron.isHidden = true
         super.init(frame: frameRect)
-        addSubview(chevron)
+        bead.isHidden = true
+        bead.addSubview(chevron)
+        addSubview(bead)
     }
 
     @available(*, unavailable)
@@ -188,14 +192,14 @@ final class MiniContentView: FlippedView {
     func setShowsOpenAffordance(_ shows: Bool) {
         guard shows != showsOpenAffordance else { return }
         showsOpenAffordance = shows
-        chevron.isHidden = !shows
+        bead.isHidden = !shows
         needsLayout = true
     }
 
-    /// The width the chevron and its gap claim out of the surface.
+    /// The width the affordance and its gap claim out of the surface.
     private var affordanceWidth: CGFloat {
         showsOpenAffordance
-            ? LedgeMetrics.swellChevronBox + LedgeMetrics.swellChevronGap
+            ? LedgeMetrics.swellBeadSize + LedgeMetrics.swellChevronGap
             : 0
     }
 
@@ -243,9 +247,18 @@ final class MiniContentView: FlippedView {
         // Trailing, vertically centred — design.html §03 draws it at the end of
         // the payload row, after the line.
         if showsOpenAffordance {
+            bead.frame = CGRect(
+                x: padded.maxX - LedgeMetrics.swellBeadSize,
+                y: padded.midY - LedgeMetrics.swellBeadSize / 2,
+                width: LedgeMetrics.swellBeadSize,
+                height: LedgeMetrics.swellBeadSize
+            )
+            // Centred in the bead, not in the surface: the glyph's box is
+            // smaller than its ground, and an off-centre chevron in a circle is
+            // the one way this could look worse than no bead at all.
             chevron.frame = CGRect(
-                x: padded.maxX - LedgeMetrics.swellChevronBox,
-                y: padded.midY - LedgeMetrics.swellChevronBox / 2,
+                x: (LedgeMetrics.swellBeadSize - LedgeMetrics.swellChevronBox) / 2,
+                y: (LedgeMetrics.swellBeadSize - LedgeMetrics.swellChevronBox) / 2,
                 width: LedgeMetrics.swellChevronBox,
                 height: LedgeMetrics.swellChevronBox
             )
@@ -272,6 +285,82 @@ final class MiniContentView: FlippedView {
     // MARK: - Test seams
 
     var chevronView: NSImageView { chevron }
+    /// The raised capsule under the chevron — the half of the affordance that
+    /// actually made it findable, so it is the half worth asserting.
+    var affordanceBead: NSView { bead }
+}
+
+/// The smallest bead in the product: the summary's open affordance.
+///
+/// Deliberately **not** a `LedgeButton(variant: .bead)` — it is not a control of
+/// its own. The whole swell is the target (a click anywhere on a summary opens
+/// the visit), so a button here would be a second, smaller hit region inside the
+/// first, with its own press scale and its own hover, all disagreeing with the
+/// surface it sits on. This is the bead's *appearance* and nothing else: the
+/// top-lit fill and the specular-to-shadow ring, from the same tokens
+/// `LedgeButton` and `WingWalkerView` draw theirs from (principle 15).
+private final class SwellBeadView: FlippedView {
+    private let fill = CAGradientLayer()
+    private let edge = CAGradientLayer()
+    private let ring = CAShapeLayer()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+
+        // Top-first, like design.html writes them: a layer's unit square is not
+        // flipped along with the view.
+        fill.startPoint = CGPoint(x: 0.5, y: 0)
+        fill.endPoint = CGPoint(x: 0.5, y: 1)
+        fill.colors = [LedgeTheme.beadFillTop.cgColor, LedgeTheme.beadFillBottom.cgColor]
+        layer?.addSublayer(fill)
+
+        edge.startPoint = CGPoint(x: 0.5, y: 0)
+        edge.endPoint = CGPoint(x: 0.5, y: 1)
+        edge.colors = [LedgeTheme.beadEdgeHighlight.cgColor, LedgeTheme.beadEdgeShadow.cgColor]
+        ring.fillColor = nil
+        ring.strokeColor = NSColor.black.cgColor
+        ring.lineWidth = LedgeMetrics.beadEdgeWidth
+        edge.mask = ring
+        layer?.addSublayer(edge)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// The surface behind it takes every click; the bead is what the click
+    /// *means*, not where it lands.
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let radius = LedgeMetrics.capsule(bounds.height)
+        layer?.cornerRadius = radius
+        fill.frame = bounds
+        edge.frame = bounds
+        ring.frame = bounds
+        // Stroked inside the silhouette, so the ring is the bead's own edge
+        // rather than a halo hanging off it.
+        let inset = LedgeMetrics.beadEdgeWidth / 2
+        ring.path = CGPath(
+            roundedRect: bounds.insetBy(dx: inset, dy: inset),
+            cornerWidth: max(0, radius - inset),
+            cornerHeight: max(0, radius - inset),
+            transform: nil
+        )
+        CATransaction.commit()
+    }
+
+    // MARK: - Test seams
+
+    var fillColors: [NSColor] {
+        (fill.colors as? [CGColor] ?? []).compactMap(NSColor.init(cgColor:))
+    }
 }
 
 

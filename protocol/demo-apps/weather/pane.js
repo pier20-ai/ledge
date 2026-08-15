@@ -12,16 +12,40 @@
 // serve the live clock and the scrubber's time-travel. Scrub to +6 h and back
 // and you get the identical picture both times.
 //
-// Two constraints shape every technique here:
+// ---------------------------------------------------------------------------
+// WHAT THE FIRST VERSION GOT WRONG, because everything below is a reaction to it
+//
+// It was written to the rule "softness is alpha: many faint overlapping discs
+// have no findable edge, where one solid disc has an edge you can trace." That
+// is true, and it is why the pane came out of the first pass as a **fuzzy grey
+// blob**. Judged at 2× it looked atmospheric; at 1×, at the size a notch panel
+// is actually glanced at, overcast, drizzle and fog were the same picture — a
+// uniform wash with nothing in it to name.
+//
+// The correction is not more detail. It is **structure and value**:
+//
+//   * **Clouds are opaque shapes, not smudges.** A mass is a body you could
+//     trace, and its softness comes from how close its value is to the sky's,
+//     not from how transparent it is. Alpha stacking was buying blur at the
+//     price of form, and form is the only thing legible at 412 × 188.
+//   * **Three depth layers with distinct values**, drifting at different speeds.
+//     An overcast sky is layered grey masses, not fog.
+//   * **A horizon.** A flat dark silhouette along the bottom tenth of the pane.
+//     It costs twenty ops and it gives every scene depth, scale, and something
+//     for rain to streak against and snow to bank on. Without it the pane is a
+//     swatch; with it, it is a window.
+//   * **At least three separable values per condition.** Overcast: dark ceiling,
+//     lit gap at the rim, black skyline. Fog: the opposite — the skyline is
+//     *swallowed*, and that is how you tell the two apart at a glance.
+//
+// Two constraints shape every technique:
 //
 //   * **There is no blur filter.** §3.4 gives you `rect` (rounded, filled),
-//     `line`, `gradient` (axial), `image` and `text`. Softness has to be built
-//     out of alpha: a dozen faint overlapping discs have no findable edge, where
-//     one solid disc has an edge you can trace. Every soft thing here — clouds,
-//     the sun's bloom, the fog — is that trick, and it is why the scene is
-//     already defocused, which is what a pane does to a sky.
-//   * **A few hundred ops a frame, at ~11 fps.** Clear sky is ~50, a full
-//     downpour ~270. The budget is why a droplet is three ops (rim, lens,
+//     `line`, `gradient` (axial), `image` and `text`. What is genuinely soft
+//     here — the sun's bloom, the fog veil, a cloud's shaded base — is built out
+//     of gradients and near-neighbour values, and everything else is drawn.
+//   * **A few hundred ops a frame, at ~11 fps.** Clear sky is ~90, a full
+//     downpour ~330. The budget is why a droplet is three ops (rim, lens,
 //     specular) and the mist between them is one.
 
 import { WET_MM } from "./forecast.js";
@@ -62,6 +86,40 @@ function rng(seed) {
 }
 
 const frac = (v) => v - Math.floor(v);
+const smooth = (k) => (k <= 0 ? 0 : k >= 1 ? 1 : k * k * (3 - 2 * k));
+
+// ---------------------------------------------------------------- the ground
+//
+// Where the sky stops. Everything below this line is the silhouette band, and
+// everything above it ramps from zenith to horizon — so the horizon colour lands
+// *at the skyline* rather than at the bottom edge of a bottomless picture.
+
+const HORIZON = 0.9;
+
+/**
+ * The three depth layers, in the order they arrive as the sky fills.
+ *
+ * `at`/`thick` are fractions of the pane's height, `speed` multiplies the wind's
+ * drift so the deck has parallax, and `tone` is the mix from the deck's shadow
+ * colour toward its lit colour.
+ *
+ * `lidShift` is what stops the value story from being a lie. A cloud in a blue
+ * sky is *brighter* than the sky; the same cloud under a full deck is a
+ * silhouette against the lit gap at the horizon and is *darker* than it. One
+ * fixed tone per layer gets one of those two right and paints a pale shelf
+ * across every overcast scene, which is what the first pass did.
+ *
+ * `lumps` says which edge is modelled. A heap is seen from the side and its
+ * *top* is the shape; a ceiling is seen from underneath and its *base* is.
+ */
+const LAYERS = [
+  // Always present once there is any cloud at all: the mid-distance heap.
+  { at: 0.22, thick: 0.23, speed: 0.72, tone: 0.80, lidShift: 0.34, lumps: "top", masses: 2, span: 0.30 },
+  // Appears as the sky fills: a band lying along the horizon, behind the rest.
+  { at: 0.56, thick: 0.12, speed: 0.30, tone: 0.70, lidShift: 0.52, lumps: "top", masses: 2, span: 0.44 },
+  // Overcast: the ceiling, overhead, dark, and continuous across the pane.
+  { at: -0.04, thick: 0.34, speed: 1.15, tone: 0.17, lidShift: 0.06, lumps: "bottom", masses: 2, span: 0.76 },
+];
 
 // ---------------------------------------------------------------- the sky
 
@@ -108,6 +166,7 @@ function buildScene({ w, h, weather, place, phaseT }) {
   const cover = clamp01(weather.cloud / 100);
   const wet = clamp01(weather.precip / 3);
   const band = skyBand(sun.elevation);
+  const skyY = h * HORIZON;
 
   // Cloud and rain drain the colour out of a sky; the grey they drain it toward
   // is the sky's own brightness, so an overcast noon is pale and an overcast
@@ -118,8 +177,18 @@ function buildScene({ w, h, weather, place, phaseT }) {
     return [l, l * 1.02, l * 1.1];
   };
   const dim = 1 - wet * 0.28;
-  const zenith = scale(mix(band.zenith, grey(band.zenith), greyness), dim);
-  const horizon = scale(mix(band.horizon, grey(band.horizon), greyness), dim);
+  // **The deck opens the sky's own range rather than closing it.** Under cloud
+  // the zenith is the underside of the ceiling — heavy — and the horizon is the
+  // gap you are looking out through — luminous. Draining both toward one grey
+  // (which is what the first version did) is exactly how a covered sky becomes a
+  // swatch: two values a point apart, at the size of a stamp.
+  // How much of a *lid* the cloud is, 0…1 — the knob for every "is this a
+  // ceiling or a few clouds" decision below. Daylight deepens it (a deck at noon
+  // is a dramatic thing), but it never falls to zero after dark, because an
+  // overcast midnight is still overcast.
+  const lidded = cover * (0.55 + 0.45 * clamp01((sun.elevation + 6) / 24));
+  const zenith = scale(mix(band.zenith, grey(band.zenith), greyness), dim * (1 - 0.34 * lidded));
+  const horizon = scale(mix(band.horizon, grey(band.horizon), greyness), dim * (1 + 0.24 * lidded));
 
   // The sun's light on the pane: strongest just above the horizon, gone below
   // it, mostly gone under a thick deck.
@@ -133,57 +202,108 @@ function buildScene({ w, h, weather, place, phaseT }) {
   // clouds, and that floor is what the droplets refract after dark.
   const glow = clamp01(-sun.elevation / 8) * (0.22 + cover * 0.3);
 
-  // Cloud masses. Drift is a function of wind and t, so the deck moves with the
-  // scrubber the way the sun does.
+  // Warm only while there is a sun to be warm *from*: `warmth` rises as the sun
+  // sinks, so multiplying by it alone paints midnight clouds in sunset orange.
+  // And **dim with the day**: white is a colour a cloud only has when something
+  // is lighting it. A near-white heap at midnight is the single loudest wrong
+  // note a sky like this can play.
+  const daylight = clamp01((sun.elevation + 8) / 20);
+  const cloudLit = scale(
+    mix([236, 240, 246], sunColour, warmth * clamp01(strength * 1.8) * 0.7),
+    0.2 + 0.8 * daylight,
+  );
+  // At night a cloud is barely lighter than the sky it is in front of, and what
+  // light it has comes off the city underneath it. Drawing it at daytime grey is
+  // what turns a dark pane into a lava lamp.
+  // …and after dark the light it *does* have is the town's, which is warm. That
+  // is not decoration either: an overcast city night is a dull orange lid, and
+  // painting it as neutral grey leaves the deck and the sky at the same value,
+  // which at 1× is a brown rectangle with nothing in it.
+  const cloudDark = add(
+    scale(mix(zenith, [92, 100, 116], 0.2 + strength * 0.42), 1 - wet * 0.34),
+    scale([48, 31, 15], glow * 1.15),
+  );
+
+  // The deck. Drift is a function of wind and t, so the sky moves with the
+  // scrubber the way the sun does — and each layer moves at its own rate, which
+  // is the only depth cue a flat picture of a sky can have.
   const drift = (phaseT / 3_600_000) * weather.wind * 2.4;
-  const lateral = Math.sin(weather.dir * RAD);
-  const count = cover < 0.04 ? 0 : Math.min(6, 1 + Math.round(cover * 5));
+  const lateral = Math.sin(weather.dir * RAD) || 0.4;
+  // How many layers are in play. One heap is "a few clouds"; three is a lid.
+  // Fog is not a cloudscape. Whatever the code says the cover is, what you can
+  // see of the sky in fog is one soft bank and no structure at all — the veil is
+  // the picture, and a legible deck behind it would contradict it.
+  const depth =
+    weather.kind === "fog"
+      ? 1
+      : cover < 0.05
+        ? 0
+        : cover < 0.3
+          ? 1
+          : cover < 0.72
+            ? 2
+            : 3;
   const random = rng(0x5eed1);
   const masses = [];
-  for (let i = 0; i < count; i += 1) {
-    const span = (0.12 + cover * 0.16 + random() * 0.2) * w;
-    const speed = 0.6 + random() * 0.9;
-    const margin = span * 1.4;
-    const x0 = random() * (w + 2 * margin);
-    const x = ((x0 + drift * speed * lateral) % (w + 2 * margin)) - margin;
-    masses.push({
-      x: x < -margin ? x + w + 2 * margin : x,
-      y: (0.04 + random() * 0.52) * h,
-      span,
-      thick: (0.1 + random() * 0.12) * h + span * 0.16,
-      alpha: 0.4 + random() * 0.35,
-      seed: 0x1000 + i * 97,
-    });
+  for (let layer = 0; layer < depth; layer += 1) {
+    const spec = LAYERS[layer];
+    // Each layer's own value — this is where the three greys come from, and the
+    // lid shift is what makes them come out in the right *order* under a deck.
+    const colour = mix(cloudDark, cloudLit, clamp01(spec.tone - lidded * spec.lidShift));
+    const span = spec.span * (0.8 + cover * 0.5) * w;
+    const margin = span;
+    const period = w + 2 * margin;
+    for (let i = 0; i < spec.masses; i += 1) {
+      const jitter = 0.7 + random() * 0.6;
+      const x0 = ((i + 0.5) / spec.masses) * period + (random() - 0.5) * period * 0.3;
+      const shift = drift * spec.speed * lateral;
+      const x = ((((x0 + shift) % period) + period) % period) - margin;
+      masses.push({
+        x,
+        top: spec.at * h + (random() - 0.5) * 0.05 * h,
+        span: span * jitter,
+        thick: spec.thick * h * jitter,
+        colour,
+        // The base is always darker than the body: it is the part of the cloud
+        // the light never reaches, and it is what makes a mass look like it has
+        // a volume rather than a footprint.
+        base: mix(colour, scale(cloudDark, 0.82), 0.62),
+        lumpsDown: spec.lumps === "bottom",
+        // The ceiling has no top edge on the pane — it runs off it.
+        toTop: spec.lumps === "bottom",
+        seed: 0x1000 + layer * 977 + i * 97,
+      });
+    }
   }
 
   // Cloud density across the pane, in buckets — the cheap version of the deck a
-  // droplet samples. Sampling the real puff list per droplet is 40 × 21 gaussian
-  // terms a frame; this is 24 numbers built once.
+  // droplet samples. Sampling the real mass list per droplet is dozens of terms
+  // a frame; this is 24 numbers built once.
   const BUCKETS = 24;
   const density = new Float64Array(BUCKETS);
   for (const mass of masses) {
     for (let b = 0; b < BUCKETS; b += 1) {
       const x = ((b + 0.5) / BUCKETS) * w;
-      const d = (x - mass.x) / (mass.span * 0.75);
-      density[b] += mass.alpha * Math.exp(-d * d);
+      const d = (x - mass.x) / (mass.span * 0.62);
+      density[b] += Math.exp(-d * d) * (mass.toTop ? 1 : 0.6);
     }
   }
 
-  // Warm only while there is a sun to be warm *from*: `warmth` rises as the sun
-  // sinks, so multiplying by it alone paints midnight clouds in sunset orange.
-  const cloudLit = mix([236, 240, 246], sunColour, warmth * clamp01(strength * 1.8) * 0.7);
-  // At night a cloud is barely lighter than the sky it is in front of, and what
-  // light it has comes off the city underneath it. Drawing it at daytime grey is
-  // what turns a dark pane into a lava lamp.
-  const cloudDark = add(
-    scale(mix(zenith, [92, 100, 116], 0.22 + strength * 0.5), 1 - wet * 0.3),
-    scale([40, 26, 12], glow * 0.7),
-  );
+  // The silhouette along the bottom — the one thing in the picture with a known
+  // size. See `drawSkyline`; it is built here because the droplets refract it.
+  const skyline = buildSkyline(w, h, skyY);
+  // A silhouette is not black: it takes the sky's own hue and almost none of its
+  // light. Almost — at night "almost none of very little" is a hole, so it is
+  // floored against a colour rather than against zero.
+  const ink = mix(scale(horizon, 0.17), [9, 11, 15], 0.5);
 
   /** What is behind the glass at (x, y) — sky, plus the sun's bloom, plus
-   * whatever cloud is in the way. This is the function the droplets refract. */
+   * whatever cloud is in the way, plus the ground. This is the function the
+   * droplets refract, and the ground being in it is why the beads along the
+   * bottom of the pane carry a dark band: a lens there is looking at a roof. */
   const sample = (x, y) => {
-    const k = clamp01(y / h) ** 1.15;
+    if (y >= skyline.heightAt(x)) return ink;
+    const k = clamp01(y / skyY) ** 1.15;
     let c = mix(zenith, horizon, k);
     if (glow > 0) c = add(c, scale([72, 46, 22], glow * k * k));
     if (strength > 0) {
@@ -192,10 +312,12 @@ function buildScene({ w, h, weather, place, phaseT }) {
       c = add(c, scale(sunColour, Math.exp(-(dx * dx + dy * dy) * 2.1) * strength * 0.85));
     }
     const b = Math.max(0, Math.min(BUCKETS - 1, Math.floor((x / w) * BUCKETS)));
-    const d = clamp01(density[b] * 0.8);
+    // Only where there is actually deck above: a droplet low on the pane is
+    // refracting the bright gap at the rim, not the ceiling.
+    const d = clamp01(density[b]) * (1 - smooth(clamp01((y / skyY - 0.45) / 0.5)) * 0.8);
     if (d > 0) {
       const lit = clamp01(strength * (1 - Math.abs(x - sx) / w) + 0.15);
-      c = mix(c, mix(cloudDark, cloudLit, lit), d * 0.75);
+      c = mix(c, mix(cloudDark, cloudLit, lit), d * 0.7);
     }
     return c;
   };
@@ -208,6 +330,7 @@ function buildScene({ w, h, weather, place, phaseT }) {
   return {
     w,
     h,
+    skyY,
     luma,
     sun,
     sx,
@@ -220,11 +343,56 @@ function buildScene({ w, h, weather, place, phaseT }) {
     sunColour,
     glow,
     masses,
+    skyline,
+    ink,
     cloudLit,
     cloudDark,
     lateral,
     sample,
     weather,
+  };
+}
+
+// ---------------------------------------------------------------- the horizon
+
+/**
+ * The skyline: rooftops as one flat dark shape along the bottom of the pane.
+ *
+ * The single most valuable twenty ops in the file. Before it, every scene was a
+ * gradient with weather sprinkled on it — no scale, no depth, and no way to tell
+ * a 412-point pane from a colour swatch. With it there is a *place*: the sky is
+ * above something, rain streaks past something, snow banks against something,
+ * and fog is legible precisely because it is the one condition where the
+ * silhouette goes missing.
+ *
+ * Built as data rather than drawn directly because the droplets refract it —
+ * `sample` asks `heightAt(x)` — and because it must be identical at t and at t
+ * again. Deterministic: one fixed seed, no time in it at all. A skyline that
+ * drifted would be an earthquake.
+ */
+function buildSkyline(w, h, skyY) {
+  const random = rng(0xb1d5);
+  const blocks = [];
+  const deep = h - skyY; // the band's full depth, ~10% of the pane
+  let x = -6;
+  while (x < w + 6) {
+    const width = 14 + random() * 46;
+    // Most roofs sit low in the band; one in six is a taller block, and those
+    // are what stop the row reading as a serrated line.
+    const tall = random() < 0.17;
+    const rise = deep * (tall ? 1.5 + random() * 1.1 : 0.28 + random() * 0.55);
+    blocks.push({ x: q(x), w: q(width), top: q(h - rise) });
+    x += width + (random() < 0.3 ? 2 + random() * 5 : 0);
+  }
+  return {
+    blocks,
+    /** The y of the roofline at x — the ground's silhouette, for `sample`. */
+    heightAt: (px) => {
+      for (const block of blocks) {
+        if (px >= block.x && px < block.x + block.w) return block.top;
+      }
+      return h;
+    },
   };
 }
 
@@ -249,7 +417,7 @@ function drawSky(ops, s) {
     const visible = clamp01((-s.sun.elevation - 4) / 8) * (1 - s.cover / 0.7);
     for (let i = 0; i < 16; i += 1) {
       const x = q(random() * s.w);
-      const y = q(random() * s.h * 0.7);
+      const y = q(random() * s.skyY * 0.78);
       const size = random() < 0.25 ? 1.5 : 1;
       ops.push({
         op: "rect",
@@ -263,17 +431,87 @@ function drawSky(ops, s) {
     }
   }
 
-  // The city's floor under a night sky.
+  // The city's floor under a night sky. It sits low and stops at the roofline,
+  // because it is light coming *off the ground* — a glow that reached the zenith
+  // would be a fire, not a town.
   if (s.glow > 0.02) {
     ops.push({
       op: "gradient",
       x: 0,
-      y: s.h * 0.45,
+      y: s.skyY * 0.58,
       w: s.w,
-      h: s.h * 0.55,
+      h: s.skyY * 0.42,
       from: hex([150, 96, 44], 0),
-      to: hex([150, 96, 44], clamp01(s.glow) * 0.38),
+      to: hex([150, 96, 44], clamp01(s.glow) * 0.34),
     });
+  }
+
+  // **The gap at the rim.** Under a deck the brightest thing in the picture is
+  // the strip of sky just above the horizon, where you are looking out from
+  // underneath the cloud rather than up into it. It is the second value of the
+  // three an overcast scene needs, and drawing it explicitly (rather than hoping
+  // the sky gradient supplies it) is what makes 100% cloud read as a *ceiling*
+  // instead of as fog.
+  const rim = s.cover * clamp01(0.3 + s.sun.elevation / 24) * (1 - s.wet * 0.25);
+  if (rim > 0.04) {
+    ops.push({
+      op: "gradient",
+      x: 0,
+      y: s.skyY * 0.46,
+      w: s.w,
+      h: s.skyY * 0.54,
+      from: hex(s.horizon, 0),
+      to: hex(mix(s.horizon, [255, 255, 255], 0.22), clamp01(rim) * 0.62),
+    });
+  }
+}
+
+/**
+ * The skyline, drawn.
+ *
+ * A flat dark shape, one rect per block, and a single polyline along the tops.
+ * The line is what keeps the silhouette from disappearing into a night sky: a
+ * roof edge catches a thread of whatever light there is, and one `line` op buys
+ * the separation that would otherwise cost a gradient per block.
+ */
+function drawSkyline(ops, s) {
+  const ink = s.ink;
+  for (const block of s.skyline.blocks) {
+    ops.push({ op: "rect", x: block.x, y: block.top, w: block.w, h: q(s.h - block.top) + 2, fill: hex(ink) });
+  }
+
+  // The rim light along the roofline, one polyline: up the left edge of each
+  // block, across its top, down its right edge. Faint, and brighter at night
+  // relative to its sky, which is when a silhouette needs it.
+  const points = [];
+  for (const block of s.skyline.blocks) {
+    points.push([block.x, block.top], [q(block.x + block.w), block.top]);
+  }
+  ops.push({
+    op: "line",
+    points,
+    stroke: hex(mix(s.horizon, [255, 255, 255], 0.3), 0.22 + 0.2 * (1 - s.luma)),
+    width: 1,
+  });
+
+  // Windows. Four or five warm specks once the sun is down — the only warm
+  // colour in a night scene, and the reason the glow above is believable.
+  if (s.sun.elevation < -2) {
+    const random = rng(0x77d0);
+    const lit = clamp01(-s.sun.elevation / 6);
+    for (const block of s.skyline.blocks) {
+      if (random() > 0.34) continue;
+      const wx = q(block.x + 3 + random() * Math.max(1, block.w - 8));
+      const wy = q(block.top + 3 + random() * Math.max(1, s.h - block.top - 8));
+      ops.push({
+        op: "rect",
+        x: wx,
+        y: wy,
+        w: 1.5,
+        h: 2,
+        fill: hex([255, 206, 132], lit * (0.35 + random() * 0.45)),
+      });
+    }
   }
 }
 
@@ -354,62 +592,120 @@ function drawSun(ops, s) {
   }
 }
 
-/** Cloud masses: a lid when the sky is shut, and heaps of faint discs when it
- * is not. A cloud with a findable edge is a sticker. */
-function drawClouds(ops, s) {
-  // A full deck is one shape, not seven: overcast reads as a lid, and seven
-  // overlapping puffs at 90% coverage cost sixty ops to look like one.
-  if (s.cover > 0.82) {
-    const deck = s.h * (0.34 + s.cover * 0.3);
-    const colour = mix(s.cloudDark, s.cloudLit, clamp01(s.strength * 0.6 + 0.12));
-    // The underside of a deck is darkest right overhead and lifts toward the
-    // horizon, where you are looking out from under it — the tonal range that
-    // keeps a rainy pane from being one flat grey.
-    ops.push({
-      op: "gradient",
-      x: -4,
-      y: -4,
-      w: s.w + 8,
-      h: deck,
-      from: hex(scale(colour, 0.62), 0.95),
-      to: hex(colour, 0),
-    });
-  }
+/**
+ * The deck: two or three layers of cloud, back to front, each a value of its
+ * own and each drifting at its own rate.
+ *
+ * **Opaque.** That is the whole reversal from the first version, which drew
+ * clouds as a dozen discs at 12% alpha on the theory that an edge you can trace
+ * is a sticker. It is a good theory and it produced a pane with no clouds in it:
+ * at 1×, twelve faint discs are a smudge, and a sky full of smudges is a swatch.
+ * A cloud reads as a cloud because it has a *form* — a lumpy top, a shaded base,
+ * a silhouette against something else. Softness is then a matter of how close
+ * its value sits to the sky's, which is a thing you can tune; blur is not
+ * something this op set can do at all.
+ *
+ * One mass is: a slab, a run of discs along the modelled edge, and a second
+ * shorter run along the base in a darker tone. Twelve-ish ops, and the darker
+ * run is what gives the mass a volume rather than a footprint.
+ */
+function drawMass(ops, s, mass) {
+  const thick = mass.thick;
+  const left = mass.x - mass.span / 2;
+  const bottom = mass.top + thick;
+  // The ceiling runs off the top of the pane; a heap floats.
+  const top = mass.toTop ? -10 : mass.top;
 
-  // A puff is a *circle* — a rounded rect wider than it is tall is a stadium,
-  // and a row of stadiums is a cartoon. But the real lesson of the first pass is
-  // about alpha, not shape: **many faint discs, not a few solid ones.** A disc
-  // at 90% has an edge you can trace; a dozen at 12%, jittered, accumulate into
-  // a lump whose boundary nobody can find. That is the whole blur, and it costs
-  // one op per disc.
-  const PUFFS = 11;
-  // Under a full deck the masses all but vanish: the lid above is already the
-  // whole sky, and individual heaps showing through it read as soap bubbles.
-  // They are kept at a trace so the deck still has some modelling in it.
-  const solid = 1 - clamp01((s.cover - 0.78) / 0.3) * 0.8;
-  for (const mass of s.masses) {
+  // **How many swellings** is not a constant — it is whatever makes them
+  // *overlap*. A mass four times wider than it is thick, decorated with a fixed
+  // seven circles, is a string of beads with a bar behind it, which is precisely
+  // what the previous attempt drew. Spacing has to stay under the smallest
+  // radius the loop can produce, so the count comes out of the geometry.
+  const smallest = thick * 0.29;
+  const lumps = Math.max(3, Math.min(9, Math.ceil(mass.span / (smallest * 1.6))));
+
+  /** One pass of the silhouette — slab plus swellings — in a single colour. */
+  const silhouette = (colour, dy) => {
+    const slabTop = mass.lumpsDown ? top : top + thick * 0.42;
+    const slabBottom = mass.lumpsDown ? bottom - thick * 0.3 : bottom;
+    ops.push({
+      op: "rect",
+      x: q(left),
+      y: q(slabTop + dy),
+      w: q(mass.span),
+      h: q(Math.max(2, slabBottom - slabTop)),
+      radius: q(mass.toTop ? 8 : (slabBottom - slabTop) / 2),
+      fill: hex(colour),
+    });
     const random = rng(mass.seed);
-    const lit = clamp01(s.strength * (1 - Math.abs(mass.x - s.sx) / s.w) + 0.12);
-    const colour = mix(s.cloudDark, s.cloudLit, lit);
-    const base = mass.y + mass.thick * 0.5;
-    for (let p = 0; p < PUFFS; p += 1) {
-      const along = (p + 0.35 + random() * 0.3) / PUFFS;
-      // Fat in the middle, thin at the ends — the arc that makes a heap — and a
-      // flat-ish underside, which is what says "cloud" rather than "cotton".
-      const swell = Math.sin(clamp01(along) * Math.PI) ** 0.6;
-      const r = mass.thick * (0.26 + swell * 0.6) * (0.7 + random() * 0.6);
-      const cx = mass.x + (along - 0.5) * mass.span;
-      const cy = base - r * (0.7 + random() * 0.45);
+    const edgeY = mass.lumpsDown ? slabBottom : slabTop;
+    // The cap above can leave the swellings too far apart on a very wide, thin
+    // mass — the horizon band, which is four times wider than the ceiling is
+    // thick. When that happens the radius floor rises to meet the spacing, so
+    // the edge is always a continuous ripple and never a dotted line.
+    const floor = Math.max(thick * 0.29, (mass.span / lumps) * 0.62);
+    for (let i = 0; i < lumps; i += 1) {
+      const along = (i + 0.5) / lumps;
+      // The arc: fat in the middle, thin at the ends. Anything flatter is a bar.
+      const swell = Math.sin(along * Math.PI) ** 0.42;
+      const r = Math.max(floor, thick * (0.29 + swell * 0.33) * (0.88 + random() * 0.3));
+      const cx = left + along * mass.span + (random() - 0.5) * thick * 0.3;
+      const cy = edgeY + (mass.lumpsDown ? -1 : 1) * r * 0.55 + (random() - 0.5) * thick * 0.1;
       ops.push({
         op: "rect",
         x: q(cx - r),
-        y: q(cy - r),
+        y: q(cy - r + dy),
         w: q(r * 2),
         h: q(r * 2),
-        radius: r,
-        fill: hex(colour, mass.alpha * (0.15 + s.cover * 0.06) * solid),
+        radius: q(r),
+        fill: hex(colour),
       });
     }
+  };
+
+  // The soft underside, in the only way this op set can honestly do one: the
+  // **same silhouette, in the shadow tone, nudged down**. What shows is a dark
+  // rim that follows the mass's own lumpy edge exactly — which is what a cloud's
+  // shaded base is — and it costs no clipping, no mask and no guesswork about
+  // where the outline went.
+  silhouette(mass.base, thick * (mass.lumpsDown ? 0.1 : 0.17));
+  silhouette(mass.colour, 0);
+}
+
+function drawClouds(ops, s) {
+  // A shut sky is **continuous**. Two drifting ceiling masses will sooner or
+  // later show a gap between their rounded ends, and a rounded corner in the
+  // corner of the pane reads as a bubble rather than as weather. So when the sky
+  // is closed, one full-width slab underwrites the masses and they become
+  // modelling on top of it rather than the ceiling itself.
+  if (s.cover > 0.8 && s.masses.length > 0) {
+    const ceiling = s.masses[s.masses.length - 1];
+    ops.push({
+      op: "rect",
+      x: -4,
+      y: -4,
+      w: s.w + 8,
+      h: q(ceiling.top + ceiling.thick * 0.7 + 4),
+      fill: hex(ceiling.colour),
+    });
+  }
+  for (const mass of s.masses) drawMass(ops, s, mass);
+
+  // The fringe: one soft wash pulling the deck's lowest edge into the sky under
+  // it, so the ceiling has a hem rather than a cut. Gradients are the one thing
+  // in the op set that *is* genuinely soft, so the softness is spent here, on
+  // the join, instead of being smeared over the whole sky.
+  if (s.cover > 0.7) {
+    const hem = s.masses.reduce((y, mass) => Math.max(y, mass.top + mass.thick), 0);
+    ops.push({
+      op: "gradient",
+      x: 0,
+      y: q(hem - 12),
+      w: s.w,
+      h: q(Math.max(8, s.skyY * 0.3)),
+      from: hex(mix(s.cloudDark, s.cloudLit, 0.16), 0.55 * clamp01((s.cover - 0.7) / 0.3)),
+      to: hex(s.horizon, 0),
+    });
   }
 }
 
@@ -419,6 +715,19 @@ function drawClouds(ops, s) {
 function drawFallingRain(ops, s, phaseT) {
   if (s.weather.precip < WET_MM) return;
   const wet = clamp01(s.weather.precip / 3);
+  // Extinction. Rain is a lot of water between you and the roofs, and it eats
+  // the far end of the scene — which is a *scene* effect, so it goes on before
+  // the glass and it is the one veil in the file that earns its alpha: it is
+  // what makes a wet skyline sit further away than a dry one.
+  ops.push({
+    op: "gradient",
+    x: 0,
+    y: 0,
+    w: s.w,
+    h: s.h,
+    from: hex(mix(s.horizon, [188, 196, 208], 0.5), 0.02 + wet * 0.05),
+    to: hex(mix(s.horizon, [188, 196, 208], 0.5), 0.06 + wet * 0.16),
+  });
   const count = Math.round(6 + wet * 12);
   const slant = s.lateral * clamp01(s.weather.wind / 45) * 26;
   const random = rng(0xfa11);
@@ -444,13 +753,16 @@ function drawFallingRain(ops, s, phaseT) {
  * back off the inner surface. Both are what makes the picture sit *behind*
  * something rather than being the something. */
 function drawHaze(ops, s) {
+  // Halved against the first version, and it is the cheapest legibility there
+  // is: three white washes at a couple of percent each *add up*, and on a bright
+  // overcast pane they were most of the reason the picture had no blacks in it.
   ops.push({
     op: "gradient",
     x: 0,
     y: 0,
     w: s.w,
     h: s.h,
-    from: hex([255, 255, 255], 0.012 + 0.03 * s.luma),
+    from: hex([255, 255, 255], 0.008 + 0.014 * s.luma),
     to: hex([255, 255, 255], 0),
   });
 }
@@ -472,7 +784,7 @@ function drawSurface(ops, s) {
     y: 0,
     w: s.w,
     h: s.h,
-    from: hex([255, 255, 255], 0.02 + 0.075 * s.luma),
+    from: hex([255, 255, 255], 0.014 + 0.042 * s.luma),
     to: hex([255, 255, 255], 0),
     angle: 128,
   });
@@ -483,7 +795,7 @@ function drawSurface(ops, s) {
     w: s.w,
     h: s.h,
     from: hex([10, 14, 22], 0),
-    to: hex([10, 14, 22], 0.08 + 0.2 * s.luma),
+    to: hex([10, 14, 22], 0.06 + 0.14 * s.luma),
     angle: 208,
   });
 }
@@ -491,9 +803,9 @@ function drawSurface(ops, s) {
 /** The pane's own recess — the four edges going dark. Without it the canvas is
  * a picture of a sky; with it, it is a hole in the panel with a sky behind it. */
 function drawEdges(ops, s) {
-  const d = 16;
+  const d = 14;
   const ink = [0, 0, 0];
-  const strong = 0.18 + 0.26 * s.luma;
+  const strong = 0.14 + 0.18 * s.luma;
   const edge = (x, y, w, h, angle) =>
     ops.push({ op: "gradient", x, y, w, h, from: hex(ink, strong), to: hex(ink, 0), angle });
   edge(0, 0, s.w, d, 0);
@@ -574,16 +886,23 @@ function drawRain(ops, s, phaseT) {
   const rate = s.weather.precip;
   if (rate < WET_MM) return;
   const wet = clamp01(rate / 3);
-  const beads = Math.round(8 + wet * 26);
-  const runners = Math.round(0.6 + wet * 4.4);
+  // **Drizzle is a bead count, not a bead size.** The two conditions that were
+  // impossible to tell apart at 1× were overcast and drizzle, and the reason was
+  // arithmetic: at 0.35 mm this used to draw eleven small beads and no mist at
+  // all, which on a grey pane is invisible. The floor is what gives a light rain
+  // a signature of its own — a stippled pane — and the slope is what still makes
+  // a downpour obviously heavier.
+  const beads = Math.round(16 + wet * 20);
+  const runners = Math.round(wet * 5);
   const tilt = clamp01(s.weather.wind / 55) * 0.45 * s.lateral;
 
   // The mist between the beads: single-op specks, no rim, no highlight. What
   // separates a downpour from a drizzle on glass is not bigger drops, it is the
-  // fine spray filling the space between them.
-  if (wet > 0.25) {
+  // fine spray filling the space between them — and drizzle is *mostly* spray,
+  // so it starts at the first millimetre rather than at a quarter of the scale.
+  {
     const spray = rng(0x11157);
-    const dots = Math.round(wet * 34);
+    const dots = Math.round(14 + wet * 16);
     for (let i = 0; i < dots; i += 1) {
       const x = spray() * s.w;
       const y = spray() * s.h;
@@ -693,16 +1012,20 @@ function drawSnow(ops, s, phaseT, depthCm) {
         Math.sin(phaseT / 1400 + phase * 9) * (3 + near * 5) * (1 - Math.abs(sway));
       const bright = stuck ? 0.72 : 0.34 + near * 0.6;
       // A halo under the core: a flake with one hard edge is a pixel, a flake
-      // with a soft one is falling through air.
-      ops.push({
-        op: "rect",
-        x: q(x - r * 1.9),
-        y: q(y - r * 1.9),
-        w: q(r * 3.8),
-        h: q(r * 3.8),
-        radius: r * 1.9,
-        fill: hex([236, 244, 255], bright * 0.16),
-      });
+      // with a soft one is falling through air. Only the near ones get it — a
+      // speck two points across has no room for a halo, and fifty of them is a
+      // third of the frame's budget spent on nothing anybody can see.
+      if (near > 0.4) {
+        ops.push({
+          op: "rect",
+          x: q(x - r * 1.9),
+          y: q(y - r * 1.9),
+          w: q(r * 3.8),
+          h: q(r * 3.8),
+          radius: r * 1.9,
+          fill: hex([236, 244, 255], bright * 0.16),
+        });
+      }
       ops.push({
         op: "rect",
         x: q(x - r),
@@ -721,13 +1044,14 @@ function drawSnow(ops, s, phaseT, depthCm) {
   // bank over them — otherwise every mound's flat bottom shows.
   const random = rng(0xc205);
   const snowWhite = [240, 246, 254];
-  // Eighteen small mounds, not nine big ones: a crust is a continuous ripple,
+  // Fourteen small mounds, not seven big ones: a crust is a continuous ripple,
   // and half-circles you can count are a row of scoops.
-  for (let i = 0; i < 18; i += 1) {
-    const mr = rim * (0.16 + random() ** 2 * 0.62);
+  const MOUNDS = 14;
+  for (let i = 0; i < MOUNDS; i += 1) {
+    const mr = rim * (0.2 + random() ** 2 * 0.66);
     ops.push({
       op: "rect",
-      x: q(((i + random() * 0.9) / 18) * (s.w + mr * 2) - mr),
+      x: q(((i + random() * 0.9) / MOUNDS) * (s.w + mr * 2) - mr),
       y: q(s.h - rim - mr * (0.2 + random() * 0.7)),
       w: q(mr * 2),
       h: q(mr * 2 + rim),
@@ -764,8 +1088,24 @@ function drawFog(ops, s, phaseT) {
   const humid = clamp01((s.weather.rh - 80) / 18);
   const cold = clamp01((11 - s.weather.temp) / 15);
   const wet = s.weather.precip >= WET_MM || s.weather.snow > 0.005;
-  const fog = s.weather.kind === "fog" ? 0.5 : wet ? 0 : humid * cold * 0.38;
+  const fog = s.weather.kind === "fog" ? 0.78 : wet ? 0 : humid * cold * 0.34;
   if (fog < 0.05) return;
+
+  // **Fog is the condition where the horizon goes missing**, and that is now the
+  // whole of how it is told apart from overcast at a glance: everything else in
+  // the pane has a black skyline along the bottom, and this one does not. So the
+  // veil is laid on thickly enough to actually swallow it — at half strength it
+  // was a grey wash over a legible city, which reads as "overcast, dirty window".
+  // Denser low, the way ground fog really is.
+  ops.push({
+    op: "gradient",
+    x: 0,
+    y: 0,
+    w: s.w,
+    h: s.h,
+    from: hex([206, 216, 228], fog * 0.34),
+    to: hex([220, 228, 238], fog * 0.86),
+  });
 
   const STRIPS = 20;
   // Two wipes, slowly re-fogging: a cleared track closes over about ten minutes.
@@ -780,7 +1120,9 @@ function drawFog(ops, s, phaseT) {
       const d = (u - wipe.at) / wipe.width;
       clear = Math.max(clear, Math.exp(-d * d) * (1 - age));
     }
-    return hex([214, 224, 236], fog * (1 - clear * 0.88));
+    // The wipe tracks ride on top of the wash above, so the strips carry only
+    // the part of the veil a hand can take away.
+    return hex([214, 224, 236], fog * 0.5 * (1 - clear * 0.9));
   };
   for (let i = 0; i < STRIPS; i += 1) {
     // Each strip is a **gradient**, not a flat fill, running left to right
@@ -842,6 +1184,9 @@ export function paneOps({ w, h, t, weather, place, snowDepth = 0, reduceMotion =
   drawSky(ops, s);
   drawSun(ops, s);
   drawClouds(ops, s);
+  // After the clouds and before the weather: the ground is in front of the sky
+  // and behind everything falling through the air between it and the glass.
+  drawSkyline(ops, s);
   drawFallingRain(ops, s, phaseT);
   drawHaze(ops, s);
   drawFog(ops, s, phaseT);

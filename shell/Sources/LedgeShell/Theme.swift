@@ -78,6 +78,19 @@ enum LedgeTheme {
     /// swelling reads as pushed *into* the glass rather than merely darker.
     static let beadEdgePressed = NSColor.black.withAlphaComponent(0.55)
 
+    /// **The hover ring.** A hairline all the way round a control the cursor is
+    /// on, drawn *in addition to* whatever that control's hover already does —
+    /// the bead still brightens, the ghost still washes.
+    ///
+    /// The brighten alone is a change of degree, and at notch scale over a busy
+    /// stage a degree is not enough to answer "is the cursor on it or beside
+    /// it": a bead's fill goes from 11% to 17% of white, which is a difference
+    /// you can only see by comparing it with a bead you are *not* hovering. A
+    /// ring is a change of kind, and it reads instantly with nothing to compare
+    /// against. Same value as the bead's own specular edge, deliberately — the
+    /// ring is that edge continued round the control, not a new material.
+    static let hoverRing = NSColor(white: 1, alpha: 0.16)
+
     // MARK: - The slab (design.html §04 `.slab`, the ledge overview)
     //
     // A session, seen edge-on: a pane of the same glass standing on the shelf.
@@ -127,12 +140,29 @@ enum LedgeGlass {
         var color: NSColor
     }
 
-    /// design.html: `linear-gradient(rgba(5,5,6,.97) 0%, rgba(5,5,6,.66) 55%,
-    /// rgba(12,13,18,.18) 100%)`.
+    /// design.html drew `linear-gradient(rgba(5,5,6,.97) 0%, rgba(5,5,6,.66)
+    /// 55%, rgba(12,13,18,.18) 100%)` — over the mockup's own dark page.
+    ///
+    /// **The floor is raised from .18 to .55.** On device, over a bright window,
+    /// 18% of a near-black is not a material: a striped or high-contrast
+    /// background came through the bottom of the pane essentially intact and the
+    /// prompt — ink-2 on that — was unreadable. The blank slot, which is this
+    /// same surface with no stage behind it, was the worst case of all.
+    ///
+    /// The character is unchanged and so is the reason for it: the pane still
+    /// runs opaque at the top and clearest at the bottom, and the prompt pill
+    /// still sits on the clearest glass in the product (flow.md, Material). It
+    /// is simply clear *enough to see through* rather than clear enough to read
+    /// the desktop through. `.97 → .74 → .55` keeps the same 55% inflection.
+    ///
+    /// This carries the legibility on its own. `ShellSurfaceView`'s frost blurs
+    /// what is behind as well, which is what makes the bottom look like glass
+    /// rather than a scrim — but the contrast does not depend on it, because a
+    /// blur is a system effect that cannot be verified off-device.
     static let chat: [Stop] = [
         Stop(at: 0, color: NSColor(srgbRed: 5 / 255, green: 5 / 255, blue: 6 / 255, alpha: 0.97)),
-        Stop(at: 0.55, color: NSColor(srgbRed: 5 / 255, green: 5 / 255, blue: 6 / 255, alpha: 0.66)),
-        Stop(at: 1, color: NSColor(srgbRed: 12 / 255, green: 13 / 255, blue: 18 / 255, alpha: 0.18)),
+        Stop(at: 0.55, color: NSColor(srgbRed: 5 / 255, green: 5 / 255, blue: 6 / 255, alpha: 0.74)),
+        Stop(at: 1, color: NSColor(srgbRed: 12 / 255, green: 13 / 255, blue: 18 / 255, alpha: 0.55)),
     ]
 }
 

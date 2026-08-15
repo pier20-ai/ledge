@@ -35,6 +35,17 @@ const TRACKS = [
 const TRACK_MS = 30_000;
 const FRAME_MS = 120; // ~8 fps: enough for a breathing meter, cheap enough to leave on
 
+/** Re-declare the wing at least this often while it is held.
+ *
+ * The shell takes an idle wing back after Ta (flow.md, "Ambient | holder idle >
+ * Ta, or released | Resting"), and every request from the holder re-arms that
+ * timer. This app's ticker is the track title, which only changes every
+ * `TRACK_MS` — so with nothing but change-detection behind it the notch went
+ * bare in the middle of a track and, because the app believed it had already
+ * asked for exactly this wing, it never came back. Same shape as being
+ * preempted by another app's wing: the app has to keep saying it is alive. */
+const WING_HEARTBEAT_MS = 45_000;
+
 const BARS = 5;
 const BAR_W = 4;
 const BAR_GAP = 4;
@@ -71,6 +82,7 @@ function next() {
 
 let lastProps = "";
 let lastWing = "";
+let wingSentAt = 0;
 
 function commit() {
   if (!ctxRef) return;
@@ -82,10 +94,18 @@ function commit() {
   }
 
   // Live activity: the wing is held while it plays and released when it stops.
+  // The wing FIRST, before any re-render: dropping `playing` unmounts nothing
+  // here, but the ordering is the one that survives an app growing an empty
+  // state (see nowplaying), and it costs nothing to be right about.
   const held = playing && meter !== null;
   const wanted = held ? `${TRACKS[track]}|${meter.id}` : "";
-  if (wanted === lastWing) return;
+  // …and re-declared on a heartbeat even when nothing about it changed, so a
+  // wing the shell reclaimed for idleness comes back. A change-detection gate
+  // on its own is a claim the app can only ever make once.
+  const stale = held && Date.now() - wingSentAt > WING_HEARTBEAT_MS;
+  if (wanted === lastWing && !stale) return;
   lastWing = wanted;
+  wingSentAt = Date.now();
   ctxRef.wing(held ? { text: TRACKS[track], canvas: { id: meter.id, w: WING_W } } : null);
 }
 

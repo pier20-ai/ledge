@@ -162,7 +162,7 @@ Sent per app when its panel state changes and once on connect. Workers use this 
 - **`hello`** — reply to Node's hello: `{ "v": 1, "gen": 7, "screen": { "notchWidth": 210, "menubarHeight": 34, "scale": 2, "maxPanelHeight": 480 } }`.
 - **`selection`** — the user switched apps via the strip: `{ "app": "music" }`, or `{ "app": null, "surface": "settings" | "new" }`. The host is the source of truth for what "selected" *means* (which worker gets `expanded` lifecycle), but the gesture originates in Swift.
 - **`builderInput`** — the user typed into an app's chat: `{ "app": "stocks", "text": "make the price green when it's up" }`, or `{ "app": "stocks", "cancel": true }` to interrupt the running turn. `app` may name a not-yet-existing id when coming from the **[+]** surface; the host scaffolds first, then starts the session.
-- **`appControl`** — `{ "app": "stocks", "action": "stop" }`; the shell asking the host to stop a session. Sent by exactly one control — the ✕ on **the ledge**, the only ✕ in the product (flow.md, "The strip") — and handled by the host's existing enable/disable path (§8, `ctx.platform.disable`): the worker is torn down, the app stays installed, and Settings is the way back. A second *trigger* for one mechanism, deliberately, so "is this app running" keeps one answer in one place.
+- **`appControl`** — `{ "app": "stocks", "action": "stop" | "start" }`; the shell asking the host to stop or start a session. Two senders: the ✕ on **the ledge**, the only ✕ in the product (flow.md, "The strip"), sends `stop`; the Settings window's switches send either. Both are handled by the host's existing enable/disable path (§8): the worker is torn down or spawned, the app stays installed either way, and the settings file is rewritten. A second *trigger* for one mechanism, deliberately, so "is this app running" keeps one answer in one place. `start` exists because Settings is a native window rather than an app (§8) — there is no privileged worker left to call `ctx.platform.enable` from, and a ✕ with no way back would be a one-way door.
 - **`resyncRequest`** — `{ "app": "stocks" }`; the host responds with a fresh full commit for that app (and a `catalog` if `app` is `""`).
 
 ## 5. Component vocabulary
@@ -268,7 +268,7 @@ Transcripts are **not** Ledge's concern: the agent manages its own session stora
 
 Collapsed 210×34 (hardware notch), live-activity wings up to 340×34, expanded panel up to 440×~350 (height is per-app), corner fillets where the panel meets the menubar. Panel material: black glass at ~88% opacity, 40 pt blur. Expand/collapse curve `cubic-bezier(0.32, 0.72, 0, 1)`, 450 ms.
 
-**App strip.** Every expanded panel reserves a 42 pt strip at the bottom, drawn by Swift — apps render above it and can never cover it. Layout: installed apps at left (order = Settings order), then **[+]**, then Settings at far right. Active app gets a dot indicator; while an app's chat is open, its icon stays lit. Switching apps morphs the panel to the new app's height in the same gesture — one shape, no close/reopen. **[+]** opens the chat surface over a fresh folder (§ below).
+**App strip.** Every expanded panel reserves a 42 pt strip at the bottom, drawn by Swift — apps render above it and can never cover it. Layout: installed apps at left (order = Settings order), then **[+]**; Settings is a window (below), not a strip slot. Active app gets a dot indicator; while an app's chat is open, its icon stays lit. Switching apps morphs the panel to the new app's height in the same gesture — one shape, no close/reopen. **[+]** opens the chat surface over a fresh folder (§ below).
 
 **The chat UI ships; the intelligence doesn't.** Every app header carries a **✦** toggle that opens its chat below the live preview (per the mockups), and **[+]** opens the same surface over a fresh folder. But Ledge never calls a model API — the chat is a frontend over the **user's own agent in headless mode**:
 
@@ -284,7 +284,9 @@ Collapsed 210×34 (hardware notch), live-activity wings up to 340×34, expanded 
 
 The **feedback loop is files** either way: the agent edits `app.jsx` → the watcher hot-reloads (§7) → success is visible in the notch, failure lands in `crash.log` → the agent reads it and fixes.
 
-**Settings** ships with the host, written against the same worker + component API as user apps (it's the reference implementation). It differs in exactly two ways: it can't be disabled, and it gets a privileged `ctx.platform` API (enable/disable apps, reorder, worker stats). The protocol needs no special case for it.
+**Settings** is a **native macOS window**, drawn by the shell — not an app on the strip. It reads the `catalog` (§3.6) the shell already has and turns apps on and off with `appControl` (§4.3, `start`/`stop`), which lands on the same host enable/disable path an app's own switch used to. Nothing on the wire is special-cased for it.
+
+It was an app once: the reference implementation, undisableable, holding a privileged `ctx.platform` (enable/disable, reorder, worker stats). That app is archived at `protocol/demo-apps-archive/settings-app` and remains the worked example of the privileged surface, which the host still gates to the app id `settings` and refuses to every other app. A window was the better answer for the same reason the strip has one ✕: settings are *about* the apps, and a surface about the apps should not be one of the things it can switch off.
 
 ## 9. Resolved & deferred
 

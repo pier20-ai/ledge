@@ -368,12 +368,11 @@ struct SwipeGestureTests {
         #expect(controller.presentation == .newApp)
     }
 
-    /// Walking onto a session shows the session, never its transcript. Lowering
-    /// the glass is the left wing's job and nothing else's — the old
-    /// "re-selecting an app opens its chat" shortcut would otherwise make every
-    /// full lap of the strip land in the editor.
-    @Test("Walking onto a session shows the stage, never the transcript")
-    func walkingNeverOpensTheEditor() throws {
+    /// Walking from a stage stays on stages. The old "re-selecting an app opens
+    /// its chat" shortcut would otherwise make every full lap of the strip land
+    /// in the editor.
+    @Test("Walking from the stage shows stages, never the transcript")
+    func walkingFromTheStageStaysOnStage() throws {
         let session = HostSession()
         let controller = NotchPanelController(session: session)
         session.openReplay()
@@ -386,6 +385,110 @@ struct SwipeGestureTests {
         }
         // A full lap ends where it started.
         #expect(controller.presentation == .expanded(app: apps[0]))
+    }
+
+    // MARK: - The mode comes with you
+
+    /// **Walking the strip changes the session, not the mode** (flow.md, "The
+    /// strip").
+    ///
+    /// On device, `›` in a conversation dropped you onto the next session's
+    /// stage: you asked to change the subject and the shell changed the subject
+    /// *and* the surface. What you were doing is the thing you meant to keep.
+    @Test("Chat walks to chat — the next session's transcript, not its stage")
+    func walkingFromChatStaysInChat() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let strip = session.strip
+        let first = try #require(strip.apps.first)
+        let second = try #require(strip.apps.dropFirst().first)
+
+        controller.present(.chat(app: first), animated: false)
+        #expect(controller.handleSwipe(.left))
+        #expect(controller.presentation == .chat(app: second))
+
+        // …and the beads walk the same path as the swipe.
+        controller.walkForTesting(-1)
+        #expect(controller.presentation == .chat(app: first))
+    }
+
+    /// The blank slot is a conversation with no stage behind it, so it cannot be
+    /// "in" either mode. It must therefore not *change* the mode either — a lap
+    /// of the strip passes through it, and a stage tour that comes back as a
+    /// chat tour would make the mode depend on the route.
+    @Test("The blank slot is transparent to the mode, in both directions")
+    func theBlankSlotDoesNotChangeTheMode() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let apps = session.strip.apps
+
+        // A full lap in chat comes back in chat, having crossed the blank.
+        controller.present(.chat(app: apps[0]), animated: false)
+        var sawBlank = false
+        for _ in 0..<(apps.count + 1) {
+            _ = controller.handleSwipe(.left)
+            if controller.presentation == .newApp { sawBlank = true }
+        }
+        #expect(sawBlank, "the lap never crossed the blank — the test proves nothing")
+        #expect(controller.presentation == .chat(app: apps[0]))
+
+        // …and the same lap in stage mode comes back in stage mode.
+        controller.present(.expanded(app: apps[0]), animated: false)
+        for _ in 0..<(apps.count + 1) {
+            _ = controller.handleSwipe(.left)
+        }
+        #expect(controller.presentation == .expanded(app: apps[0]))
+    }
+
+    /// The glass toggle is still the only thing that *changes* the mode, and it
+    /// changes it for every subsequent walk.
+    @Test("Lowering the glass changes the mode the walk then carries")
+    func theGlassToggleSetsTheModeTheWalkCarries() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let strip = session.strip
+        let first = try #require(strip.apps.first)
+        let second = try #require(strip.apps.dropFirst().first)
+
+        controller.present(.expanded(app: first), animated: false)
+        controller.walkForTesting(1)
+        #expect(controller.presentation == .expanded(app: second))
+
+        // Lower the glass here, then keep walking: chat from now on.
+        controller.toggleChatForTesting()
+        #expect(controller.presentation == .chat(app: second))
+        controller.walkForTesting(1)
+        #expect(controller.presentation.isChat)
+
+        // Raise it again, and the walk goes back to stages.
+        controller.toggleChatForTesting()
+        #expect(!controller.presentation.isChat)
+        controller.walkForTesting(1)
+        #expect(!controller.presentation.isChat)
+    }
+
+    /// The overview is not a visit mode — `‹|›` there is "leave the overview",
+    /// and it lands on whichever mode was last chosen. Unchanged behaviour,
+    /// pinned so the walk's new rule cannot quietly capture it.
+    @Test("The overview walks out to the mode that was last chosen")
+    func theOverviewIsNotAMode() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let apps = session.strip.apps
+
+        controller.present(.expanded(app: apps[0]), animated: false)
+        controller.present(.overview, animated: false)
+        controller.walkForTesting(1)
+        #expect(!controller.presentation.isChat)
+        #expect(controller.presentation != .overview)
     }
 }
 

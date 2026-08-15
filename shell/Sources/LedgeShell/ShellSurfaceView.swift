@@ -1091,6 +1091,20 @@ final class ShellSurfaceView: FlippedView {
     /// strokes. Hidden — and the shape solidly filled — in every other mode.
     private let bodyGlass = CAGradientLayer()
     private let bodyGlassMask = CAShapeLayer()
+    /// **The frost behind the glass** (flow.md, Material; deferred out of C1
+    /// pending a judgement on device, and the judgement came back "needed").
+    ///
+    /// The gradient alone is a tint, and a tint over a bright window is still
+    /// that window: at the bottom of the pane the old floor was 18% of a
+    /// near-black, so a striped or high-contrast background came through at
+    /// almost full strength and the prompt was unreadable. Blur is what actually
+    /// destroys the detail underneath; the gradient then only has to supply
+    /// contrast, not hide anything.
+    ///
+    /// It is a *view* rather than a layer because behind-window blur is a
+    /// window-server effect with no CALayer equivalent, and it is masked to the
+    /// same silhouette everything else is cut to, so the body stays one shape.
+    private let bodyFrost = FrostView()
     /// Keeps the panel's shadow **outside** the silhouette. Opaque glass hid it
     /// for free; glass you can see through does not, and a shadow visible
     /// through its own body is the one thing that would make the bottom of the
@@ -1147,6 +1161,46 @@ final class ShellSurfaceView: FlippedView {
         LedgeShadow.panel.applyGeometry(to: shapeLayer)
         shapeLayer.shadowOpacity = 0
         layer?.addSublayer(shapeLayer)
+
+        // The frost sits **under** everything: behind the gradient, behind the
+        // content, behind the rim. It is a subview rather than a sublayer, so it
+        // goes in before `contentContainer` and stays at index 0.
+        //
+        // Two settings are load-bearing and neither is the default:
+        //
+        //   · `state = .active`. Ledge's panel is a `.nonactivatingPanel` and is
+        //     therefore *never* the active window. The default
+        //     `.followsWindowActiveState` would switch the blur off permanently
+        //     and the frost would be an expensive no-op — which is exactly how a
+        //     masked vibrancy attempt in a non-activating panel "proves
+        //     impossible" if this line is missing.
+        //   · `blendingMode = .behindWindow`. Within-window blending frosts the
+        //     shell's own content; what has to be destroyed is the desktop
+        //     behind it.
+        bodyFrost.material = .hudWindow
+        bodyFrost.blendingMode = .behindWindow
+        bodyFrost.state = .active
+        bodyFrost.isHidden = true
+        // Force the backing layer into existence now, so the `zPosition` below
+        // has something to be set on: AppKit creates a subview's layer lazily,
+        // and an ordering applied to a nil layer is a no-op that reads like a
+        // fix.
+        bodyFrost.wantsLayer = true
+        addSubview(bodyFrost)
+        // **Behind the gradient, explicitly.**
+        //
+        // Adding it first is not enough and the ordering is not a detail: the
+        // body's material, the rim light and the attention glow are *sublayers
+        // of this view's own layer*, while the frost is a **subview**, and
+        // AppKit appends every subview's backing layer after all of them. So the
+        // frost drew on top — a slab of blurred material over the gradient it
+        // was supposed to sit under, covering the rim light on its way past.
+        //
+        // `zPosition` is the one ordering that is actually defined across both
+        // kinds of sibling. Everything else here sits at 0, so a single negative
+        // rung puts the frost under all of it and leaves their order alone.
+        //
+        bodyFrost.layer?.zPosition = Self.frostZPosition
 
         // Above the shape, below the rim light: the glass replaces the fill, it
         // does not sit on top of the edge.
@@ -1388,6 +1442,14 @@ final class ShellSurfaceView: FlippedView {
     /// and (collapsed) not the centre of the view: see `shapeRect`.
     var currentShapeRect: CGRect { shapeRect }
 
+    /// The outline the body is currently cut to. A test seam for the one law
+    /// `notchPath` exists to keep — that every presentation produces the *same
+    /// element sequence*, so CoreAnimation can interpolate between any two of
+    /// them (`ShapeMorphTests`).
+    var currentSilhouette: CGPath {
+        shapeLayer.path ?? CGMutablePath()
+    }
+
     private var bodyRect: CGRect {
         shapeRect.insetBy(dx: Self.fillet, dy: 0)
     }
@@ -1627,13 +1689,29 @@ final class ShellSurfaceView: FlippedView {
         // part of the same path, so the two are one body and not two shapes that
         // happen to touch.
         let overhang = (shape.width - Self.fillet * 2 - body.width) / 2
-        let shoulder: BarShoulder? = presentation.isExpanded && overhang > 0
+        // **The joint is always present**, on every presentation — see
+        // `notchPath`. A pill and a full-width panel have `panel.minX == barLeft`
+        // and a zero radius, so the joint is a straight edge and draws nothing;
+        // what it buys is that the path the pill animates *from* and the path the
+        // visit animates *to* have the same segments in the same order, which is
+        // the only condition under which CoreAnimation's path interpolation
+        // produces a shape rather than a smear.
+        //
+        // `y` is clamped into the span the side actually spans so a short shape
+        // (the 34 pt pill) cannot put the joint below its own bottom fillet, and
+        // it stays at `panelWingRowHeight` wherever there is room — including on
+        // a panel wider than the bar, so that walking between a narrow session
+        // and a wide one slides the joint's *radius* to zero instead of also
+        // teleporting its depth.
+        let shoulder = BarShoulder(
+            panel: body,
+            y: min(panelWingRowHeight, max(Self.fillet, shape.height - bottomRadius)),
             // Never wider than the step it is rounding: a panel a few points
             // narrower than the bar gets a few points of fillet, not a curve
             // that doubles back over the bar's own edge.
-            ? BarShoulder(panel: body, y: panelWingRowHeight, radius: min(Self.fillet, overhang))
-            : nil
-        let path = notchPath(
+            radius: presentation.isExpanded ? max(0, min(Self.fillet, overhang)) : 0
+        )
+        let path = Self.notchPath(
             in: shape,
             topRadius: Self.fillet,
             bottomRadius: bottomRadius,
@@ -1734,12 +1812,36 @@ final class ShellSurfaceView: FlippedView {
         shapeLayer.fillColor = glass ? nil : NSColor.black.cgColor
         shapeLayer.mask = glass ? shadowMask : nil
         bodyGlass.isHidden = !glass
+        // **Only when there is something behind to blur.**
+        //
+        // `.behindWindow` blending is a window-server effect: with no window
+        // there is no "behind", and every offscreen renderer — `cacheDisplay`,
+        // the snapshot pipeline, the alpha probes in `ChatModeTests` — gets the
+        // material's opaque fallback colour instead. That turns the chat pane
+        // into a flat grey block in exactly the pictures the surface is reviewed
+        // from, and it would be reviewing a thing the product never shows.
+        //
+        // So the frost is a property of being *on screen*, which is the only
+        // place it means anything. `viewDidMoveToWindow` re-runs this.
+        bodyFrost.isHidden = !glass || window == nil
+        // See the note where the frost is added: the backing layer only exists
+        // once the view is in a layer-backed hierarchy, so this is the first
+        // place the ordering can actually be set.
+        bodyFrost.layer?.zPosition = Self.frostZPosition
         guard glass else { return }
 
         let bar = min(1, panelWingRowHeight / shape.height)
         bodyGlass.frame = CGRect(x: 0, y: 0, width: bounds.width, height: shape.height)
         bodyGlassMask.frame = bodyGlass.bounds
         bodyGlassMask.path = path
+
+        // The frost takes the same rectangle and the same outline. `maskImage`
+        // is the only way to give an `NSVisualEffectView` a shape — the blur is
+        // composited by the window server, so a CALayer mask on it does nothing
+        // — and it is regenerated here rather than cached because the shape
+        // changes on every session, every mode and every frame of the open.
+        bodyFrost.frame = bodyGlass.frame
+        bodyFrost.maskImage = Self.maskImage(for: path, size: bodyFrost.bounds.size)
         // The bar row, then the body's own ramp. The first stop is the notch:
         // opaque, and the same black the pill is made of.
         bodyGlass.colors = [NSColor.black.cgColor]
@@ -1754,6 +1856,35 @@ final class ShellSurfaceView: FlippedView {
         inverse.addPath(path)
         shadowMask.frame = bounds
         shadowMask.path = inverse
+    }
+
+    /// The frost exists only while the surface is in a window (see
+    /// `applyBodyMaterial`), so arriving in one — or leaving — has to repaint
+    /// the body material. Nothing else here depends on the window.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyGeometry(spring: nil)
+    }
+
+    /// One rung below every other layer in the body. See `applyBodyMaterial`.
+    static let frostZPosition: CGFloat = -1
+
+    /// An alpha mask in the shape of the silhouette, for `NSVisualEffectView`.
+    ///
+    /// Drawn flipped, because the path is stated in the surface's own y-down
+    /// coordinates and `maskImage` is interpreted bottom-up like every other
+    /// `NSImage`. `capInsets` is deliberately left at zero and the image is
+    /// built at the exact size it will be used: the shape has a shoulder in the
+    /// middle of it, so there is no stretchable centre to nominate.
+    static func maskImage(for path: CGPath, size: CGSize) -> NSImage? {
+        guard size.width >= 1, size.height >= 1 else { return nil }
+        return NSImage(size: size, flipped: true) { _ in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setFillColor(NSColor.black.cgColor)
+            context.addPath(path)
+            context.fillPath()
+            return true
+        }
     }
 
     private func addSpring(
@@ -1777,19 +1908,38 @@ final class ShellSurfaceView: FlippedView {
         currentContent = next
         next.frame = contentHost.bounds
         next.autoresizingMask = [.width, .height]
+        // A view arriving here may have been dimmed on its way *out* of a
+        // previous swap, or parked in some other host. It is the content now.
+        next.alphaValue = 1
         contentHost.addSubview(next)
 
+        // **Only tear down what this host actually owns.**
+        //
+        // The stage composite is shared: entering chat, the controller hands it
+        // to `ChatSurfaceView.setStage` — which reparents it into the stage well
+        // — and *then* presents the chat pane here. `previous` is that composite,
+        // and it is no longer ours. Fading and removing it emptied the well the
+        // instant chat opened, which is why the live app was a black rectangle
+        // on device while every snapshot (a fresh pane, no prior content) was
+        // fine. Ownership is `superview`, and nothing else.
+        let owned = previous?.superview === contentHost
+
         guard animated else {
-            previous?.removeFromSuperview()
+            if owned { previous?.removeFromSuperview() }
             return
         }
 
-        if let previous {
+        if let previous, owned {
             NSAnimationContext.runAnimationGroup({ context in
                 context.duration = 0.10
                 previous.animator().alphaValue = 0
             }, completionHandler: {
                 previous.removeFromSuperview()
+                // Leave it usable: this same view may be the *next* thing shown
+                // (chat → stage hands the composite straight back), and a view
+                // that returns still holding a zero alpha is invisible content
+                // with no way to notice.
+                previous.alphaValue = 1
             })
         }
 
@@ -2212,7 +2362,7 @@ final class ShellSurfaceView: FlippedView {
     /// The joint where a narrow panel hangs off the fixed bar: the panel's body,
     /// the depth at which the bar ends, and the radius of the two concave
     /// fillets that marry them (design.html §01 `.panel::before/::after`).
-    private struct BarShoulder {
+    struct BarShoulder {
         var panel: CGRect
         var y: CGFloat
         var radius: CGFloat
@@ -2220,13 +2370,35 @@ final class ShellSurfaceView: FlippedView {
 
     /// One closed outline for every shape the surface can be.
     ///
-    /// Without a `shoulder` it is the shape it always was: a rounded body with
-    /// two fillets tucking its top corners under the menu bar. With one, the
-    /// body steps in below the bar — down the bar's edge, along its underside,
-    /// round a concave fillet, and on down the panel — so a 440 pt panel under a
-    /// 489 pt bar is **one silhouette**, not a panel parked beneath a strip
-    /// (principle 6: one material, one body).
-    private func notchPath(
+    /// The body is a rounded slab with two fillets tucking its top corners under
+    /// the menu bar, and — below the bar — a step in to the panel's own width:
+    /// down the bar's edge, along its underside, round a concave fillet, and on
+    /// down the panel. A 440 pt panel under a 489 pt bar is **one silhouette**,
+    /// not a panel parked beneath a strip (principle 6: one material, one body).
+    ///
+    /// **Every segment is emitted every time, in the same order, whether or not
+    /// there is a shoulder** — and that invariance is the whole reason this
+    /// function is shaped the way it is.
+    ///
+    /// `CAShapeLayer.path` animates by interpolating control points *pairwise*.
+    /// It can only do that when the two paths have the same element count and
+    /// the same element types; when they differ, Core Animation pairs whatever
+    /// lines up by index — a quad against a line, the bottom-left corner against
+    /// the shoulder — and the in-betweens are not silhouettes at all. That was
+    /// literally visible on device as a warped blob with drooping lobes every
+    /// time the pill opened into a visit, because the collapsed pill emitted 9
+    /// elements and an expanded visit emitted 15.
+    ///
+    /// With no shoulder the extra segments **degenerate**: `left == barLeft`,
+    /// `radius == 0`, and the joint sits at the end of the top fillet, so all
+    /// three collapse to zero length and the rendered outline is byte-for-byte
+    /// the pill it always was. At rest the law holds; in flight the path is a
+    /// pure lerp between two well-formed outlines, so every frame is a sane bar
+    /// over a sane panel.
+    ///
+    /// Keep this structurally constant. Adding a segment behind an `if` is the
+    /// bug, not a refactor of it — `ShapeMorphTests` fails if the count moves.
+    static func notchPath(
         in rect: CGRect,
         topRadius: CGFloat,
         bottomRadius: CGFloat,
@@ -2238,6 +2410,11 @@ final class ShellSurfaceView: FlippedView {
         let barRight = rect.maxX - topRadius
         let left = shoulder?.panel.minX ?? barLeft
         let right = shoulder?.panel.maxX ?? barRight
+        // Where the bar ends and the panel begins. With no shoulder the joint is
+        // the end of the top fillet — the point the path is already standing on
+        // — which is what makes the three shoulder segments vanish.
+        let jointY = shoulder?.y ?? (rect.minY + topRadius)
+        let jointR = shoulder?.radius ?? 0
 
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         path.addQuadCurve(
@@ -2245,17 +2422,15 @@ final class ShellSurfaceView: FlippedView {
             control: CGPoint(x: barLeft, y: rect.minY)
         )
 
-        if let shoulder {
-            // Down the bar's left edge, along its underside, then a concave
-            // fillet onto the panel's edge. The control point sits in the inner
-            // corner, which is what curves the join *inwards*.
-            path.addLine(to: CGPoint(x: barLeft, y: shoulder.y))
-            path.addLine(to: CGPoint(x: left - shoulder.radius, y: shoulder.y))
-            path.addQuadCurve(
-                to: CGPoint(x: left, y: shoulder.y + shoulder.radius),
-                control: CGPoint(x: left, y: shoulder.y)
-            )
-        }
+        // Down the bar's left edge, along its underside, then a concave fillet
+        // onto the panel's edge. The control point sits in the inner corner,
+        // which is what curves the join *inwards*.
+        path.addLine(to: CGPoint(x: barLeft, y: jointY))
+        path.addLine(to: CGPoint(x: left - jointR, y: jointY))
+        path.addQuadCurve(
+            to: CGPoint(x: left, y: jointY + jointR),
+            control: CGPoint(x: left, y: jointY)
+        )
 
         path.addLine(to: CGPoint(x: left, y: rect.maxY - bottomRadius))
         path.addQuadCurve(
@@ -2268,14 +2443,12 @@ final class ShellSurfaceView: FlippedView {
             control: CGPoint(x: right, y: rect.maxY)
         )
 
-        if let shoulder {
-            path.addLine(to: CGPoint(x: right, y: shoulder.y + shoulder.radius))
-            path.addQuadCurve(
-                to: CGPoint(x: right + shoulder.radius, y: shoulder.y),
-                control: CGPoint(x: right, y: shoulder.y)
-            )
-            path.addLine(to: CGPoint(x: barRight, y: shoulder.y))
-        }
+        path.addLine(to: CGPoint(x: right, y: jointY + jointR))
+        path.addQuadCurve(
+            to: CGPoint(x: right + jointR, y: jointY),
+            control: CGPoint(x: right, y: jointY)
+        )
+        path.addLine(to: CGPoint(x: barRight, y: jointY))
 
         path.addLine(to: CGPoint(x: barRight, y: rect.minY + topRadius))
         path.addQuadCurve(
@@ -2285,4 +2458,14 @@ final class ShellSurfaceView: FlippedView {
         path.closeSubpath()
         return path
     }
+}
+
+/// The behind-window blur under the chat glass.
+///
+/// It refuses hit tests on its own account: the frost is scenery that happens to
+/// be the size of the panel, and a click landing on it instead of on the app's
+/// tree — or on the glass, where a drag can park the surface — would be a
+/// control the user cannot see swallowing one they can.
+private final class FrostView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

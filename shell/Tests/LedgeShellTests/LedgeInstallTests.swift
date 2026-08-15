@@ -80,33 +80,71 @@ struct LedgeInstallTests {
         #expect(!LedgeInstall.needsSeeding(file, manager: manager))
     }
 
-    @Test("Settings migrates only when missing or byte-for-byte known")
-    func settingsMigrationIsSurgical() throws {
+    /// **The Settings app is retired, surgically.**
+    ///
+    /// Settings is a native window now, so an installation that still has the
+    /// old app folder would keep showing a dead session in the strip — the host
+    /// registers by scanning for `app.jsx`, and that app's switches no longer
+    /// reach anything. So it is deleted on upgrade, but *only* if we wrote it.
+    ///
+    /// The question is the same one this decided when it was
+    /// `settingsNeedsRefresh` ("did Ledge ship these exact bytes?"); only the
+    /// consequence changed, from overwrite to remove. Which makes the negative
+    /// cases the important ones: an edited file is somebody's work, and an
+    /// unreadable one cannot be proven to be ours.
+    @Test("The Settings app is retired only when it is byte-for-byte ours")
+    func settingsRetirementIsSurgical() throws {
         let manager = FileManager.default
         let root = try makeRoot()
         defer { try? manager.removeItem(at: root) }
         let entry = root.appendingPathComponent("apps/settings/app.jsx")
 
-        #expect(LedgeInstall.settingsNeedsRefresh(entry, manager: manager))
+        // Nothing there is nothing to remove — and, unlike the old refresh
+        // check, that now means "not ours" rather than "go ahead".
+        #expect(!LedgeInstall.settingsIsOurs(entry, manager: manager))
 
         try manager.createDirectory(
             at: entry.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        let legacy = Data("the exact old Settings source".utf8)
-        try legacy.write(to: entry)
-        let digest = SHA256.hash(data: legacy).map { String(format: "%02x", $0) }.joined()
-        #expect(LedgeInstall.settingsNeedsRefresh(
+        let shipped = Data("the exact old Settings source".utf8)
+        try shipped.write(to: entry)
+        let digest = SHA256.hash(data: shipped).map { String(format: "%02x", $0) }.joined()
+        #expect(LedgeInstall.settingsIsOurs(
             entry,
             manager: manager,
             legacyDigests: [digest]
         ))
 
+        // Somebody edited it. That is their app now: it stays, and it is an
+        // ordinary session like any other.
         try "// user edited Settings".write(to: entry, atomically: true, encoding: .utf8)
-        #expect(!LedgeInstall.settingsNeedsRefresh(
+        #expect(!LedgeInstall.settingsIsOurs(
             entry,
             manager: manager,
             legacyDigests: [digest]
         ))
+    }
+
+    /// Every source Ledge ever shipped has to be in the digest set, including
+    /// the *last* one — which is the version nearly every real installation is
+    /// actually running. Missing it would make the retirement a no-op on exactly
+    /// the machines that need it, which has happened before (see the note on
+    /// `legacySettingsDigests`).
+    @Test("The final shipped Settings app is recognised as ours")
+    func theLastShippedSettingsIsKnown() throws {
+        let archived = URL(fileURLWithPath: "\(#filePath)")
+            .deletingLastPathComponent()      // LedgeShellTests
+            .deletingLastPathComponent()      // Tests
+            .deletingLastPathComponent()      // shell
+            .deletingLastPathComponent()      // repo root
+            .appendingPathComponent("protocol/demo-apps-archive/settings-app/app.jsx")
+
+        let manager = FileManager.default
+        try #require(
+            manager.fileExists(atPath: archived.path),
+            "the archived Settings app moved — update this path and the digest"
+        )
+        #expect(LedgeInstall.settingsIsOurs(archived, manager: manager))
     }
 }

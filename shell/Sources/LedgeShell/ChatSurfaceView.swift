@@ -150,6 +150,26 @@ final class ChatSurfaceView: FlippedView {
         stageWell.isHidden = content == nil
         if let content {
             content.autoresizingMask = [.width, .height]
+            // **The well owns its content's visibility, not whoever had it
+            // last.** The composite arrives straight out of `ShellSurfaceView`,
+            // which cross-fades the outgoing surface — so a fast stage → chat
+            // can hand over a view that is mid-fade, or already at zero, and the
+            // completion that would have restored it belongs to a swap that has
+            // since been superseded. Dimming is the *well's* job (`stageDim`,
+            // and `recededDim` when the transcript scrolls into the past); the
+            // tree inside it is always fully drawn.
+            content.alphaValue = 1
+            // Frame it now rather than waiting for a resize. `autoresizingMask`
+            // only acts when the superview's size *changes*, so a composite
+            // added at the frame it happened to have in the panel would sit
+            // wrong — offset by the swap's 6 pt entry nudge, at the old width —
+            // until something else moved.
+            content.frame = CGRect(
+                x: 0,
+                y: 0,
+                width: max(bounds.width, 1),
+                height: max(height, 1)
+            )
             stageWell.addSubview(content)
         }
         needsLayout = true
@@ -223,6 +243,11 @@ final class ChatSurfaceView: FlippedView {
         // (0, 0), so the scale alone would collapse the well into its top-left
         // corner. The translation puts the horizontal half back.
         stageWell.frame = CGRect(x: 0, y: Self.topPad, width: bounds.width, height: stageHeight)
+        // Explicitly, every pass: the composite is reparented between here and
+        // the panel's own content host, and a view that changes superview keeps
+        // the frame it had in the old one. Relying on the autoresizing mask
+        // alone leaves it at the panel's size until the *next* resize.
+        stageContent?.frame = stageWell.bounds
         stageWell.layer?.setAffineTransform(
             CGAffineTransform(translationX: bounds.width * (1 - Self.stageScale) / 2, y: 0)
                 .scaledBy(x: Self.stageScale, y: Self.stageScale)

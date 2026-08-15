@@ -127,6 +127,40 @@ enum SnapshotRenderer {
             try write(panel, named: dump.app, to: directory)
         }
 
+        // **The summary swell** — the surface a rested pointer gets on a heavy
+        // session (flow.md, principle 7), and the one surface in the product
+        // that had no snapshot at all.
+        //
+        // That gap cost something real: the shell-drawn open affordance was a
+        // bare `ink-3` chevron, nobody could find it on device, and no reviewer
+        // could have caught it because no reviewer was ever shown it. It is a
+        // bead now, and this is the picture that keeps it honest.
+        for dump in dumps where session.declaresSummary(for: dump.app) {
+            guard let summary = session.summaryView(for: dump.app) else { continue }
+            let swell = MiniContentView()
+            swell.setShowsOpenAffordance(true)
+            swell.adopt(summary)
+            let size = swell.preferredSize(
+                cutoutWidth: NotchMetrics.fallback.closedWidth,
+                maxWidth: PanelLimits.defaultWidth
+            )
+            let surface = surface(
+                presentation: .summary(app: dump.app),
+                content: swell,
+                width: size.width,
+                height: size.height + NotchMetrics.fallback.closedHeight
+            )
+            try write(
+                surface,
+                cropping: surface.currentShapeRect,
+                named: "\(dump.app)-summary",
+                to: directory
+            )
+            // Hand the node back untouched: it belongs to the app's tree, and a
+            // later surface asking for the same app must not find it adopted.
+            swell.adopt(nil)
+        }
+
         // **Chat mode, over the first app's stage** (flow.md, "Visit modes").
         //
         // What this PNG is evidence for is the half a web view cannot show: the

@@ -212,11 +212,16 @@ struct LedgeMenuTests {
         #expect(items.allSatisfy { $0.action != nil && $0.target != nil })
     }
 
-    /// Settings opens as a visit for now. flow.md wants a **native macOS
-    /// window** ("configuration doesn't belong on glass") and that is a later
-    /// phase — the trigger is final, the destination is not.
-    @Test("Settings… opens the settings session as a visit")
-    func settingsOpensAVisit() throws {
+    /// **Settings… opens a window, and leaves the notch alone** (flow.md,
+    /// Edges: "Settings — a native macOS window; configuration doesn't belong on
+    /// glass").
+    ///
+    /// It used to open as a visit. The trigger was always final and the
+    /// destination never was; this is the destination. The assertion that
+    /// matters is the negative one — the panel does not change — because the
+    /// old behaviour's whole problem was that configuration took over the notch.
+    @Test("Settings… opens the window and does not disturb the panel")
+    func settingsOpensAWindow() throws {
         let session = HostSession()
         let controller = NotchPanelController(session: session)
         session.openReplay()
@@ -224,21 +229,26 @@ struct LedgeMenuTests {
         controller.present(.collapsed, animated: false)
 
         controller.openSettingsForTesting()
-        #expect(controller.presentation == .expanded(app: LedgeApps.settings))
-        #expect(controller.interactionState == .visit)
+        #expect(controller.presentation == .collapsed, "Settings took over the notch")
+        #expect(controller.interactionState == .resting)
 
-        // Re-opening it keeps the settings controls on screen rather than
-        // toggling into the editor — there is no app folder behind Settings for
-        // an agent to edit.
+        // …and from inside a visit it does not close it, or walk it, or swap the
+        // session out from under the user.
+        controller.present(.expanded(app: "stocks"), animated: false)
         controller.openSettingsForTesting()
-        #expect(controller.presentation == .expanded(app: LedgeApps.settings))
+        #expect(controller.presentation == .expanded(app: "stocks"))
     }
 
-    /// ⌘, is a *visit* shortcut (flow.md). It is also only reachable while the
-    /// panel holds key — a non-activating panel cannot claim a key equivalent
-    /// from the app the user is actually in — which is why the menu is the path
-    /// that always works.
-    @Test("⌘, answers during a visit and declines below it")
+    /// ⌘, is no longer a *visit* shortcut.
+    ///
+    /// The old gate ("only while expanded") existed because Settings was a
+    /// visit, so opening it from the collapsed pill made no sense. A window can
+    /// be opened from anywhere, and a shortcut that works in only one of the
+    /// shell's states is one nobody trusts. It is still only reachable while
+    /// Ledge's panel holds key — a non-activating panel cannot claim a key
+    /// equivalent from the app the user is actually in — which is why the menu
+    /// is the path that always works.
+    @Test("⌘, answers wherever the panel is")
     func settingsShortcutScope() throws {
         let session = HostSession()
         let controller = NotchPanelController(session: session)
@@ -246,10 +256,11 @@ struct LedgeMenuTests {
         session.inject(try Fixtures.envelope("catalog.json"))
 
         controller.present(.collapsed, animated: false)
-        #expect(controller.handleSettingsShortcut() == false)
+        #expect(controller.handleSettingsShortcut())
+        #expect(controller.presentation == .collapsed)
 
         controller.present(.expanded(app: "stocks"), animated: false)
         #expect(controller.handleSettingsShortcut())
-        #expect(controller.presentation == .expanded(app: LedgeApps.settings))
+        #expect(controller.presentation == .expanded(app: "stocks"))
     }
 }

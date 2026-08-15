@@ -308,6 +308,110 @@ describe("the pane", () => {
   });
 });
 
+// ---------------------------------------------------------------- legibility
+//
+// The first version of the pane passed every test above and was still wrong: on
+// device, overcast was "a fuzzy gray blob — can't make anything out". The tests
+// were about *correctness* — purity, budget, op kinds — and the defect was about
+// **structure and value**, which nothing asserted, so it survived a rewrite and
+// shipped.
+//
+// These are the properties that failure had. They are deliberately crude: they
+// cannot tell a good sky from a bad one, but they can tell a picture that has
+// something in it from a wash, and that is the whole of what went wrong.
+
+/** Rec. 601 luma of a `#RRGGBB[AA]` fill, ignoring alpha. */
+function luma(hex: string): number {
+  const n = Number.parseInt(hex.slice(1, 7), 16);
+  return 0.3 * ((n >> 16) & 255) + 0.59 * ((n >> 8) & 255) + 0.11 * (n & 255);
+}
+
+/** The values the scene is actually *built* out of: the fill of every op that
+ * covers real area and is opaque enough to be seen through nothing. */
+function structuralValues(ops: Record<string, unknown>[]): number[] {
+  const values: number[] = [];
+  for (const op of ops) {
+    const fill = (op.fill ?? op.to) as string | undefined;
+    if (typeof fill !== "string") continue;
+    if (fill.length > 7 && Number.parseInt(fill.slice(7, 9), 16) < 0xd0) continue;
+    const w = Number(op.w ?? 0);
+    const h = Number(op.h ?? 0);
+    if (w * h < 400) continue;
+    values.push(luma(fill));
+  }
+  return values.sort((a, b) => a - b);
+}
+
+/** How many values in the list are at least `gap` apart from one another —
+ * "three distinguishable greys" made countable. */
+function separable(values: number[], gap: number): number {
+  let count = 0;
+  let last = -Infinity;
+  for (const value of values) {
+    if (value - last < gap) continue;
+    count += 1;
+    last = value;
+  }
+  return count;
+}
+
+describe("legible at 1×", () => {
+  const t = Date.parse("2026-08-15T13:10:00Z");
+  const OVERCAST = { ...CLEAR, temp: 15, cloud: 100, code: 3, rh: 72, wind: 16 };
+  const DRIZZLE = { ...RAIN, temp: 12, precip: 0.35, cloud: 95, code: 51, wind: 12 };
+  const FOG = { ...CLEAR, temp: 6, cloud: 90, rh: 99, wind: 4, code: 45, kind: "fog" };
+  const NIGHT = { ...CLEAR, temp: 12, cloud: 10 };
+  const midnight = Date.parse("2026-08-15T01:10:00Z");
+
+  const scenes: Array<[string, number, object]> = [
+    ["clear", t, CLEAR],
+    ["overcast", t, OVERCAST],
+    ["drizzle", t, DRIZZLE],
+    ["rain", t, RAIN],
+    ["storm", t, STORM],
+    ["fog", t, FOG],
+    ["snow", t, SNOW],
+    ["night", midnight, NIGHT],
+    ["night overcast", midnight, OVERCAST],
+  ];
+
+  test("every condition is built from at least three separable values", () => {
+    for (const [name, at, weather] of scenes) {
+      const values = structuralValues(frame(at, weather, { snowDepth: 2 }) as never);
+      expect(`${name}: ${separable(values, 14)}`).toBe(
+        `${name}: ${Math.max(3, separable(values, 14))}`,
+      );
+    }
+  });
+
+  test("every condition has a horizon under it", () => {
+    // The silhouette band: wide, short, dark, and sitting in the bottom fifth.
+    // It is what gives the pane depth and scale, and it is the reason rain has
+    // something to streak against — see `buildSkyline`.
+    for (const [name, at, weather] of scenes) {
+      const ops = frame(at, weather) as Record<string, number | string>[];
+      const ground = ops.filter(
+        (op) =>
+          op.op === "rect" &&
+          typeof op.fill === "string" &&
+          luma(op.fill) < 60 &&
+          Number(op.y) > PANE.h * 0.78 &&
+          Number(op.w) > 8,
+      );
+      expect(`${name}: ${ground.length >= 4}`).toBe(`${name}: true`);
+    }
+  });
+
+  test("a shut sky is layered, not one grey", () => {
+    // Three depth layers with distinct values (`LAYERS`), which is the whole
+    // difference between "overcast" and "the app failed to draw anything".
+    const values = structuralValues(frame(t, OVERCAST) as never);
+    expect(separable(values, 18)).toBeGreaterThanOrEqual(3);
+    // …and the range is a real range, not two neighbouring greys.
+    expect(values[values.length - 1]! - values[0]!).toBeGreaterThan(90);
+  });
+});
+
 // ---------------------------------------------------------------- the ruler
 
 describe("the ruler", () => {

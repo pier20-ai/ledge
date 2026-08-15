@@ -142,15 +142,27 @@ log "✓ host routed the mount commit"
 grep -q "applied commit" "$SHELL_LOG"  || fail "shell never applied a commit"
 log "✓ shell applied the commit end-to-end"
 
-# React identity (host/src/render/runtime.ts). `settings` is the demo app that
-# uses useState, so its commit landing proves the worker's reconciler and the
-# app resolved the SAME react — two copies is a null hooks dispatcher on first
-# render. Asserted by name because this is the one failure that appears ONLY in
-# the compiled host (LEDGE_HOST_CMD=dist/ledge), where a static `import react`
-# gets embedded in the binary while the app keeps resolving its own off disk.
-grep -q "applied commit app=settings" "$SHELL_LOG" \
-  || fail "the hooks app never rendered — likely two react instances (see host/src/render/runtime.ts)"
-log "✓ hooks app rendered (one react instance)"
+# React identity (host/src/render/runtime.ts). Asserted by NAME, and by the name
+# of a *default* app, because this is the one failure that appears ONLY in the
+# compiled host (LEDGE_HOST_CMD=dist/ledge), where a static `import react` gets
+# embedded in the binary while the app keeps resolving its own off disk — and
+# `applied commit` on its own would pass on a single app of the eight.
+#
+# `focus`, because it is the widest §5 vocabulary among the apps that need
+# nothing from the outside world to render: no network (weather), no player
+# (nowplaying), no subprocess (chess). It ships, so a break here is a break a
+# user would see on first launch.
+#
+# This check used to name `settings`, on the grounds that it was the demo app
+# using `useState` and two react copies are a null hooks dispatcher on the first
+# hook. Settings is a native macOS window now and the app is archived — and NO
+# demo app uses hooks any longer, so what remains asserted here is the weaker
+# "the reconciler and the app agree well enough to mount". Restoring a
+# hooks-using demo app would restore the sharp edge; until then, treat this as a
+# smoke test rather than the proof it was.
+grep -q "applied commit app=focus" "$SHELL_LOG" \
+  || fail "the react-identity canary never rendered — likely two react instances (see host/src/render/runtime.ts)"
+log "✓ default app rendered (one react instance)"
 
 # No app may crash-loop. Cheap, and it catches the whole class of "it rendered,
 # but half the catalog is restarting behind the log line we asserted on".

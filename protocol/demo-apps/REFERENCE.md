@@ -14,10 +14,10 @@ machine, and searching for it finds nothing, slowly.
 
 ## The apps in this folder
 
-Nine, and each one is here to be *felt* on the notch — every surface in this
+Eight, and each one is here to be *felt* on the notch — every surface in this
 document is exercised by at least one of them. `nowplaying`, `weather` and
 `focus` are **default apps** (they ship); `timer`, `radio`, `beacon`, `chess`
-and `tetris` are exercise apps, plus Settings.
+and `tetris` are exercise apps.
 Read them as syntax; read `docs/design/principles.md` before you copy their
 taste.
 
@@ -31,14 +31,19 @@ taste.
 | `beacon` | both notification classes back to back: **ambient** (glyph, one line, no action, retracts on Ti) and **alert** (one action, holds) · the three clicks on a swell — the action, elsewhere → visit, and nothing · `hero` numeral, `disabled` controls |
 | `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · `<summary>` carrying the engine's *evaluation*, the one reading the board cannot give · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
 | `tetris` | principle 5's worked example: **a score is a number**, so a 36 pt `display` numeral sits directly on the glass with `lv 6` beside it and nothing around either — the `SCORE`/`LINES`/`LEVEL` boxes are what the design reset was about · a `focusable` `<canvas>` with `onKey`, driven by a `setInterval` game loop and parked `monitor` · the next piece drawn *inside* the well rather than in a second framed canvas · a commit signature so a soft-drop point does not re-reconcile the panel · one ghost that starts, pauses, resumes and restarts · Reduce Motion audited and found to have nothing to switch off — every moving pixel is gameplay |
-| `settings` | the privileged app (spec §8): `ctx.platform.enable/disable/stats/quit/permissions`, a `<wing side="left">`, `toggle` rows, `useState` |
 
-The nine apps in `protocol/demo-apps-archive/` predate the design reset. That
-folder is **not** an apps root: nothing scans it, nothing installs its
-dependencies, and nothing in it is a model for new work. `chess` and `tetris`
-were rebuilt *out* of it in D4 — engines copied verbatim, everything around
-them rewritten — and their pre-reset originals stay there on purpose, because
-each new file's header cites the old one line by line for what was cut.
+There is no `settings` app any more: Settings is a **native macOS window** drawn
+by the shell (spec §8), and it turns apps on and off over the `appControl`
+envelope rather than through a worker. The app that used to do that job is kept
+at `protocol/demo-apps-archive/settings-app`, because it is still the only
+worked example of the privileged `ctx.platform.*` surface described below.
+
+`protocol/demo-apps-archive/` is **not** an apps root: nothing scans it, nothing
+installs its dependencies, and nothing in it is a model for new work. Most of it
+predates the design reset — `chess` and `tetris` were rebuilt *out* of it in
+D4, engines copied verbatim and everything around them rewritten, and their
+pre-reset originals stay there on purpose, because each new file's header cites
+the old one line by line for what was cut.
 
 ## Exports the host looks for
 
@@ -345,6 +350,36 @@ A wing survives until the app stops, crashes or reloads — the host releases it
 for you then, so a reload never leaves a dead app's label in the notch. The
 latest app to ask wins.
 
+**Say it again, even when nothing changed.** The shell takes an idle wing back
+after about ninety seconds (flow.md: *"Ambient | holder idle > Ta, or released |
+Resting"*), and every `ctx.wing` call from the holder re-arms that clock — the
+request is how an app says it is still alive, not only what it wants shown. So
+the obvious shape:
+
+```js
+if (spec === lastSpec) return;      // ← this alone is a bug
+ctx.wing(spec);
+```
+
+is a claim an app can make exactly once. A ticker that happens not to change for
+two minutes — a five-minute track, a temperature, a radio station between songs
+— loses the notch mid-session and can never get it back, because its own gate
+says it has already asked for this. Keep the change check *and* a heartbeat:
+
+```js
+const stale = Date.now() - sentAt > 45_000;
+if (spec === lastSpec && !stale) return;
+lastSpec = spec; sentAt = Date.now();
+ctx.wing(spec);
+```
+
+And in the other direction: **a live activity should describe the session, not
+the sample.** A player between two tracks answers "nothing playing" for a beat;
+releasing the wing on that reading and re-claiming it a second later makes the
+notch blink once per song. Hold through a gap, change the ticker in place, and
+let the *canvas* show the pause (nowplaying's wave eases to the floor and swells
+back) — the surface should never leave.
+
 ### Layout and size
 
 The root is a fixed width (440 pt by default; ask for more with
@@ -466,7 +501,10 @@ looks like "we don't know", not like "focus is off".
 
 **Settings-only.** Five more calls exist, and only the app whose folder is
 `settings` may make them — anything else is refused with a reason, by the host
-and again by the shell:
+and again by the shell. No shipped app claims that folder name today (Settings
+is a native window), so read this as the shape of the privileged surface rather
+than as something to reach for; the worked example is
+`protocol/demo-apps-archive/settings-app`:
 
 ```
 ctx.platform.stats()                 the catalog the strip is drawing

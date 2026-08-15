@@ -137,17 +137,17 @@ public enum ShellPresentation: Equatable, Sendable {
     }
 }
 
-/// Ids the shell itself has an opinion about.
-///
-/// Settings is an ordinary app to the protocol — it has a folder, a worker and a
-/// catalog row — but the shell knows two things about it that no other app is
-/// allowed to claim: it is the one caller that may raise the permission surface
-/// (§3.3), and there is nothing behind it for an agent to edit, so the glass
-/// toggle is hidden on it. Both facts need a name; a bare `"settings"` literal
-/// in three files is the defect principle 15 is about.
-public enum LedgeApps {
-    public static let settings = "settings"
-}
+// `LedgeApps` lived here: the one app id the shell had an opinion about.
+// Settings was an ordinary app to the protocol — a folder, a worker, a catalog
+// row — but the shell knew two things about it nothing else could claim: it was
+// the only caller allowed to raise the permission surface, and it had nothing
+// behind it for an agent to edit, so it never showed the glass toggle.
+//
+// Settings is a native window now (flow.md, Edges; `SettingsWindowController`),
+// so **no app id is special any more**. Both exceptions are gone rather than
+// generalised: the permission surface refuses every app, and every app in the
+// strip is a real app with a real folder. The shell has no opinion about names,
+// which is a better place for it to be than having one with a token.
 
 /// The shell's presentation state machine. Deliberately tiny: which surface is
 /// up, plus the one piece of memory the interaction model needs — the last app
@@ -175,7 +175,30 @@ public struct ShellState: Equatable, Sendable {
         if let app = presentation.app, !presentation.isSwell {
             lastPresentedApp = app
         }
+        switch presentation {
+        case .chat: visitMode = .chat
+        case .expanded: visitMode = .stage
+        // Everything else leaves it alone — see `visitMode`.
+        case .collapsed, .mini, .summary, .newApp, .permissions, .overview: break
+        }
     }
+
+    /// Which of the two visit modes the user last chose (flow.md, "Visit
+    /// modes"). Not derived from `presentation`, because the surfaces that are
+    /// neither — the blank slot above all — must not *change* the answer.
+    ///
+    /// It exists for `walk(to:)`. Walking the strip keeps the mode, and the
+    /// strip's ring runs through the blank slot, which is a conversation with no
+    /// stage behind it. Reading the mode off the live presentation would make a
+    /// lap of a five-app strip in stage mode come back in chat mode purely
+    /// because it passed the blank on the way round — the mode would depend on
+    /// the route rather than on anything the user did.
+    public enum VisitMode: Equatable, Sendable {
+        case stage
+        case chat
+    }
+
+    public private(set) var visitMode: VisitMode = .stage
 
     /// The user acted on the swell that was on screen — clicked the summary, or
     /// clicked a notification anywhere but its action (flow.md: "Summary | click
@@ -257,6 +280,38 @@ public struct ShellState: Equatable, Sendable {
             toggleChat()
         } else {
             present(.expanded(app: app))
+        }
+    }
+
+    /// **Walking the strip changes the session, not the mode** (flow.md, "The
+    /// strip": `‹|›` and the horizontal swipe).
+    ///
+    /// The walk used to land on `.expanded` from wherever it started, so `›` in
+    /// a conversation dropped you onto the next session's *stage* — you asked to
+    /// change the subject and the shell changed the subject and the surface. In
+    /// use that reads as the control being wrong rather than as a mode change:
+    /// the thing you were doing (talking) is the thing you meant to keep.
+    ///
+    /// So the mode survives the walk. Chat walks to chat — the next session's
+    /// transcript, over the next session's stage — and a stage walks to a stage.
+    ///
+    /// The mode comes from `visitMode` rather than from the presentation, so the
+    /// blank slot is transparent to it: walking past the blank in stage mode
+    /// comes out the other side still in stage mode, and a full lap of the strip
+    /// ends exactly where it began. Walking *onto* the blank is the blank
+    /// whichever mode you were in, because it has no stage to be in the other
+    /// one.
+    ///
+    /// The overview is deliberately untouched. It is not a visit mode: `‹|›`
+    /// there is the machine leaving the overview (`showingOverview`), a
+    /// different gesture wearing the same control, and it lands on whichever
+    /// mode was last chosen exactly as it always did.
+    public mutating func walk(to slot: SessionStrip.Slot) {
+        switch slot {
+        case .app(let app):
+            present(visitMode == .chat ? .chat(app: app) : .expanded(app: app))
+        case .blank:
+            present(.newApp)
         }
     }
 }

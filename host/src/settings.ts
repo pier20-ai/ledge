@@ -11,17 +11,18 @@
 // must start without anybody having written its name down first, and a settings
 // file that has never been created has to mean "everything runs" rather than
 // "nothing does".
+//
+// Every id is treated alike. There used to be one exemption — the `settings`
+// app, which could not be switched off because it was the only surface that
+// could switch anything back on — and it went when Settings became a native
+// macOS window in the shell (spec §8), which nothing written here can reach.
 
 import { dirname, join } from "node:path";
 import { rename } from "node:fs/promises";
 
-/** The app id the host treats specially: it is booted privileged and it cannot
- * be disabled (spec §8 — "it differs in exactly two ways"). */
-export const SETTINGS_APP_ID = "settings";
-
-/** The on-disk shape. Deliberately one key: everything else Settings shows is
- * derived from the registry, and a setting nobody honours is a switch that
- * lies. */
+/** The on-disk shape. Deliberately one key: everything else the Settings window
+ * shows is derived from the registry, and a setting nobody honours is a switch
+ * that lies. */
 interface SettingsFile {
   disabled?: unknown;
 }
@@ -78,7 +79,7 @@ export class SettingsStore {
    * A malformed settings file must not stop Ledge from starting: the failure
    * mode of "I could not parse this" is every app enabled, which is the same
    * state a fresh install is in, and the user can see and fix it. Refusing to
-   * boot over it would strand them with no Settings app to repair it from.
+   * boot over it would strand them with no way in to repair it.
    */
   async load(): Promise<void> {
     let parsed: SettingsFile | null = null;
@@ -93,10 +94,11 @@ export class SettingsStore {
         if (typeof id === "string" && id.length > 0) disabled.add(id);
       }
     }
-    // Whatever the file says, Settings runs: it is the only way back from a
-    // mistake made here, and a hand-edited file naming it would otherwise lock
-    // the user out of their own switches.
-    disabled.delete(SETTINGS_APP_ID);
+    // Every id in the file is honoured, with no exemptions. There used to be
+    // one — the `settings` app was forced back on however the file was edited,
+    // because it was the only surface that could undo a switch. Settings is a
+    // native macOS window in the shell now (spec §8), so the way back is not an
+    // app any more and cannot be disabled by anything written here.
     this.disabledIds = disabled;
   }
 
@@ -105,9 +107,6 @@ export class SettingsStore {
    * so the caller can tell an app "done" and mean it.
    */
   setEnabled(appId: string, enabled: boolean): Promise<void> {
-    if (appId === SETTINGS_APP_ID && !enabled) {
-      return Promise.reject(new Error("Settings cannot be disabled (spec §8)"));
-    }
     const mutation = this.mutationTail.then(async () => {
       if (enabled === this.isEnabled(appId)) return;
       const next = new Set(this.disabledIds);

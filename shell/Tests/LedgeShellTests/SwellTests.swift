@@ -108,12 +108,82 @@ struct SwellTests {
         let swell = MiniContentView()
         swell.adopt(try renderedSummary())
         #expect(!swell.showsOpenAffordance, "a notification promises nothing")
-        #expect(swell.chevronView.isHidden)
+        #expect(swell.affordanceBead.isHidden)
 
         swell.setShowsOpenAffordance(true)
-        #expect(swell.chevronView.isHidden == false)
-        // ink-3: quiet enough to be an affordance rather than a control.
-        #expect(swell.chevronView.contentTintColor == LedgeTheme.tertiary)
+        #expect(swell.affordanceBead.isHidden == false)
+        // **ink-2, not ink-3.** On device the old ink-3 chevron was invisible:
+        // "quiet" had become "absent", and a summary nobody can tell is openable
+        // is a dead end. It is still the quietest control in the product — the
+        // bead under it, not the ink, is what makes it findable.
+        #expect(swell.chevronView.contentTintColor == LedgeTheme.secondary)
+    }
+
+    /// The other half of the same fix: the affordance has a *ground*. A glyph
+    /// floating on the glass reads as decoration however bright it is; an edge
+    /// is what makes something read as pressable.
+    @Test("The chevron sits on a bead, drawn from the bead tokens")
+    func chevronHasABead() throws {
+        let swell = MiniContentView()
+        swell.setShowsOpenAffordance(true)
+        swell.adopt(try renderedSummary())
+        swell.frame = CGRect(
+            origin: .zero,
+            size: swell.preferredSize(cutoutWidth: 210, maxWidth: 640)
+        )
+        swell.layoutSubtreeIfNeeded()
+
+        let bead = swell.affordanceBead
+        // A capsule at the capsule rule — which at equal width and height is a
+        // circle, and that is what a bead this small is.
+        #expect(bead.frame.width == LedgeMetrics.swellBeadSize)
+        #expect(bead.frame.height == LedgeMetrics.swellBeadSize)
+        #expect(bead.layer?.cornerRadius == LedgeMetrics.capsule(LedgeMetrics.swellBeadSize))
+
+        // The glyph is centred *in the bead*, not in the surface.
+        let glyph = swell.chevronView.frame
+        #expect(abs(glyph.midX - bead.bounds.midX) < 0.01)
+        #expect(abs(glyph.midY - bead.bounds.midY) < 0.01)
+
+        // It is bigger than it was, and the bead is bigger than the glyph.
+        #expect(LedgeMetrics.swellChevronPointSize > 10)
+        #expect(LedgeMetrics.swellBeadSize > LedgeMetrics.swellChevronBox)
+
+        // The affordance is not a second hit target inside the swell: the whole
+        // summary opens the session, so the bead must never take a click.
+        #expect(bead.hitTest(CGPoint(x: bead.bounds.midX, y: bead.bounds.midY)) == nil)
+    }
+
+    /// **The summary's own line is `ink-1`.**
+    ///
+    /// The other half of the device complaint was that a summary "reads dim".
+    /// The chevron was the loud part of that and is fixed above; this pins the
+    /// quiet part, which turned out already to be right and is worth keeping
+    /// right — a summary is one line read at arm's length in the corner of the
+    /// eye, and it is the whole content of the surface. If the default text ink
+    /// on this zone ever drifts to `secondary`, the swell stops being readable
+    /// before anybody notices it changed.
+    @Test("A summary's text and glyphs render at ink-1 unless the app says otherwise")
+    func summaryContentIsInkOne() throws {
+        let summary = try renderedSummary()
+        let views = descendants(of: summary)
+
+        let labels = views.compactMap { $0 as? NSTextField }
+        #expect(!labels.isEmpty, "the fixture's summary has no text in it")
+        for label in labels {
+            #expect(
+                label.textColor == LedgeTheme.primary,
+                "'\(label.stringValue)' is not ink-1"
+            )
+        }
+
+        // …and the glyph beside it is the same tier. A bright line next to a
+        // washed-out icon reads as a rendering fault, not as a hierarchy.
+        let glyphs = views.compactMap { $0 as? LedgeSymbolView }
+        #expect(!glyphs.isEmpty, "the fixture's summary has no glyph in it")
+        for glyph in glyphs {
+            #expect(glyph.contentTintColor == LedgeTheme.primary)
+        }
     }
 
     @Test("The chevron is trailing, and paid for out of the surface, not the app")
@@ -135,9 +205,11 @@ struct SwellTests {
 
         swell.frame = CGRect(origin: .zero, size: withChevron)
         swell.layoutSubtreeIfNeeded()
-        let chevron = swell.chevronView.frame
-        #expect(chevron.maxX <= swell.bounds.width - MiniContentView.padX + 0.01)
-        #expect(abs(chevron.midY - swell.bounds.midY) < 1)
+        // Measured on the bead, which is the affordance now — the glyph's own
+        // frame is in the bead's coordinates.
+        let affordance = swell.affordanceBead.frame
+        #expect(affordance.maxX <= swell.bounds.width - MiniContentView.padX + 0.01)
+        #expect(abs(affordance.midY - swell.bounds.midY) < 1)
     }
 
     // MARK: - The geometry

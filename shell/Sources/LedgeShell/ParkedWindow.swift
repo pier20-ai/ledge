@@ -41,6 +41,10 @@ final class ParkedSurfaceView: FlippedView {
     private let body = CAShapeLayer()
     private let bodyGlass = CAGradientLayer()
     private let bodyGlassMask = CAShapeLayer()
+    /// The behind-window blur under the chat glass — see `ShellSurfaceView`'s
+    /// for why it exists and why `.state = .active` is the setting that decides
+    /// whether it does anything at all.
+    private let bodyFrost = ParkedFrostView()
     private let rim = CAShapeLayer()
     private let wingBar: PanelWingBarView
     private let home: LedgeButton
@@ -88,6 +92,25 @@ final class ParkedSurfaceView: FlippedView {
         LedgeShadow.window.applyGeometry(to: body)
         body.shadowOpacity = LedgeShadow.window.opacity
         layer?.addSublayer(body)
+
+        // The frost, on the same terms as the panel's (`ShellSurfaceView`): a
+        // subview under everything, `.active` because Ledge is an accessory app
+        // whose windows are never the active one, and masked to the body's own
+        // outline. The parked window is the *same* chat glass torn off the
+        // notch, and a torn-off surface that stopped being frosted would be the
+        // one place the material visibly changed by moving.
+        bodyFrost.material = .hudWindow
+        bodyFrost.blendingMode = .behindWindow
+        bodyFrost.state = .active
+        bodyFrost.isHidden = true
+        // The backing layer has to exist before the ordering can be set on it.
+        bodyFrost.wantsLayer = true
+        addSubview(bodyFrost)
+        bodyFrost.layer?.zPosition = ShellSurfaceView.frostZPosition
+        // Behind the gradient — see `ShellSurfaceView`. A subview's backing
+        // layer is appended after every sublayer this view added itself, so
+        // without an explicit `zPosition` the blur covers the glass and the rim
+        // it is supposed to sit under. Set in `applyBodyMaterial`, because the
 
         bodyGlass.isHidden = true
         bodyGlass.startPoint = CGPoint(x: 0.5, y: 0)
@@ -247,15 +270,30 @@ final class ParkedSurfaceView: FlippedView {
         }
     }
 
+    /// The frost exists only while the surface is in a window (see
+    /// `applyBodyMaterial`), and a parked surface is *built* before its window
+    /// adopts it — so arriving has to repaint the material.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsLayout = true
+    }
+
     private func applyBodyMaterial(path: CGPath) {
         let glass = bodyMaterial == .chatGlass && bounds.height > 0
         body.fillColor = glass ? nil : NSColor.black.cgColor
         bodyGlass.isHidden = !glass
+        // Only with a window behind to blur — offscreen the material falls back
+        // to an opaque colour and every snapshot of a parked chat would be a
+        // grey slab. Same gate as the panel's.
+        bodyFrost.isHidden = !glass || window == nil
+        bodyFrost.layer?.zPosition = ShellSurfaceView.frostZPosition
         guard glass else { return }
         let bar = min(1, rowHeight / bounds.height)
         bodyGlass.frame = bounds
         bodyGlassMask.frame = bounds
         bodyGlassMask.path = path
+        bodyFrost.frame = bounds
+        bodyFrost.maskImage = ShellSurfaceView.maskImage(for: path, size: bounds.size)
         bodyGlass.colors = [NSColor.black.cgColor] + LedgeGlass.chat.map { $0.color.cgColor }
         bodyGlass.locations = [0]
             + LedgeGlass.chat.map { NSNumber(value: Double(bar + (1 - bar) * $0.at)) }
@@ -336,4 +374,13 @@ final class ParkedSwellView: FlippedView {
     }
 
     var miniContent: MiniContentView { content }
+}
+
+
+/// The parked window's frost. Refuses hit tests for the same reason the panel's
+/// does: it is scenery the size of the whole surface, and a click landing on it
+/// instead of on the app's tree would be an invisible control eating a visible
+/// one.
+private final class ParkedFrostView: NSVisualEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

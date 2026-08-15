@@ -35,8 +35,9 @@
 // from an event handler keeps the reference its monitor was handed — that is the
 // documented pattern for a game loop.
 //
-// Settings (the reference app, §8) additionally gets a privileged `ctx.platform`
-// — typed here but only wired when the host boots the worker `privileged`.
+// A worker booted `privileged` (§8 — the app id `settings`, which no shipped app
+// claims now that Settings is a native window) additionally gets a privileged
+// `ctx.platform`: typed here, wired only for that boot.
 
 import type {
   AgentRequest,

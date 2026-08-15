@@ -15,7 +15,7 @@ import type { Envelope } from "./protocol/envelope";
 import type { Mutation } from "./render/mutations";
 import { resolveReactPaths, type ReactPaths } from "./render/runtime";
 import { applyMeta, scanApps, type CatalogApp } from "./registry";
-import { SETTINGS_APP_ID, SettingsStore } from "./settings";
+import { SettingsStore } from "./settings";
 import {
   AppSupervisor,
   realScheduler,
@@ -317,24 +317,33 @@ export class Router implements SupervisorSink {
         break;
       }
       case "appControl": {
-        // **The ledge's ✕** (flow.md, "The strip": "the only ✕ in the product
-        // lives here"; spec §4.3 extension). A CONTROL-PLANE frame like
-        // `selection` and `builderInput`: the envelope's own `app` is `""` and
-        // the target is in the payload, because the shell is speaking *about* an
-        // app rather than for one.
+        // **The ledge's ✕, and Settings' switch** (flow.md, "The strip": "the
+        // only ✕ in the product lives here"; spec §4.3). A CONTROL-PLANE frame
+        // like `selection` and `builderInput`: the envelope's own `app` is `""`
+        // and the target is in the payload, because the shell is speaking
+        // *about* an app rather than for one.
         //
-        // It lands on `setAppEnabled(false)` — the same path Settings' switch
-        // takes — rather than on a stop of its own: the worker goes, the app
-        // stays installed, and "is this app running" keeps having one answer in
-        // one place (the settings file). Turning it back on is Settings, which
-        // is the only surface that lists an app that is not running.
+        // Both directions ride this one envelope because Settings is a native
+        // macOS window in the shell now (spec §8) rather than an app with a
+        // privileged `ctx.platform`. There is no worker left to call
+        // `enable`/`disable` from, so `start` is how an app that was switched
+        // off comes back, and the two actions have to be symmetric or the ✕
+        // would be a one-way door.
+        //
+        // Both land on `setAppEnabled` — the enable/disable path, not a stop of
+        // its own: the worker goes or comes, the app stays installed either way,
+        // and "is this app running" keeps having one answer in one place (the
+        // settings file).
         const payload = envelope.payload as { app?: string; action?: string };
         const app = String(payload.app ?? "");
         const action = String(payload.action ?? "");
-        if (app === "" || action !== "stop") break;
-        this.hostLog(`[ledge-host] stop '${app}' <- the ledge`);
-        void this.setAppEnabled(app, false).catch((error: unknown) => {
-          this.hostLog(`[ledge-host] stop '${app}' failed: ${String(error)}`);
+        // Anything else is ignored rather than guessed at: a nameless target, or
+        // a verb this host does not know, is a shell speaking a dialect we have
+        // no safe reading of.
+        if (app === "" || (action !== "stop" && action !== "start")) break;
+        this.hostLog(`[ledge-host] ${action} '${app}' <- the ledge`);
+        void this.setAppEnabled(app, action === "start").catch((error: unknown) => {
+          this.hostLog(`[ledge-host] ${action} '${app}' failed: ${String(error)}`);
         });
         break;
       }
@@ -805,11 +814,11 @@ export class Router implements SupervisorSink {
       // Lazy and cached, because a host with no apps installed should not fail
       // to start over a react it never needed.
       reactPaths: this.reactPathsOnce(),
-      // The one special case in the whole host (spec §8): Settings gets the
-      // app-management half of ctx.platform, because it is the surface that
-      // turns other apps off. Keyed on the folder name, which IS the app id
-      // (§2, §6) — there is nothing else to key it on, and an app named
-      // `settings` in the apps root is Settings by definition.
+      // The one special case in the whole host (spec §8): the privileged id
+      // gets the app-management half of ctx.platform. Keyed on the folder name,
+      // which IS the app id (§2, §6) — there is nothing else to key it on. No
+      // shipped app claims it any more (see SETTINGS_APP_ID); this is what an
+      // app installed under that name would be granted.
       privileged: appId === SETTINGS_APP_ID,
       sink: this,
       factory: this.factory,
@@ -986,10 +995,23 @@ export class Router implements SupervisorSink {
   }
 }
 
-/** The calls only Settings may make (spec §8). Four are answered by the host
- * because they are its own state; `quit` goes to the shell because only the
- * shell can end the process — but "who may ask" is one question, so it is asked
- * in one place. */
+/**
+ * The one app id the host boots privileged (spec §8), and the only one the
+ * management calls below will answer for.
+ *
+ * Nothing claims it today: Settings is a native macOS window in the shell, and
+ * the app that used to hold this id is kept, unloaded, in
+ * `protocol/demo-apps-archive/settings-app` as the worked example of the
+ * privileged surface. The gate stays anyway, because the alternative to a gate
+ * that currently matches nothing is app management reachable by *any* app, and
+ * an apps root is a folder a user can drop anything into.
+ */
+const SETTINGS_APP_ID = "settings";
+
+/** The calls only the privileged app may make (spec §8). Four are answered by
+ * the host because they are its own state; `quit` goes to the shell because
+ * only the shell can end the process — but "who may ask" is one question, so it
+ * is asked in one place. */
 const SETTINGS_ONLY_CALLS: ReadonlySet<PlatformRequest["kind"]> = new Set([
   "enable",
   "disable",

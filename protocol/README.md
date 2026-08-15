@@ -148,7 +148,7 @@ rather than in `~/.ledge/apps`, so `scripts/e2e-smoke.sh` and
 `scripts/snapshot-demos.sh` can point a host at `--apps-root protocol/demo-apps`
 without touching the user's real installation.
 
-There are four, and their job is to make the interaction machine (flow.md)
+There are three, and their job is to make the interaction machine (flow.md)
 **feel-testable on device** — every surface the shell can raise is held by one
 of them. They are written against `docs/design/principles.md`; read that before
 copying their taste.
@@ -166,13 +166,16 @@ copying their taste.
   both armed on a delay so you can watch them arrive while collapsed. The three
   clicks on a swell — the action, elsewhere → visit, and nothing — are all
   reachable from it.
-- **`settings`** — the real thing (spec §8): the host boots it `privileged`, and
-  its switches turn other apps off for good (see `host/README.md`, "Settings").
+There was a fourth, `settings`. Settings is a **native macOS window** in the
+shell now (spec §8) and drives enable/disable over the `appControl` envelope, so
+the app was retired from the strip; it is kept, unloaded, at
+`protocol/demo-apps-archive/settings-app` as the only worked example of the
+privileged `ctx.platform.*` surface the host still gates to that app id.
 
-The nine apps that used to live here predate the design reset and were moved to
-`protocol/demo-apps-archive/` — reference only. That folder is not an apps root:
-nothing scans it, and its dependencies (`cheerio`, `chess.js`, `stockfish`) were
-dropped from the apps root's `package.json` with them.
+The apps that used to live here otherwise predate the design reset and were
+moved to `protocol/demo-apps-archive/` — reference only. That folder is not an
+apps root: nothing scans it, and its dependencies (`cheerio`, `chess.js`,
+`stockfish`) were dropped from the apps root's `package.json` with them.
 
 Two rules worth copying into any app that touches the network: **a `monitor`
 must never throw** (a throw is an app crash with backoff, spec §6 rule 2 — a

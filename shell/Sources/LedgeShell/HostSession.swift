@@ -262,7 +262,32 @@ final class HostSession {
     /// stays installed; Settings' switch is the way back, and it is the same
     /// switch, because this sends the host down the path that one already takes.
     func stopApp(_ app: String) {
-        engine.sendAppControl(app: app, action: "stop")
+        setAppEnabled(app, enabled: false)
+    }
+
+    /// **Settings' switch** (flow.md, Edges: "Settings — a native macOS
+    /// window"). Enable or disable an installed app.
+    ///
+    /// It is the same `appControl` envelope the ✕ sends, with the other action,
+    /// and it lands on the same `setAppEnabled` in the host — persist the
+    /// disabled list, start or stop the worker, re-send the catalog. That
+    /// symmetry is the point: there is exactly one path by which an app becomes
+    /// enabled or disabled, so the ledge's ✕ and Settings' switch can never
+    /// disagree about what "off" means.
+    ///
+    /// Settings used to be a privileged *app* that reached the same code through
+    /// `ctx.platform.enable/disable`. It is a native window now, so the shell
+    /// asks directly and there is no privileged app surface left to protect.
+    func setAppEnabled(_ app: String, enabled: Bool) {
+        engine.sendAppControl(app: app, action: enabled ? "start" : "stop")
+    }
+
+    /// Every installed app, enabled or not — what the Settings window lists.
+    ///
+    /// Deliberately not `strip`, which filters to the enabled ones: a switch you
+    /// can only find while the thing is already on is not a switch.
+    var installedApps: [CatalogApp] {
+        catalog.sorted { $0.order < $1.order }
     }
 
     /// The app's catalog glyph — an SF Symbol name (spec §3.6). The shelf draws
@@ -383,7 +408,16 @@ final class HostSession {
         engine.flushDraws()
     }
 
+    /// Test seam: every envelope the shell puts on the wire, as it goes out.
+    ///
+    /// The alternative is asserting against `ProtocolEngine` directly, which
+    /// proves the engine builds the frame correctly but not that `HostSession`
+    /// asked for the right one — and "Settings' switch sends `start`, the ✕
+    /// sends `stop`" is a fact about this object.
+    var onOutboundForTesting: ((Envelope) -> Void)?
+
     private func send(_ envelope: Envelope) {
+        onOutboundForTesting?(envelope)
         guard let data = try? JSONEncoder().encode(envelope) else { return }
         transport?.sendFrame(data)
     }

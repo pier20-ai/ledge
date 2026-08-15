@@ -35,6 +35,15 @@ enum LedgeInstall {
         // **every** commit that edits `protocol/demo-apps/settings/app.jsx`
         // owes this list the digest of the source it replaced.
         "3271ece363f218205215abdfb7d1abeb43ae24796aebca01d0c9aaf08b635391",
+        // 4073df7: the last Settings app, and the one most installations are
+        // actually running — the reset lineup's slimmed version, now archived at
+        // `protocol/demo-apps-archive/settings-app/app.jsx`.
+        //
+        // Without this entry the retirement would be a no-op on precisely the
+        // machines that need it: `settingsIsOurs` would fail to recognise the
+        // newest shipped source and leave a dead Settings session in the strip
+        // forever, which is the same class of miss the note above records.
+        "cc475e7a7eb8618f0a3f6af2347994e1551a06b389485336cd820e1a591ee05d",
     ]
 
     /// Overrides the install root (`--ledge-root`). Redirects seeding, the apps
@@ -130,21 +139,30 @@ enum LedgeInstall {
             NSLog("[ledge] seeded %@", seeded.joined(separator: " + "))
         }
 
-        // Settings is the one app an upgrade may have to restore. Older bundles
-        // seeded an inert mockup or a Settings implementation with no working
-        // route to Permissions, and this release removes the menu-bar escape
-        // hatch because the real Settings app owns Quit and Permissions. Keeping
-        // one of those exact old files would strand an existing installation.
+        // **Retire the Settings app.**
         //
-        // A digest, not a marker comment: an agent may have edited the old source
-        // without removing its header. Only the exact bytes Ledge shipped are
-        // replaceable; anything else is user work and remains untouched.
+        // Settings is a native macOS window now (flow.md, Edges;
+        // `SettingsWindowController`), so the app that used to provide it is
+        // gone from the seed archive. An existing installation still has the old
+        // folder on disk, and leaving it there is not harmless: the host
+        // registers apps by scanning for `<dir>/app.jsx`, so it would keep
+        // appearing in the strip as a session whose switches and Permissions
+        // button no longer reach anything the shell listens to.
+        //
+        // Removed on the same terms it was refreshed on — **only the exact bytes
+        // Ledge shipped**. `settingsIsOurs` is the same digest check under a
+        // name that now says what it decides. An agent may have edited that
+        // folder, or the user may have written something of their own there, and
+        // that is their app now: it stays, and it is an ordinary session like
+        // any other.
         let settingsEntry = appsRoot.appendingPathComponent("settings/app.jsx")
-        if settingsNeedsRefresh(settingsEntry, manager: manager) {
-            if extract(seedArchive, member: "apps/settings/app.jsx", into: root) {
-                NSLog("[ledge] installed current Settings app")
-            } else {
-                NSLog("[ledge] could not refresh the Settings app")
+        if settingsIsOurs(settingsEntry, manager: manager) {
+            let folder = appsRoot.appendingPathComponent("settings")
+            do {
+                try manager.removeItem(at: folder)
+                NSLog("[ledge] retired the Settings app — Settings is a window now")
+            } catch {
+                NSLog("[ledge] could not retire the Settings app: %@", "\(error)")
             }
         }
 
@@ -208,16 +226,23 @@ enum LedgeInstall {
         return contents.allSatisfy { $0.hasPrefix(".") }
     }
 
-    /// Whether the shell-owned Settings entry may safely be installed.
+    /// Whether the Settings entry on disk is **one Ledge shipped** — and may
+    /// therefore be removed on upgrade, now that Settings is a window.
     ///
-    /// Missing is safe. Unreadable is not: inability to prove a file is ours is
-    /// never permission to overwrite it.
-    static func settingsNeedsRefresh(
+    /// Missing is not ours (there is nothing to remove). Unreadable is not ours
+    /// either: inability to prove a file is ours is never permission to delete
+    /// it. Both answers are `false`, and both are the conservative one.
+    ///
+    /// This was `settingsNeedsRefresh`, deciding whether to overwrite the folder
+    /// with a newer copy of the app. It is the same digest set and the same
+    /// question — "did we write this?" — and only the consequence has changed,
+    /// so the digests keep their history rather than being restated.
+    static func settingsIsOurs(
         _ entry: URL,
         manager: FileManager,
         legacyDigests: Set<String> = legacySettingsDigests
     ) -> Bool {
-        guard manager.fileExists(atPath: entry.path) else { return true }
+        guard manager.fileExists(atPath: entry.path) else { return false }
         guard let data = try? Data(contentsOf: entry) else { return false }
         let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         return legacyDigests.contains(digest)

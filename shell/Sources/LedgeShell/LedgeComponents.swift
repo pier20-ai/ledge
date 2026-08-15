@@ -1030,6 +1030,20 @@ final class LedgeButton: NSControl {
         syncHover()
     }
 
+    /// Test seam: put the control into its hover state directly.
+    ///
+    /// `syncHover` deliberately resolves the *live* pointer against a real
+    /// window rather than trusting enter/exit pairs, which is right in the
+    /// product and impossible headlessly. Everything downstream of the flag —
+    /// the bead's brighten, the ghost's wash, the ring — is what the tests are
+    /// actually about, so they set the flag and assert the paint.
+    func setHoveredForTesting(_ hovered: Bool) {
+        let next = hovered && !disabled
+        guard next != hovering else { return }
+        hovering = next
+        refreshAppearance()
+    }
+
     /// Enter/exit pairs go stale when the panel morphs and this button moves
     /// under a stationary cursor — always verify against the live pointer.
     private func syncHover() {
@@ -1232,11 +1246,26 @@ final class LedgeButton: NSControl {
             // paints; a background colour underneath them would flatten the
             // swelling back into a chip.
             layer?.backgroundColor = NSColor.clear.cgColor
+            applyHoverRing()
         case .ghost:
-            // Nothing at all until the cursor arrives, and then only the wash —
-            // no border, no fill, no capsule the eye can find when idle.
+            // Nothing at all until the cursor arrives, and then the wash **and**
+            // the ring — no border, no fill, no capsule the eye can find when
+            // idle, and an unmistakable one the moment the cursor is on it.
             layer?.backgroundColor = hovering ? LedgeTheme.raisedHover.cgColor : NSColor.clear.cgColor
+            applyHoverRing()
         }
+    }
+
+    /// The hover ring (`LedgeTheme.hoverRing`), for the two shell tiers that had
+    /// no border of their own. `.glass` already carries one in both states and
+    /// is left alone — giving it a second rule would just thicken its edge.
+    ///
+    /// Drawn on the control's own layer, so it takes the capsule radius for
+    /// free and can never disagree with the silhouette it is ringing.
+    private func applyHoverRing() {
+        let ringed = hovering && !disabled
+        layer?.borderWidth = ringed ? LedgeMetrics.hairline : 0
+        layer?.borderColor = ringed ? LedgeTheme.hoverRing.cgColor : NSColor.clear.cgColor
     }
 }
 

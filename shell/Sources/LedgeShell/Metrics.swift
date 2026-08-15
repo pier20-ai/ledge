@@ -268,10 +268,25 @@ enum LedgeMetrics {
     /// It is the promise that another click opens the full thing (flow.md: "The
     /// summary always shows a quiet open affordance"), which is why the app
     /// cannot remove it — it is drawn by the surface, outside the app's node.
-    static let swellChevronPointSize: CGFloat = 10
+    ///
+    /// It was a bare 10 pt glyph at `ink-3`, and on device nobody found it: at
+    /// notch scale, 32% of white with no ground under it is a smudge rather than
+    /// a control. "Quiet" was reading as "absent", and a summary you cannot tell
+    /// is openable is a summary that ends the interaction.
+    ///
+    /// So it is a **bead** now: the glyph a step larger at `ink-2`, on the same
+    /// raised capsule every other convex control in the product is made of
+    /// (`LedgeTheme.bead*`). Still quiet — no accent, no border, no motion — but
+    /// it has an edge, and an edge is what makes something read as pressable.
+    static let swellChevronPointSize: CGFloat = 11
     static let swellChevronWeight: NSFont.Weight = .semibold
     static let swellChevronGap: CGFloat = 8
+    /// The glyph's own box, inside the bead.
     static let swellChevronBox: CGFloat = 12
+    /// The bead the chevron sits in — a circle at the capsule rule, sized so the
+    /// glyph has a point of air all round and the whole thing still fits inside
+    /// a 34 pt swell with its padding.
+    static let swellBeadSize: CGFloat = 18
 
     // MARK: - Self-advancing controls (`rate`, §5)
 
