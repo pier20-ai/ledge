@@ -1060,15 +1060,26 @@ final class LedgeButton: NSControl {
         refreshAppearance()
     }
 
+    /// Opt-in (the visit bar's islands set it): a press that travels downward
+    /// past the tear threshold stops being a press and becomes the park drag
+    /// (G2.7). Nil everywhere else, so an ordinary button is unchanged.
+    var onDragDown: (() -> Void)?
+
     override func mouseDown(with event: NSEvent) {
         // Disabled means disabled: no press scale, no hover, no handler (D6).
         guard !disabled else { return }
+        let downY = event.locationInWindow.y
         setPressed(true, duration: LedgeMetrics.pressDurationIn)
         var clickedInside = false
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
             if next.type == .leftMouseUp {
                 clickedInside = bounds.contains(convert(next.locationInWindow, from: nil))
                 break
+            }
+            if let onDragDown, downY - next.locationInWindow.y >= LedgeMetrics.parkTearThreshold {
+                setPressed(false, duration: LedgeMetrics.pressDurationOut)
+                onDragDown()
+                return
             }
         }
         setPressed(false, duration: LedgeMetrics.pressDurationOut)

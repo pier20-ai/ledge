@@ -291,12 +291,14 @@ final class NotchPanelController {
         var toggleChat: (() -> Void)!
         var walkStrip: ((Int) -> Void)!
         var showOverview: (() -> Void)!
+        var parkNow: (() -> Void)!
         let callbacks = ShellCallbacks(
             selectApp: { app in selectApp(app) },
             selectNewApp: { selectNewApp() },
             toggleChat: { toggleChat() },
             walkStrip: { steps in walkStrip(steps) },
             showOverview: { showOverview() },
+            park: { parkNow() },
             // Quit is the shell's, not a session's: it terminates the whole
             // process, host and all (the app delegate tears the host down in
             // `applicationWillTerminate`).
@@ -333,6 +335,8 @@ final class NotchPanelController {
         walkStrip = { [weak self] steps in self?.walk(steps) }
         // The `|` between `‹` and `›`: **the ledge** (flow.md, "The strip").
         showOverview = { [weak self] in self?.enterOverview() }
+        // The tear bead beside `‹|›` (G2.7): the drag's clickable invitation.
+        parkNow = { [weak self] in self?.parkFromButton() }
 
         surface.onPointerInside = { [weak self] inside in self?.pointerChanged(inside: inside) }
         surface.onClick = { [weak self] in self?.clicked() }
@@ -606,18 +610,21 @@ final class NotchPanelController {
             // The pane is a web view with a composer in it: right-clicking a
             // half-typed sentence must give you Cut/Copy/Paste, not Quit Ledge.
             owner = .app
-            // The session's own width, not the shell's default: the stage behind
-            // is that app's tree, and squeezing it into 440 would misrepresent
-            // the thing the conversation is about.
+            // **The pane is the app plus its stated margins** (Manu's G2.7 size
+            // law): the session's own width with `stagePad` of glass each side
+            // — the stage is unscaled, so the margin is real air, not leftover
+            // scale. Capped by the screen, because the chrome is the pane's
+            // own and the app's declared cap only ever measured its stage.
             let size = session.panelSize(for: app)
-            width = size.width
-            // Measured like the stage's own panel: the pane's height plus the
-            // cutout exclusion row, capped by what the screen allows.
+            width = min(
+                size.width + ChatSurfaceView.stagePad * 2,
+                surface.limits.maxWidth
+            )
             height = min(
                 ChatSurfaceView.panelHeight(
                     stageHeight: stage.map { max(0, $0.height - session.chromeHeight) }
                 ) + session.chromeHeight,
-                size.maxHeight
+                surface.limits.maxHeight
             )
         case .newApp:
             // The SAME surface, with no session behind it yet (spec §8: "`app`
@@ -1009,6 +1016,20 @@ final class NotchPanelController {
         NSLog("[ledge] parked at %@", NSStringFromPoint(topLeft))
     }
 
+    /// The tear bead (G2.7): park without the drag. The window stands up one
+    /// step down-and-right of where the surface is — so it visibly comes *off*
+    /// the notch rather than appearing somewhere — then settles on-screen the
+    /// way a released drag does.
+    private func parkFromButton() {
+        guard !isParked, shellState.isExpanded, let window = surface.window else { return }
+        let shape = surface.currentShapeRect
+        let corner = window.convertPoint(
+            toScreen: surface.convert(CGPoint(x: shape.minX, y: shape.minY), to: nil)
+        )
+        tearOff(to: CGPoint(x: corner.x + 24, y: corner.y - 48))
+        settleParked()
+    }
+
     private func moveParked(to topLeft: CGPoint) {
         guard let parked else { return }
         setParkedFrame(topLeft: topLeft, size: parked.window.frame.size)
@@ -1189,15 +1210,29 @@ final class NotchPanelController {
         return true
     }
 
+    /// Which end of the strip the blank slot is standing in for right now —
+    /// the walk's own memory (see `SessionStrip.step(from:by:blankEnd:)`).
+    /// Trailing at launch: "First launch opens here" (flow.md), and from
+    /// nowhere in particular the blank reads as the end of the line.
+    private var blankEnd: SessionStrip.BlankEnd = .trailing
+
     /// Walk the strip (flow.md, "The strip"): installed apps in registry order,
-    /// plus one blank slot reachable past either end.
+    /// plus one blank slot reachable past either end — and the blank IS the
+    /// end: walking outward from it bounces instead of wrapping (G2.7).
     private func walk(_ steps: Int) {
         let strip = session.strip
+        let current = strip.slot(for: shellState.presentation)
+        guard let next = strip.step(from: current, by: steps, blankEnd: blankEnd) else {
+            surface.bounceAtEnd(toward: steps)
+            parked?.view.bounceAtEnd(toward: steps)
+            return
+        }
+        if next == .blank { blankEnd = steps > 0 ? .trailing : .leading }
         // **The mode comes with you.** `ShellState.walk(to:)` owns the rule —
         // chat walks to chat, a stage walks to a stage — because "which surface
         // am I on" is state, not a view decision, and it has to be the same
         // answer for the `‹|›` beads and for the swipe.
-        shellState.walk(to: strip.step(from: strip.slot(for: shellState.presentation), by: steps))
+        shellState.walk(to: next)
         machine.sync(to: shellState.presentation)
         refresh(animated: true)
     }

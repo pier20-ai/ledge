@@ -42,30 +42,35 @@ struct SessionStripTests {
     }
 
     /// flow.md: "Walking past either end lands on the blank slot — at most one
-    /// blank exists." Both halves of that sentence are one fact: the slots are a
-    /// **ring** with the blank as its last member, so the two ends meet there.
-    @Test("Walking past either end lands on the same blank slot")
+    /// blank exists, and it IS the end." (G2.7: the slots used to be a ring,
+    /// and swiping outward from the blank silently wrapped to the far end.)
+    @Test("Walking past either end lands on the same blank slot, and the blank is the end")
     func bothEndsMeetAtTheBlank() {
         let strip = SessionStrip(catalog: catalog(["music", "chess", "weather"]))
 
         // Off the right-hand end.
-        #expect(strip.step(from: .app("weather"), by: 1) == .blank)
+        #expect(strip.step(from: .app("weather"), by: 1, blankEnd: .trailing) == .blank)
         // Off the left-hand end — the *same* blank, not a second one.
-        #expect(strip.step(from: .app("music"), by: -1) == .blank)
-        // And leaving the blank in either direction lands on a real end.
-        #expect(strip.step(from: .blank, by: 1) == .app("music"))
-        #expect(strip.step(from: .blank, by: -1) == .app("weather"))
+        #expect(strip.step(from: .app("music"), by: -1, blankEnd: .leading) == .blank)
+        // Leaving the blank *inward* lands on the session beside the end it is
+        // standing in for…
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .trailing) == .app("weather"))
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .leading) == .app("music"))
+        // …and *outward* is the end of the strip: nil, the caller's cue to
+        // bounce rather than move.
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .trailing) == nil)
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .leading) == nil)
     }
 
     @Test("Ordinary steps walk one session at a time, in both directions")
     func ordinarySteps() {
         let strip = SessionStrip(catalog: catalog(["music", "chess", "weather"]))
-        #expect(strip.step(from: .app("music"), by: 1) == .app("chess"))
-        #expect(strip.step(from: .app("chess"), by: 1) == .app("weather"))
-        #expect(strip.step(from: .app("weather"), by: -1) == .app("chess"))
+        #expect(strip.step(from: .app("music"), by: 1, blankEnd: .trailing) == .app("chess"))
+        #expect(strip.step(from: .app("chess"), by: 1, blankEnd: .trailing) == .app("weather"))
+        #expect(strip.step(from: .app("weather"), by: -1, blankEnd: .trailing) == .app("chess"))
         // A step of zero is where you already are — the identity a swipe that
         // did not clear the threshold must resolve to.
-        #expect(strip.step(from: .app("chess"), by: 0) == .app("chess"))
+        #expect(strip.step(from: .app("chess"), by: 0, blankEnd: .trailing) == .app("chess"))
     }
 
     @Test("A presentation maps onto the strip; the blank slot IS the [+] surface")
@@ -82,22 +87,23 @@ struct SessionStripTests {
         #expect(strip.slot(for: .collapsed) == nil)
     }
 
-    @Test("A strip with nothing installed is one blank slot, and walking it stays put")
+    @Test("A strip with nothing installed is one blank slot, and every direction is the end")
     func emptyStrip() {
         let strip = SessionStrip(catalog: [])
         #expect(strip.slots == [.blank])
-        #expect(strip.step(from: .blank, by: 1) == .blank)
-        #expect(strip.step(from: .blank, by: -1) == .blank)
+        // No apps: there is no inward, so both directions are the end.
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .trailing) == nil)
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .trailing) == nil)
         // Walking from a surface that is not on the strip walks *onto* it,
         // rather than refusing — which is how ‹|› gets you out of the
         // placeholder card.
-        #expect(strip.step(from: nil, by: 1) == .blank)
+        #expect(strip.step(from: nil, by: 1, blankEnd: .trailing) == .blank)
     }
 
     @Test("Walking from a non-strip surface lands on the first session")
     func walkingOntoTheStrip() {
         let strip = SessionStrip(catalog: catalog(["music", "chess"]))
-        #expect(strip.step(from: nil, by: 1) == .app("music"))
-        #expect(strip.step(from: nil, by: -1) == .blank)
+        #expect(strip.step(from: nil, by: 1, blankEnd: .trailing) == .app("music"))
+        #expect(strip.step(from: nil, by: -1, blankEnd: .trailing) == .blank)
     }
 }

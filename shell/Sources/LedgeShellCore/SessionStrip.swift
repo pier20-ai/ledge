@@ -12,11 +12,13 @@ import Foundation
 ///
 /// - **Installed apps in registry order.** The catalog is the only source (spec
 ///   §3.6, full snapshots), so the strip cannot drift from the app list.
-/// - **Exactly one blank slot, reachable past either end.** flow.md: "Walking
-///   past either end lands on the blank slot — at most one blank exists." The
-///   slots therefore form a *ring* with the blank as its last member: stepping
-///   right off the last app and stepping left off the first app both land on the
-///   same blank, which is what "at most one" means when you can walk in circles.
+/// - **Exactly one blank slot, reachable past either end — and the blank IS
+///   the end.** flow.md: "Walking past either end lands on the blank slot — at
+///   most one blank exists." Stepping right off the last app and stepping left
+///   off the first app both land on the same blank; stepping *outward from the
+///   blank* goes nowhere (G2.7: the strip used to be a ring, and swiping past
+///   the blank silently wrapped to the far end — "Don't do this! Show some
+///   indication that this is the end").
 public struct SessionStrip: Equatable, Sendable {
     /// One stop on the strip. The blank slot has no stage — it is a pure
     /// conversation, and the shell presents it as the `.newApp` surface until
@@ -45,8 +47,17 @@ public struct SessionStrip: Equatable, Sendable {
             .map(\.id)
     }
 
-    /// The ring, in order: every app, then the one blank.
+    /// The strip, in order: every app, then the one blank.
     public var slots: [Slot] { apps.map(Slot.app) + [.blank] }
+
+    /// Which end of the strip the blank slot is currently standing in for. The
+    /// blank is one slot reachable past *either* end, so "which way is back to
+    /// the apps" depends on the direction it was entered from — remembered by
+    /// the caller (the walk's own state) and passed back in.
+    public enum BlankEnd: Equatable, Sendable {
+        case leading
+        case trailing
+    }
 
     /// Where a presentation sits on the strip, or nil when it is not a strip
     /// surface at all (the permission card, the placeholder with no app).
@@ -56,23 +67,39 @@ public struct SessionStrip: Equatable, Sendable {
         return apps.contains(app) ? .app(app) : nil
     }
 
-    /// Walk `steps` stops from `slot`, wrapping through the blank.
+    /// Walk `steps` stops from `slot` along the LINE. `steps` is signed: `-1`
+    /// is `‹`, `+1` is `›`.
     ///
-    /// `steps` is signed: `-1` is `‹`, `+1` is `›`. A strip with no apps at all
-    /// is one blank slot, and walking it stays where it is — there is nowhere
-    /// else to be, and refusing is more honest than pretending to move.
-    public func step(from slot: Slot?, by steps: Int) -> Slot {
-        let ring = slots
-        guard !ring.isEmpty else { return .blank }
-        let count = ring.count
-        // An unknown starting point — a surface that is not on the strip at all,
-        // like the placeholder card — is treated as standing in the *seam*
-        // between the last slot and the first. `›` walks onto the first session,
-        // `‹` onto the blank, and neither answer needs a special case anywhere
-        // else. Which side of the seam you are on depends on the direction you
-        // are about to walk, which is the only thing that makes a seam a place.
-        let start = slot.flatMap { ring.firstIndex(of: $0) } ?? (steps > 0 ? -1 : count)
-        let index = ((start + steps) % count + count) % count
-        return ring[index]
+    /// Returns `nil` when the walk runs off the strip's end — outward from the
+    /// blank — which is the caller's cue to *say so* (the end bounce) rather
+    /// than move. `blankEnd` is which end the blank is currently standing in
+    /// for; the caller remembers it because only the walk that landed there
+    /// knows.
+    public func step(from slot: Slot?, by steps: Int, blankEnd: BlankEnd) -> Slot? {
+        guard steps != 0 else { return slot }
+        switch slot {
+        case .blank:
+            // Inward is the neighbouring session; outward is the end. A strip
+            // with no apps has no inward — every direction is the end.
+            switch blankEnd {
+            case .trailing:
+                return steps < 0 ? apps.last.map(Slot.app) : nil
+            case .leading:
+                return steps > 0 ? apps.first.map(Slot.app) : nil
+            }
+        case .app(let app):
+            guard let index = apps.firstIndex(of: app) else { return .blank }
+            let target = index + steps
+            // Past either end of the apps: the blank. Never *past* the blank in
+            // one gesture — one step is one stop.
+            guard target >= 0, target < apps.count else { return .blank }
+            return .app(apps[target])
+        case nil:
+            // An unknown starting point — a surface that is not on the strip at
+            // all, like the placeholder card — is treated as standing in the
+            // *seam* past the strip's ends: `›` walks onto the first session,
+            // `‹` onto the blank.
+            return steps > 0 ? apps.first.map(Slot.app) ?? .blank : .blank
+        }
     }
 }

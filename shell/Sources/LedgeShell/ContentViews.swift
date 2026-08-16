@@ -17,6 +17,10 @@ struct ShellCallbacks {
     /// "The strip"). The same callback in the panel and in the parked window —
     /// the whole surface tears off, so its controls do too.
     let showOverview: () -> Void
+    /// The tear-off bead beside `‹|›` (G2.7: "another affordance") — park the
+    /// surface as a window without the drag. The drag remains the gesture; the
+    /// bead is the *invitation* to it.
+    let park: () -> Void
     /// Quit Ledge, from the right-click menu. The only way out now that the
     /// bottom bar (and with it the Settings app's Quit row) is gone.
     let quit: () -> Void
@@ -30,6 +34,7 @@ struct ShellCallbacks {
         toggleChat: {},
         walkStrip: { _ in },
         showOverview: {},
+        park: {},
         quit: {}
     )
 }

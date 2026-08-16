@@ -60,7 +60,10 @@ chat comes back as that chat.
 - The visit surface is a strip of **sessions**. An app is what a session may
   put on stage; a session with no stage is just a conversation.
 - The right wing `<|>` walks the strip; a horizontal swipe does the same.
-  Walking past either end lands on the blank slot — at most one blank exists.
+  Walking past either end lands on the blank slot — at most one blank exists,
+  and it IS the end: walking outward from it bounces in place instead of
+  wrapping (G2.7). A tear-off bead sits beside `<|>` — the park drag's
+  clickable invitation; the drag itself also starts from any island.
 - Zoom out to the overview — **the ledge**: sessions as a grid of square
   glass cards that swell toward the cursor; the blank slot is a dashed card,
   last. Click jumps; the only ✕ in the product lives here, riding the hovered

@@ -58,7 +58,7 @@ struct ChatModeTests {
     func theStageIsInert() {
         let (chat, stage) = makeChat()
         // Three points down the stage's own rectangle, including its very top.
-        for y in [ChatSurfaceView.topPad + 1, 40, Self.stageHeight * 0.9] {
+        for y in [ChatSurfaceView.stagePad + 1, 60, Self.stageHeight * 0.9] {
             let hit = chat.hitTest(CGPoint(x: chat.bounds.midX, y: y))
             #expect(hit !== stage)
             #expect(hit?.isDescendant(of: stage) != true)
@@ -80,20 +80,19 @@ struct ChatModeTests {
 
     // MARK: - Reduced prominence
 
-    @Test("The stage stays mounted, dimmed to .92 and scaled to .96")
+    /// G2.7's size law: the app is not scaled — the pane is bigger than the
+    /// app, with `stagePad` of glass on the top and both sides.
+    @Test("The stage stays mounted, dimmed to .92, at its own size inside the margin")
     func theStageIsReducedNotRemoved() {
         let (chat, stage) = makeChat()
         let well = try! #require(stage.superview)
         #expect(stage.superview != nil)                       // mounted, not a snapshot
         #expect(well.alphaValue == ChatSurfaceView.stageDim)
-        let transform = well.layer?.affineTransform() ?? .identity
-        #expect(abs(transform.a - ChatSurfaceView.stageScale) < 0.0001)
-        #expect(abs(transform.d - ChatSurfaceView.stageScale) < 0.0001)
-        // Anchored at the top of the pane and centred across it: an AppKit layer
-        // anchors at (0, 0), so the scale alone would collapse it into a corner.
-        #expect(well.frame.minY == ChatSurfaceView.topPad)
-        let inset = chat.bounds.width * (1 - ChatSurfaceView.stageScale) / 2
-        #expect(abs(transform.tx - inset) < 0.0001)
+        #expect(well.layer?.affineTransform() ?? .identity == .identity, "no scale, real margins")
+        #expect(well.frame.minY == ChatSurfaceView.stagePad)
+        #expect(well.frame.minX == ChatSurfaceView.stagePad)
+        #expect(well.frame.maxX == chat.bounds.width - ChatSurfaceView.stagePad)
+        #expect(well.frame.height == Self.stageHeight)
     }
 
     /// design.html §08: "scrolled back: the stage recedes, history slides under
@@ -163,15 +162,15 @@ struct ChatModeTests {
         chat.bridge.submit(.ready)
         chat.bridge.setStage(present: true, inset: 0)     // clear the cache
         let before = chat.bridge.emitted.count
-        chat.bridge.setStage(present: true, inset: Self.stageHeight * ChatSurfaceView.stageScale)
+        chat.bridge.setStage(present: true, inset: Self.stageHeight)
         #expect(chat.bridge.emitted.count == before + 1)
         let script = try! #require(chat.bridge.emitted.last)
         #expect(script.contains("\"stage\""))
-        #expect(script.contains("141"))                  // 160 × 0.88, rounded to 0.5
+        #expect(script.contains("160"))                  // the unscaled stage (G2.7)
 
         // A re-layout that changed nothing costs nothing: `layout` runs on every
         // applied commit, and a live app commits several times a second.
-        chat.bridge.setStage(present: true, inset: Self.stageHeight * ChatSurfaceView.stageScale)
+        chat.bridge.setStage(present: true, inset: Self.stageHeight)
         #expect(chat.bridge.emitted.count == before + 1)
     }
 

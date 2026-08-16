@@ -73,8 +73,12 @@ final class ParkedSurfaceView: FlippedView {
         wingBar = PanelWingBarView(
             onToggleGlass: callbacks.toggleChat,
             onWalk: callbacks.walkStrip,
-            onOverview: callbacks.showOverview
+            onOverview: callbacks.showOverview,
+            onPark: callbacks.park
         )
+        // A window cannot tear off of itself, and dragging its glass is how it
+        // moves — so no tear bead and no drag hand-off in here.
+        wingBar.showsTear = false
         var press: (() -> Void)!
         home = LedgeButton(
             "",
@@ -322,6 +326,12 @@ final class ParkedSurfaceView: FlippedView {
 
     var wingBarView: PanelWingBarView { wingBar }
     var homeBead: LedgeButton { home }
+
+    /// The strip's end refused a walk inside the window: same flinch as the
+    /// notch's (see `NSView.runEndBounce`).
+    func bounceAtEnd(toward steps: Int) {
+        runEndBounce(toward: steps)
+    }
     var contentHostView: NSView { contentHost }
     var swellView: ParkedSwellView { swell }
 }

@@ -176,18 +176,19 @@ enum LedgeMetrics {
     /// every panel (principle 8: persistent controls are notch-anchored, never
     /// panel-anchored; principle 15: the number is stated once).
     ///
-    /// **Derived, not chosen** (G2.5): the islands hug the cutout, so the reach
-    /// is exactly what they need — the cutout margin (8), the wider island (the
-    /// walker: two 28 pt zones and the 11 pt seam, 67), and a fillet's worth of
-    /// breathing (15) so a bead never sits on the silhouette's rounded corner.
-    /// The old 150 was the retired bar band's proportion, and it left the
-    /// islands floating past a narrow panel's glass — over bare wallpaper.
+    /// **Derived, not chosen** (G2.5, widened at G2.7 for the tear bead): the
+    /// islands hug the cutout, so the reach is exactly what they need — the
+    /// cutout margin (8), the widest island run (the walker's 67, a 6 pt gap,
+    /// the 28 pt tear bead: 101), and a fillet's worth of breathing (15) so a
+    /// bead never sits on the silhouette's rounded corner. The old 150 was the
+    /// retired bar band's proportion, and it left the islands floating past a
+    /// narrow panel's glass — over bare wallpaper.
     ///
     /// The consequence is the silhouette's **floor**: a visit is never narrower
     /// than `cutout + 2 × visitBarWing`, so the islands always stand on glass
     /// and the shape stays one uniform width top to bottom
     /// (`ShellSurfaceView.shapeSize`).
-    static let visitBarWing: CGFloat = 90
+    static let visitBarWing: CGFloat = 124
     /// Gap between items an app puts in its left wing.
     static let panelWingGap: CGFloat = 6
     /// The default left-zone content: the app's catalog name, in the same face

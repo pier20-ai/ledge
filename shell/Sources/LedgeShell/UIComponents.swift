@@ -5,6 +5,24 @@ class FlippedView: NSView {
     override var isFlipped: Bool { true }
 }
 
+extension NSView {
+    /// The end-of-strip flinch (G2.7: "Show some indication that this is the
+    /// end!"): the whole body nudges a few points in the attempted direction
+    /// and settles — the rubber edge, spoken in silhouette. Motion only, so
+    /// Reduce Motion drops it entirely; the refusal itself is the answer.
+    func runEndBounce(toward steps: Int) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let nudge = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        // Walking forward (`›`, a leftward swipe) pulls the content left, so
+        // the flinch goes the way the strip refused to.
+        nudge.values = [0, steps > 0 ? -10 : 10, 0]
+        nudge.keyTimes = [0, 0.35, 1]
+        nudge.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        nudge.duration = 0.28
+        layer?.add(nudge, forKey: "endBounce")
+    }
+}
+
 extension CALayer {
     /// Scales around the visual center. Layer-backed AppKit views anchor at
     /// (0,0), so a bare scale transform collapses toward the corner.

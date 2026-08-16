@@ -216,19 +216,6 @@ const Stop = () => (
   </svg>
 );
 
-const Slate = () => (
-  <svg viewBox="0 0 22 22" width="26" height="26" aria-hidden="true">
-    <rect x="3" y="3" width="16" height="16" rx="5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    <path d="M3 12.5h16" stroke="currentColor" strokeWidth="1.5" />
-    <path
-      d="M3 12.5v3.5a5 5 0 0 0 5 5h6a5 5 0 0 0 5-5v-3.5"
-      fill="currentColor"
-      opacity=".18"
-      stroke="none"
-    />
-  </svg>
-);
-
 // ---------------------------------------------------------------- the surface
 
 export function App() {
@@ -457,12 +444,13 @@ export function App() {
 
       <div className="scroll" ref={viewport} onScroll={onScroll} role="log" aria-busy={running}>
         <div className="bubbles">
-          {showEmpty ? (
+          {/* An app's empty chat is just glass — the app itself is the
+              invitation (G2.7: the "Ask for a change to…" line and its icon
+              retired). Only the blank slot, which has nothing else on it,
+              keeps one quiet line. */}
+          {showEmpty && !app ? (
             <div className="empty">
-              <Slate />
-              <div className="eline">
-                {app ? `Ask for a change to ${app}.` : "Ask for an app, an answer, a monitor."}
-              </div>
+              <div className="eline">Ask for an app, an answer, a monitor.</div>
             </div>
           ) : null}
 

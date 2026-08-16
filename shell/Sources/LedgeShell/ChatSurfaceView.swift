@@ -32,23 +32,21 @@ import QuartzCore
 final class ChatSurfaceView: FlippedView {
     // MARK: - The measurements (design.html §01 `.glasspanel` / `.stage-min`)
 
-    /// The breath above the stage (G2.3: more air; G2.6: "sufficient margin on
-    /// all 4 edges — let the glassy surface bleed through"). Matches the
-    /// page's own `.pane` padding-top — the two must agree (token-sync note).
-    static let topPad: CGFloat = 22
+    /// **Manu's G2.7 size law, verbatim**: the pane is the app plus stated
+    /// margins — width = app + 2 × `stagePad`, height = `stagePad` (measured
+    /// from the bottom of the physical notch; the controller adds the cutout
+    /// row itself) + app + `bottomRoom` + the pill. The app is no longer
+    /// scaled: it sits at its own size with the glass bleeding through on all
+    /// four edges. `stagePad` also matches the page's `.pane` padding-top —
+    /// the two must agree (token-sync note).
+    static let stagePad: CGFloat = 32
+    /// The glass below the stage, above the pill: the last exchange's landing.
+    static let bottomRoom: CGFloat = 64
     /// The pill and the air around it — `margin-top: 10` + 40 pt capsule +
     /// `padding-bottom: 12`. The pill never moves, so this never changes.
     static let pillRoom: CGFloat = 62
-    /// What the conversation gets below the stage. The transcript *overlays*
-    /// the stage (it occludes; that is why the ⌄ exists), so this is breathing
-    /// room for the last exchange, not a reserved band.
-    static let transcriptRoom: CGFloat = 168
     /// A slot with no stage is pure conversation, and takes the whole pane.
     static let blankPanelHeight: CGFloat = 384
-    /// The stage's reduced prominence. Not a thumbnail and not a screenshot —
-    /// the live tree, one step back — with real air on every side (0.88 since
-    /// G2.6: 6% of the panel a side, so the glass visibly bleeds through).
-    static let stageScale: CGFloat = 0.88
     static let stageDim: CGFloat = 0.92
     /// Scrolled into the past, it recedes further — a dim only. No blur: the
     /// stage stays legible behind the history (Manu's G2.4 wireframe: "not
@@ -61,7 +59,7 @@ final class ChatSurfaceView: FlippedView {
     /// surface (Manu at G2.3: the collapse resizing the panel was the defect).
     static func panelHeight(stageHeight: CGFloat?) -> CGFloat {
         guard let stageHeight else { return blankPanelHeight }
-        return topPad + stageHeight * stageScale + transcriptRoom + pillRoom
+        return stagePad + stageHeight + bottomRoom + pillRoom
     }
 
     // MARK: - Parts
@@ -160,6 +158,10 @@ final class ChatSurfaceView: FlippedView {
         }
         stageContent = content
         stageWell.isHidden = content == nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        stageShadow.isHidden = content == nil
+        CATransaction.commit()
         if let content {
             content.autoresizingMask = [.width, .height]
             // **The well owns its content's visibility, not whoever had it
@@ -194,13 +196,13 @@ final class ChatSurfaceView: FlippedView {
         bridge.setStage(present: stageContent != nil, inset: stageInset)
     }
 
-    /// The stage's on-screen depth. **Not** including `topPad`: the page's own
-    /// `.pane` padding is that same 14 pt, so counting it here too would push
-    /// the first bubble a pad further down than the stage actually reaches.
-    /// (The two constants have to agree — see the token-sync note in the build
-    /// plan; the CSS cannot import Swift's.)
+    /// The stage's on-screen depth. **Not** including `stagePad`: the page's
+    /// own `.pane` padding is that same 32 pt, so counting it here too would
+    /// push the first bubble a pad further down than the stage actually
+    /// reaches. (The two constants have to agree — see the token-sync note in
+    /// the build plan; the CSS cannot import Swift's.)
     var stageInset: CGFloat {
-        stageContent == nil ? 0 : stageHeight * Self.stageScale
+        stageContent == nil ? 0 : stageHeight
     }
 
     /// Point the pane at a session. Switching sessions is a message on the
@@ -251,22 +253,31 @@ final class ChatSurfaceView: FlippedView {
         super.layout()
         editor.frame = bounds
         guard stageContent != nil else {
+            // The shadow is a sibling layer, not a subview of the well — it has
+            // to be told separately, or a shape mode's shadow lingers as a
+            // black slab on the blank slot (G2.7: the "future app placeholder"
+            // that nobody drew on purpose).
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            stageShadow.isHidden = true
+            CATransaction.commit()
             publishStage()
             return
         }
-        // Anchored at the top and shrunk toward it: an AppKit layer anchors at
-        // (0, 0), so the scale alone would collapse the well into its top-left
-        // corner. The translation puts the horizontal half back.
-        stageWell.frame = CGRect(x: 0, y: Self.topPad, width: bounds.width, height: stageHeight)
-        // The shadow mirrors the well exactly — frame, transform, visibility.
+        // The app at its own size, inset by the stated margin on every side
+        // (G2.7): no scale, no transform — the pane is bigger than the app,
+        // not the app smaller than the pane.
+        stageWell.frame = CGRect(
+            x: Self.stagePad,
+            y: Self.stagePad,
+            width: max(0, bounds.width - Self.stagePad * 2),
+            height: stageHeight
+        )
+        // The shadow mirrors the well exactly — frame and visibility.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         stageShadow.isHidden = stageWell.isHidden
         stageShadow.frame = stageWell.frame
-        stageShadow.setAffineTransform(
-            CGAffineTransform(translationX: bounds.width * (1 - Self.stageScale) / 2, y: 0)
-                .scaledBy(x: Self.stageScale, y: Self.stageScale)
-        )
         stageShadow.shadowPath = CGPath(
             roundedRect: CGRect(origin: .zero, size: stageWell.frame.size),
             cornerWidth: LedgeMetrics.rContent,
@@ -279,10 +290,6 @@ final class ChatSurfaceView: FlippedView {
         // the frame it had in the old one. Relying on the autoresizing mask
         // alone leaves it at the panel's size until the *next* resize.
         stageContent?.frame = stageWell.bounds
-        stageWell.layer?.setAffineTransform(
-            CGAffineTransform(translationX: bounds.width * (1 - Self.stageScale) / 2, y: 0)
-                .scaledBy(x: Self.stageScale, y: Self.stageScale)
-        )
         publishStage()
     }
 

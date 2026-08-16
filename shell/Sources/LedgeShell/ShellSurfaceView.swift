@@ -330,6 +330,32 @@ final class PanelWingBarView: FlippedView {
     /// a permanent control is *back*, and the bead says so.
     private let back: LedgeButton
     private let walker: WingWalkerView
+    /// The tear-off bead, after `‹|›` (G2.7): the visible invitation to the
+    /// park drag. Hidden inside the parked window — a window cannot tear off
+    /// of itself.
+    private let tear: LedgeButton
+
+    /// A press on any island that turns into a downward drag becomes the tear
+    /// (G2.7): under the physical notch every visible pixel is an island, so
+    /// without this hand-off the surface could not be torn from exactly where
+    /// the hand goes. Set by the notch surface; nil in the parked window,
+    /// where dragging is how the window moves.
+    var onTearDrag: (() -> Void)? {
+        didSet {
+            split.onDragDown = onTearDrag
+            walker.onDragDown = onTearDrag
+            back.onDragDown = onTearDrag
+            tear.onDragDown = onTearDrag
+        }
+    }
+
+    /// Whether the tear-off bead shows at all (the parked window hides it).
+    var showsTear = true {
+        didSet {
+            tear.isHidden = !showsTear
+            needsLayout = true
+        }
+    }
 
     /// The hardware cutout's width and the row's height, pushed in by the
     /// surface before every layout. They are measurements of the display, not
@@ -340,7 +366,8 @@ final class PanelWingBarView: FlippedView {
     init(
         onToggleGlass: @escaping () -> Void,
         onWalk: @escaping (Int) -> Void,
-        onOverview: @escaping () -> Void
+        onOverview: @escaping () -> Void,
+        onPark: @escaping () -> Void
     ) {
         // The left island on the stage is the [⌂|✦] split (Manu's O2
         // conclusion): ⌂ shows the ledge — the word "Apps" opening a chat was
@@ -355,12 +382,17 @@ final class PanelWingBarView: FlippedView {
             onToggleGlass()
         }
         walker = WingWalkerView(onWalk: onWalk, onOverview: onOverview)
+        tear = LedgeButton("", symbol: "arrow.up.right.square", variant: .bead, size: .s) {
+            onPark()
+        }
         super.init(frame: .zero)
         back.isHidden = true
         back.setAccessibilityLabel("Back to the app")
+        tear.setAccessibilityLabel("Tear off into a window")
         leftZone.addSubview(split)
         leftZone.addSubview(back)
         rightZone.addSubview(walker)
+        rightZone.addSubview(tear)
         addSubview(leftZone)
         addSubview(rightZone)
     }
@@ -472,6 +504,15 @@ final class PanelWingBarView: FlippedView {
             width: walkerWidth,
             height: walkerSize.height
         )
+
+        // The tear-off bead, after ‹|› (G2.7): its own island, one gap out.
+        let tearSize = tear.intrinsicContentSize
+        tear.frame = CGRect(
+            x: walkerWidth + LedgeMetrics.panelWingGap,
+            y: (right.height - tearSize.height) / 2,
+            width: tearSize.width,
+            height: tearSize.height
+        )
     }
 
     // MARK: - Test seams
@@ -479,6 +520,7 @@ final class PanelWingBarView: FlippedView {
     var splitView: HomeChatSplitView { split }
     var backView: LedgeButton { back }
     var walkerView: WingWalkerView { walker }
+    var tearView: LedgeButton { tear }
 }
 
 /// The `‹|›` control (design.html §01) — the right wing in a visit.
@@ -517,6 +559,9 @@ final class WingWalkerView: FlippedView {
     private let onWalk: (Int) -> Void
     private let onOverview: () -> Void
     private var tracking: NSTrackingArea?
+    /// The press turned into a downward drag: the island cancels itself and
+    /// hands the gesture to whoever tears (G2.7 — see `PanelWingBarView`).
+    var onDragDown: (() -> Void)?
 
     /// The bead is `s`: the smallest rung of the control ramp, which on a 34 pt
     /// notch row is the only one that fits with air around it.
@@ -647,6 +692,7 @@ final class WingWalkerView: FlippedView {
     /// overlaps.
     override func mouseDown(with event: NSEvent) {
         let start = zone(at: convert(event.locationInWindow, from: nil))
+        let downY = event.locationInWindow.y
         setPressed(start)
         var inside = start
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
@@ -654,6 +700,13 @@ final class WingWalkerView: FlippedView {
             if next.type == .leftMouseUp {
                 inside = zone(at: point)
                 break
+            }
+            // A press that travels DOWN past the tear threshold is not a press
+            // any more — it is the park drag, started on an island (G2.7).
+            if let onDragDown, downY - next.locationInWindow.y >= LedgeMetrics.parkTearThreshold {
+                setPressed(nil)
+                onDragDown()
+                return
             }
             // Drag off the zone you pressed and the press lifts, as every other
             // control in the kit does.
@@ -704,6 +757,8 @@ final class HomeChatSplitView: FlippedView {
     private let onChat: () -> Void
     private var tracking: NSTrackingArea?
     private var chatHidden = false
+    /// Same law as the walker's: a downward drag is the park, not a press.
+    var onDragDown: (() -> Void)?
 
     private static let bead = LedgeMetrics.Size.s
 
@@ -821,6 +876,7 @@ final class HomeChatSplitView: FlippedView {
 
     override func mouseDown(with event: NSEvent) {
         let start = zone(at: convert(event.locationInWindow, from: nil))
+        let downY = event.locationInWindow.y
         setPressed(start)
         var inside = start
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
@@ -828,6 +884,11 @@ final class HomeChatSplitView: FlippedView {
             if next.type == .leftMouseUp {
                 inside = zone(at: point)
                 break
+            }
+            if let onDragDown, downY - next.locationInWindow.y >= LedgeMetrics.parkTearThreshold {
+                setPressed(nil)
+                onDragDown()
+                return
             }
             setPressed(zone(at: point) == start ? start : nil)
         }
@@ -1361,9 +1422,14 @@ final class ShellSurfaceView: FlippedView {
         self.panelWingBar = PanelWingBarView(
             onToggleGlass: callbacks.toggleChat,
             onWalk: callbacks.walkStrip,
-            onOverview: callbacks.showOverview
+            onOverview: callbacks.showOverview,
+            onPark: callbacks.park
         )
         super.init(frame: .zero)
+        // Any island press that turns into a downward drag becomes the tear
+        // (G2.7): the islands cover the glass beside the cutout, so they must
+        // hand the gesture over or the park drag has nowhere to start.
+        panelWingBar.onTearDrag = { [weak self] in self?.adoptTear() }
 
         wantsLayer = true
         layer?.masksToBounds = false
@@ -1855,6 +1921,15 @@ final class ShellSurfaceView: FlippedView {
             keyTimes: [0, 0.2, 1]
         )
     }
+
+    /// The strip's end refused a walk: flinch (see `NSView.runEndBounce`).
+    func bounceAtEnd(toward steps: Int) {
+        endBounceCount += 1
+        runEndBounce(toward: steps)
+    }
+
+    /// Test seam: refusals are motion, and motion is invisible headlessly.
+    private(set) var endBounceCount = 0
 
     /// Test seam: which house spring the last presentation used. "Arrivals pop,
     /// returns settle" (principle 10, design.html §07) is a law, and a law that
@@ -2538,6 +2613,32 @@ final class ShellSurfaceView: FlippedView {
         isDragInFlight = false
         onTearEnded?()
         return true
+    }
+
+    /// A press that began on one of the islands travelled past the tear
+    /// threshold, and the island hands the drag over mid-flight (G2.7: under
+    /// the physical notch every visible pixel IS an island, so a surface whose
+    /// bare glass alone could tear was a surface that could not be torn from
+    /// exactly where the hand goes). The threshold has already been crossed by
+    /// the caller, so the tear starts now, from wherever the pointer is.
+    func adoptTear() {
+        guard presentation.isExpanded, onTearBegan != nil, let window else { return }
+        let here = NSEvent.mouseLocation
+        let corner = window.convertPoint(
+            toScreen: convert(CGPoint(x: shapeRect.minX, y: shapeRect.minY), to: nil)
+        )
+        let grab = CGSize(width: here.x - corner.x, height: corner.y - here.y)
+        isDragInFlight = true
+        haptic()
+        onTearBegan?(corner)
+
+        while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            if next.type == .leftMouseUp { break }
+            let point = window.convertPoint(toScreen: next.locationInWindow)
+            onTearMoved?(CGPoint(x: point.x - grab.width, y: point.y + grab.height))
+        }
+        isDragInFlight = false
+        onTearEnded?()
     }
 
     override func cancelOperation(_ sender: Any?) {

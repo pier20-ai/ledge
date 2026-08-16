@@ -369,7 +369,7 @@ struct SwipeGestureTests {
     }
 
     /// Walking from a stage stays on stages. The old "re-selecting an app opens
-    /// its chat" shortcut would otherwise make every full lap of the strip land
+    /// its chat" shortcut would otherwise make every tour of the strip land
     /// in the editor.
     @Test("Walking from the stage shows stages, never the transcript")
     func walkingFromTheStageStaysOnStage() throws {
@@ -379,12 +379,52 @@ struct SwipeGestureTests {
         session.inject(try Fixtures.envelope("catalog.json"))
         let apps = session.strip.apps
         controller.present(.expanded(app: apps[0]), animated: false)
-        for _ in 0..<(apps.count + 1) {
+        // Out to the strip's end (the blank), never through a transcript…
+        for _ in 0..<apps.count {
             _ = controller.handleSwipe(.left)
             #expect(!controller.presentation.isChat)
         }
-        // A full lap ends where it started.
+        #expect(controller.presentation == .newApp, "the end of the line is the blank")
+        // …and all the way back, still on stages.
+        for _ in 0..<apps.count {
+            _ = controller.handleSwipe(.right)
+            #expect(!controller.presentation.isChat)
+        }
         #expect(controller.presentation == .expanded(app: apps[0]))
+    }
+
+    /// G2.7: the blank is the END of the strip. Walking outward from it does
+    /// not wrap to the far end — the surface flinches instead, which is the
+    /// indication that there is nothing further.
+    @Test("The strip does not wrap: outward from the blank is a bounce, not the far end")
+    func theStripDoesNotWrap() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let apps = session.strip.apps
+
+        // Reach the blank past the FIRST app; another swipe the same way is
+        // the end, and the presentation does not move.
+        controller.present(.expanded(app: apps[0]), animated: false)
+        #expect(controller.handleSwipe(.right))
+        #expect(controller.presentation == .newApp)
+        let bounces = controller.surfaceForTesting.endBounceCount
+        _ = controller.handleSwipe(.right)
+        #expect(controller.presentation == .newApp, "no wrap to the far end")
+        #expect(controller.surfaceForTesting.endBounceCount == bounces + 1, "the end says so")
+        // Swiping back inward returns to the session the blank was entered from.
+        #expect(controller.handleSwipe(.left))
+        #expect(controller.presentation == .expanded(app: apps[0]))
+
+        // Same law past the LAST app.
+        controller.present(.expanded(app: apps[apps.count - 1]), animated: false)
+        #expect(controller.handleSwipe(.left))
+        #expect(controller.presentation == .newApp)
+        _ = controller.handleSwipe(.left)
+        #expect(controller.presentation == .newApp)
+        #expect(controller.handleSwipe(.right))
+        #expect(controller.presentation == .expanded(app: apps[apps.count - 1]))
     }
 
     // MARK: - The mode comes with you
@@ -415,9 +455,9 @@ struct SwipeGestureTests {
     }
 
     /// The blank slot is a conversation with no stage behind it, so it cannot be
-    /// "in" either mode. It must therefore not *change* the mode either — a lap
-    /// of the strip passes through it, and a stage tour that comes back as a
-    /// chat tour would make the mode depend on the route.
+    /// "in" either mode. It must therefore not *change* the mode either — a
+    /// round trip onto the blank and back must come home on the surface it
+    /// left, or the mode would depend on the route.
     @Test("The blank slot is transparent to the mode, in both directions")
     func theBlankSlotDoesNotChangeTheMode() throws {
         let session = HostSession()
@@ -426,21 +466,18 @@ struct SwipeGestureTests {
         session.inject(try Fixtures.envelope("catalog.json"))
         let apps = session.strip.apps
 
-        // A full lap in chat comes back in chat, having crossed the blank.
+        // Onto the blank and back, in chat: still that chat.
         controller.present(.chat(app: apps[0]), animated: false)
-        var sawBlank = false
-        for _ in 0..<(apps.count + 1) {
-            _ = controller.handleSwipe(.left)
-            if controller.presentation == .newApp { sawBlank = true }
-        }
-        #expect(sawBlank, "the lap never crossed the blank — the test proves nothing")
+        _ = controller.handleSwipe(.right)
+        #expect(controller.presentation == .newApp)
+        _ = controller.handleSwipe(.left)
         #expect(controller.presentation == .chat(app: apps[0]))
 
-        // …and the same lap in stage mode comes back in stage mode.
+        // …and the same round trip in stage mode comes back on the stage.
         controller.present(.expanded(app: apps[0]), animated: false)
-        for _ in 0..<(apps.count + 1) {
-            _ = controller.handleSwipe(.left)
-        }
+        _ = controller.handleSwipe(.right)
+        #expect(controller.presentation == .newApp)
+        _ = controller.handleSwipe(.left)
         #expect(controller.presentation == .expanded(app: apps[0]))
     }
 
