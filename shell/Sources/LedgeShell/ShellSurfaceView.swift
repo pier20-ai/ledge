@@ -713,9 +713,17 @@ final class HomeChatSplitView: FlippedView {
 
     /// Which surface is up — the lit zone — and whether there is any glass to
     /// lower at all (the blank slot keeps ⌂ and loses ✦).
+    ///
+    /// While the ledge is up the ⌂ wears a **back arrow** (G2.5): the press
+    /// returns to the app, and the icon says so — the same "name where the
+    /// press goes" law the retired text toggle obeyed.
     func apply(homeLit: Bool, chatLit: Bool, chatHidden: Bool) {
         home.isLit = homeLit
         chat.isLit = chatLit
+        home.setSymbol(
+            homeLit ? "arrow.left" : "house",
+            label: homeLit ? "Back to the app" : "Show all apps"
+        )
         if self.chatHidden != chatHidden {
             self.chatHidden = chatHidden
             chat.isHidden = chatHidden
@@ -841,6 +849,21 @@ final class WalkerZoneView: FlippedView {
         fill.endPoint = CGPoint(x: 0.5, y: 1)
         layer?.addSublayer(fill)
 
+        glyph.contentTintColor = LedgeTheme.primary
+        addSubview(glyph)
+
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
+        setSymbol(symbol, label: label)
+        refresh()
+    }
+
+    /// Swap the zone's glyph — the ⌂ becomes ← while the ledge is up (G2.5),
+    /// because from there the press means "back to the app", and the icon
+    /// should say where the press goes.
+    func setSymbol(_ symbol: String, label: String) {
+        guard symbol != symbolName else { return }
+        symbolName = symbol
         glyph.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
             .withSymbolConfiguration(
                 NSImage.SymbolConfiguration(
@@ -848,14 +871,12 @@ final class WalkerZoneView: FlippedView {
                     weight: LedgeMetrics.iconOnlyWeight
                 )
             )
-        glyph.contentTintColor = LedgeTheme.primary
-        addSubview(glyph)
-
-        setAccessibilityElement(true)
-        setAccessibilityRole(.button)
         setAccessibilityLabel(label)
-        refresh()
+        needsLayout = true
     }
+
+    /// Which SF Symbol the zone currently wears — the ⌂/← swap's test seam.
+    private(set) var symbolName: String?
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -1482,9 +1503,11 @@ final class ShellSurfaceView: FlippedView {
         }
         // **One uniform width, top to bottom** (Manu's G2.4 conclusion): the
         // bar band is gone — the controls float beside the cutout as their own
-        // islands, outside the silhouette — so the shape is the panel and
-        // nothing else.
-        return CGSize(width: width + fillets, height: height)
+        // islands — so the shape is the panel, floored at the islands' own
+        // span. The floor is the G2.5 lesson: without it a 320 pt session left
+        // the islands hanging past the glass over bare wallpaper, and every
+        // open and close morphed a shape that never reached its own controls.
+        return CGSize(width: max(width, visitBarWidth) + fillets, height: height)
     }
 
     /// **The visit bar's width — a constant.**
@@ -1624,16 +1647,13 @@ final class ShellSurfaceView: FlippedView {
         shapeRect.insetBy(dx: Self.fillet, dy: 0)
     }
 
-    /// The body at the **panel's** own width — where the app's content lives.
-    /// Collapsed and swelled that is the whole body; expanded it is the panel,
-    /// which is narrower than the bar above it whenever the session asks for
-    /// less than `visitBarWidth` (design.html §01: a 336 panel under a 470 bar).
-    private var panelBodyRect: CGRect {
-        let shape = shapeRect
-        guard presentation.isExpanded else { return bodyRect }
-        let width = min(expandedWidth, shape.width - Self.fillet * 2)
-        return CGRect(x: shape.midX - width / 2, y: 0, width: width, height: shape.height)
-    }
+    /// The body — the shape inset by its fillets, in every presentation. Since
+    /// G2.4 the silhouette is one uniform width top to bottom, so there is no
+    /// separate "panel body": a session narrower than the floor gets a wider
+    /// pane of glass and its *content* centres inside it (`applyGeometry`),
+    /// which is what keeps the shoulder joint permanently degenerate and the
+    /// open morph a pure lerp.
+    private var panelBodyRect: CGRect { bodyRect }
 
     /// The shape, and only the shape: where the pointer counts as *on* Ledge,
     /// and the interactive (hit-testable) region.
@@ -1646,15 +1666,10 @@ final class ShellSurfaceView: FlippedView {
     /// therefore means what it says, and a slop margin would only make the
     /// hit-testable pill bigger than the pill.
     ///
-    /// A visit is an L, not a rectangle: a narrow panel under a wide bar leaves
-    /// two corners of nothing, and nothing is not Ledge — the click goes through
-    /// to whatever is behind it, exactly as it does beside the pill.
+    /// Since G2.4 the silhouette is one uniform width, so the shape *is* the
+    /// glass: no L-shaped corners of nothing to punch through any more.
     func isOnGlass(_ point: CGPoint) -> Bool {
-        let shape = shapeRect
-        guard shape.contains(point) else { return false }
-        guard presentation.isExpanded, point.y > panelWingRowHeight else { return true }
-        let panel = panelBodyRect
-        return point.x >= panel.minX - Self.fillet && point.x <= panel.maxX + Self.fillet
+        shapeRect.contains(point)
     }
 
     override func layout() {
@@ -1722,6 +1737,7 @@ final class ShellSurfaceView: FlippedView {
         if !sameContent {
             swapContent(content ?? FlippedView(), animated: animated)
         }
+        syncIslandArrival(from: old, animated: animated)
         updateShadow(animated: animated)
 
         // The shape just changed under a possibly-stationary cursor; resync so
@@ -1941,10 +1957,16 @@ final class ShellSurfaceView: FlippedView {
             ? visitBarRect
             : CGRect(x: visitBarRect.minX, y: 0, width: visitBarRect.width, height: exclusion)
         panelWingBar.needsLayout = true
+        // The session's content keeps its own declared width, centred in the
+        // floored glass (G2.5): a 320 pt app in a 390 pt visit is a 320 pt app
+        // with glass either side, never a stretched one.
+        let contentWidth = presentation.isExpanded
+            ? min(expandedWidth, contentContainer.bounds.width)
+            : contentContainer.bounds.width
         contentHost.frame = CGRect(
-            x: 0,
+            x: (contentContainer.bounds.width - contentWidth) / 2,
             y: exclusion,
-            width: contentContainer.bounds.width,
+            width: contentWidth,
             height: max(0, contentContainer.bounds.height - exclusion)
         )
         contentContainer.layoutSubtreeIfNeeded()
@@ -2119,6 +2141,29 @@ final class ShellSurfaceView: FlippedView {
                 context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
                 next.animator().alphaValue = 1
                 next.animator().setFrameOrigin(.zero)
+            }
+        }
+    }
+
+    /// The islands join the G2.4 arrival recipe: on an open the silhouette does
+    /// its move bare, and the controls fade up on the same beat as the content.
+    /// A bar that popped in at full strength while the glass was still growing
+    /// under it read as chrome detached from the body — half of the G2.5
+    /// "open and close transforms are broken" report.
+    private func syncIslandArrival(from old: ShellPresentation, animated: Bool) {
+        guard presentation.isExpanded else { return }
+        guard animated, !old.isExpanded else {
+            panelWingBar.alphaValue = 1
+            return
+        }
+        panelWingBar.alphaValue = 0
+        let settle = min(0.30, (lastSpring?.response ?? 0.2) * 0.75)
+        DispatchQueue.main.asyncAfter(deadline: .now() + settle) { [weak self] in
+            guard let self, self.presentation.isExpanded else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0, 0, 1)
+                self.panelWingBar.animator().alphaValue = 1
             }
         }
     }

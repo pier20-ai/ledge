@@ -300,7 +300,12 @@ enum LedgeInteraction {
     /// commits to a surface. Below it the notch swells a breath: a promise, not
     /// a surface. At it, the summary (or the visit, for a session that declares
     /// no summary).
-    static let hoverThreshold: TimeInterval = 0.35
+    ///
+    /// 0.35 read as designed on paper and as *lag* on device (G2.5: "it now
+    /// needs the mouse hovering for a long time"). 0.15 is still two frames of
+    /// promise — a drive-by across the menu bar does not open anything — but a
+    /// pointer that has come to the notch on purpose gets its surface at once.
+    static let hoverThreshold: TimeInterval = 0.15
 
     /// **Ti** — an ambient notification's dwell. Alert-class holds until acted
     /// on or dismissed, so this number does not apply to it at all

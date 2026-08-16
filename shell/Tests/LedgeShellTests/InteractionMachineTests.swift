@@ -509,7 +509,9 @@ struct ExitInhibitorTests {
     /// them rather than scattering literals.
     @Test("The four knobs carry flow.md's starting values")
     func knobs() {
-        #expect(LedgeInteraction.hoverThreshold == 0.35)
+        // Th was 0.35 at ratification and came down to 0.15 on device (G2.5:
+        // the open "needs the mouse hovering for a long time").
+        #expect(LedgeInteraction.hoverThreshold == 0.15)
         #expect(LedgeInteraction.notificationDwell == 6)
         #expect(LedgeInteraction.exitDelay == 2.5)
         #expect(LedgeInteraction.ambientIdle > 0)

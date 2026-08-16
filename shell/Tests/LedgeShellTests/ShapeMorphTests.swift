@@ -115,14 +115,14 @@ struct ShapeMorphTests {
         )
     }
 
-    /// An expanded visit `width` wide: the bar is a floor on the shape, and the
-    /// panel hangs beneath it on two concave fillets.
+    /// An expanded visit `width` wide, as `applyGeometry` builds it since
+    /// G2.4/G2.5: one uniform width top to bottom, floored at the islands'
+    /// span, with the shoulder joint permanently degenerate — kept in the path
+    /// only so every presentation shares one element signature.
     private static func visit(width: CGFloat, height: CGFloat = 300) -> CGPath {
         let shapeWidth = max(width, barWidth) + fillet * 2
         let rect = CGRect(x: 0, y: 0, width: shapeWidth, height: height)
-        let panelWidth = min(width, shapeWidth - fillet * 2)
-        let panel = CGRect(x: rect.midX - panelWidth / 2, y: 0, width: panelWidth, height: height)
-        let overhang = (shapeWidth - fillet * 2 - panelWidth) / 2
+        let panel = rect.insetBy(dx: fillet, dy: 0)
         return ShellSurfaceView.notchPath(
             in: rect,
             topRadius: fillet,
@@ -130,7 +130,7 @@ struct ShapeMorphTests {
             shoulder: .init(
                 panel: panel,
                 y: min(notch.closedHeight, max(fillet, height - 26)),
-                radius: max(0, min(fillet, overhang))
+                radius: 0
             )
         )
     }

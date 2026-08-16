@@ -2,95 +2,80 @@ import AppKit
 import LedgeShellCore
 import QuartzCore
 
-/// **The ledge** — the session strip, zoomed out (flow.md, "The strip": "Zoom
-/// out to the overview — the ledge: sessions as slabs on a shelf. Click jumps;
-/// the only ✕ in the product lives here. Trigger: the `|` divider.").
+/// **The ledge** — the session strip, zoomed out (flow.md, "The strip").
 ///
-/// It is a *mode of the visit*, not a window and not a state: the same panel,
-/// the same two wings, with the whole strip on screen at once instead of one
-/// session of it. The left wing relabels itself **Back** while it is up.
+/// A **grid of square glass cards** (G2.5). The first ledge was a shelf:
+/// slabs standing on a hairline, panning sideways, cut off at the well's ends.
+/// On device the pan read as an x-y scrolling list and the flat-bottomed slabs
+/// read as truncated cards — so the shelf is retired. The grid shows the whole
+/// strip at once: one square card per session, fully rounded, the blank slot
+/// last as a dashed square with a `+`.
 ///
-/// design.html §04 is the specimen and this is it, verbatim: glass slabs
-/// standing on a shelf hairline, a big white glyph each, the blank slot as a
-/// dashed slab with a `+`, and the slabs rising toward the cursor on a gaussian
-/// falloff. Reduce Motion keeps the shelf and drops the rise — the ✕ still
-/// appears, because that is a reveal and not a motion (principle 10).
+/// The interaction is the Dock's magnification in two axes: every card swells
+/// toward the cursor on a gaussian of its 2-D distance
+/// (`LedgeMetrics.cardMagnification`), so the neighbourhood leans toward the
+/// hand and the card under it comes forward — scaled about its own centre,
+/// with the panel rung of the shadow ramp fading in beneath it. Reduce Motion
+/// holds every card still; the ✕ is a reveal, not a motion, so it survives
+/// (principle 10).
 ///
-/// **The shelf pans; slabs never shrink** (G3.2). It used to close its gaps and
-/// then narrow its slabs to make a long strip fit, and with nine sessions the
-/// result was the thing the audit caught: the first slab sliced off at the panel
-/// edge, its ✕ orphaned in the corner above nothing, and the blank slot pushed
-/// out of the panel altogether — the one slot flow.md guarantees is always
-/// there. A slab is 64 × 86 because that is what design.html draws; a shelf with
-/// more on it than fits is a shelf you slide, exactly like the real one.
-///
-/// So the slabs live in a scrolling well: `viewport` clips, `content` pans
-/// inside it, and everything that belongs to a slab — the ✕ bead included —
-/// is a child of `content`, which is what makes "the bead is clipped with its
-/// slab" a fact of the view hierarchy rather than a rule the layout remembers.
-/// Where the content is cut, the edge fades (design.html's ticker mask, as a
-/// gradient on the viewport's own layer) so a sliced slab reads as *more shelf*
-/// and not as a rendering fault.
+/// Click jumps; the only ✕ in the product lives here, riding the hovered
+/// card's top-right corner.
 @MainActor
 final class OverviewSurfaceView: FlippedView {
-    /// One stop on the shelf: a session, or the blank slot.
-    struct Slab: Equatable {
+    /// One card on the grid: a session, or the blank slot.
+    struct Card: Equatable {
         var app: String?
         var name: String
         var icon: String
 
         var isBlank: Bool { app == nil }
 
-        static let blank = Slab(app: nil, name: "New session", icon: "plus")
+        static let blank = Card(app: nil, name: "New session", icon: "plus")
     }
 
-    /// Click a slab: that session takes the stage (`nil` = the blank slot).
+    /// Click a card: that session takes the stage (`nil` = the blank slot).
     var onSelect: ((String?) -> Void)?
     /// The ✕ bead: stop that app's session. The only ✕ in the product.
     var onStop: ((String) -> Void)?
 
-    private(set) var slabs: [Slab] = []
+    private(set) var cards: [Card] = []
     /// Which session is showing behind the ledge. Not a selection — nothing on
-    /// this shelf is selected — only where the shelf is scrolled to when it
-    /// opens, so zooming out puts you where you already were.
+    /// this grid is selected — only what Back returns to, remembered by the
+    /// controller and mirrored here for the tests that ask.
     private(set) var current: String?
-    private var slabViews: [SlabView] = []
-    private let shelfLine = HairlineView()
-    /// The clipping well. Its width is the shelf hairline's, so a slab is cut
-    /// exactly where the shelf ends rather than where the panel does.
-    private let viewport = ShelfViewportView()
-    /// What pans inside it: every slab, and the ✕ bead.
-    private let content = FlippedView()
-    /// design.html's ticker mask (`linear-gradient(90deg, transparent, #000 …)`)
-    /// as a layer, applied only on the side that is actually cut.
-    private let edgeFade = CAGradientLayer()
-    /// How far the shelf has slid, in points, from its leading edge.
-    private(set) var scrollOffset: CGFloat = 0
-    /// The width the slabs actually occupy — never less than the viewport, so
-    /// "the content is wider than the well" is the whole scrollability test.
-    private(set) var contentWidth: CGFloat = 0
-    /// Set by `apply`, consumed by the next layout: the shelf opens centred on
-    /// the current session, and thereafter goes exactly where it is pushed.
-    private var needsRecentre = true
-    /// One bead, moved to whichever slab the pointer is over. There is only ever
-    /// one visible in the mockup too — a ✕ per slab would be four ways to
-    /// destroy something on a surface whose whole job is choosing one.
+    private var cardViews: [CardView] = []
+    /// One bead, moved to whichever card the pointer is over. A ✕ per card
+    /// would be a dozen ways to destroy something on a surface whose whole job
+    /// is choosing one.
     private let closeBead: LedgeButton
     private var tracking: NSTrackingArea?
-    private var hovered: SlabView?
+    private var hovered: CardView?
     /// What the ✕ currently means. The bead is one control that moves between
-    /// slabs, so its action is a variable and not the closure it was built with.
+    /// cards, so its action is a variable and not the closure it was built with.
     private var stopAction: (() -> Void)?
 
-    /// The panel height this surface asks for: the room above the shelf, the
-    /// slab, the hairline, and the room below it (design.html `.shelfpanel` +
-    /// `.shelfroom`). Fixed — the ledge is the same height whatever is on it,
-    /// because it is a shelf and a shelf does not resize.
-    static var panelHeight: CGFloat {
-        LedgeMetrics.shelfTopPad
-            + LedgeMetrics.slabHeight
-            + LedgeMetrics.hairline
-            + LedgeMetrics.shelfRoom
+    // MARK: - Geometry, stated once
+
+    /// Cards per row for `count` cards: the full `gridColumns`, or fewer when
+    /// fewer exist — a strip of two is two cards centred, not two cards and
+    /// two holes.
+    static func columns(count: Int) -> Int {
+        min(max(count, 1), LedgeMetrics.gridColumns)
+    }
+
+    static func rows(count: Int) -> Int {
+        let columns = columns(count: count)
+        return (max(count, 1) + columns - 1) / columns
+    }
+
+    /// The panel height this surface asks for: pad, the rows, pad. A function
+    /// of the strip — a grid does not scroll, it grows a row.
+    static func panelHeight(count: Int) -> CGFloat {
+        let rows = CGFloat(rows(count: count))
+        return LedgeMetrics.gridPad * 2
+            + rows * LedgeMetrics.cardSize
+            + (rows - 1) * LedgeMetrics.cardGap
     }
 
     override init(frame frameRect: NSRect) {
@@ -106,15 +91,7 @@ final class OverviewSurfaceView: FlippedView {
         press = { [weak self] in self?.stopAction?() }
         closeBead.setAccessibilityLabel("Stop this session")
         closeBead.isHidden = true
-        edgeFade.startPoint = CGPoint(x: 0, y: 0.5)
-        edgeFade.endPoint = CGPoint(x: 1, y: 0.5)
-        addSubview(shelfLine)
-        addSubview(viewport)
-        viewport.addSubview(content)
-        // The bead is a child of what pans, not of the surface: that is the
-        // whole fix for the ✕ that floated in the corner while its slab was
-        // clipped away underneath it.
-        content.addSubview(closeBead)
+        addSubview(closeBead)
     }
 
     @available(*, unavailable)
@@ -124,178 +101,50 @@ final class OverviewSurfaceView: FlippedView {
 
     // MARK: - Content
 
-    /// Rebuild the shelf from the strip. Called on every present: the catalog is
-    /// a full snapshot (spec §3.6), so the shelf is rebuilt from it rather than
-    /// diffed — there are at most a handful of slabs and no state on them worth
+    /// Rebuild the grid from the strip. Called on every present: the catalog is
+    /// a full snapshot (spec §3.6), so the grid is rebuilt from it rather than
+    /// diffed — there are at most a handful of cards and no state on them worth
     /// preserving except the pointer, which is re-read at the end.
-    func apply(slabs newSlabs: [Slab], current newCurrent: String? = nil) {
-        guard newSlabs != slabs || newCurrent != current else { return }
-        slabs = newSlabs
+    func apply(cards newCards: [Card], current newCurrent: String? = nil) {
+        guard newCards != cards || newCurrent != current else { return }
+        cards = newCards
         current = newCurrent
-        for view in slabViews { view.removeFromSuperview() }
-        slabViews = newSlabs.map { slab in
-            let view = SlabView(slab: slab)
-            view.onPress = { [weak self] in self?.onSelect?(slab.app) }
-            content.addSubview(view, positioned: .below, relativeTo: closeBead)
+        for view in cardViews { view.removeFromSuperview() }
+        cardViews = newCards.map { card in
+            let view = CardView(card: card)
+            view.onPress = { [weak self] in self?.onSelect?(card.app) }
+            addSubview(view, positioned: .below, relativeTo: closeBead)
             return view
         }
         hovered = nil
         closeBead.isHidden = true
-        // A different strip is a different shelf: it opens where the session
-        // that was showing stands, not wherever the last one had been slid to.
-        needsRecentre = true
         needsLayout = true
     }
 
-    // MARK: - Geometry
-
-    /// How wide the slabs stand in total. Always the mockup's 64 × 18: **the
-    /// shelf pans, so nothing on it is ever squeezed** (G3.2). What used to
-    /// happen here — close the gaps, then narrow the slabs to a 44 pt floor —
-    /// bought a fit that was not one: past the floor the strip overflowed
-    /// anyway, and everything before it was a shelf of thin slivers pretending
-    /// the panel was big enough.
-    static func contentWidth(count: Int) -> CGFloat {
-        guard count > 0 else { return 0 }
-        return CGFloat(count) * LedgeMetrics.slabWidth
-            + CGFloat(count - 1) * LedgeMetrics.slabGap
-    }
-
-    /// Where the shelf hairline is, measured from the top of the surface. The
-    /// slabs stand **on** it, so it is also every slab's bottom edge.
-    var shelfY: CGFloat { LedgeMetrics.shelfTopPad + LedgeMetrics.slabHeight }
-
-    /// How far the shelf can slide before the last slab is flush with the end.
-    /// Zero when the whole strip fits — which is also "this shelf does not
-    /// scroll", so it is the one thing the wheel, the fade and the tests all ask.
-    var maxScrollOffset: CGFloat { max(0, contentWidth - viewport.bounds.width) }
-
     override func layout() {
         super.layout()
-        let well = max(0, bounds.width - LedgeMetrics.shelfPadX * 2)
-        viewport.frame = CGRect(x: LedgeMetrics.shelfPadX, y: 0, width: well, height: shelfY)
-
-        let total = Self.contentWidth(count: slabViews.count)
-        contentWidth = max(total, well)
-        // Centred while there is room, hard against the leading edge once there
-        // is not: a shelf you can slide starts at its beginning.
-        var x = max(0, (well - total) / 2)
-        for view in slabViews {
+        let count = cardViews.count
+        let columns = Self.columns(count: count)
+        let size = LedgeMetrics.cardSize
+        let gap = LedgeMetrics.cardGap
+        for (index, view) in cardViews.enumerated() {
+            let row = index / columns
+            let column = index % columns
+            // Each row centres its own width, so a short last row sits in the
+            // middle of the grid rather than hanging off its left edge.
+            let inRow = min(columns, count - row * columns)
+            let rowWidth = CGFloat(inRow) * size + CGFloat(inRow - 1) * gap
             view.baseFrame = CGRect(
-                x: x,
-                y: LedgeMetrics.shelfTopPad,
-                width: LedgeMetrics.slabWidth,
-                height: LedgeMetrics.slabHeight
+                x: (bounds.width - rowWidth) / 2 + CGFloat(column) * (size + gap),
+                y: LedgeMetrics.gridPad + CGFloat(row) * (size + gap),
+                width: size,
+                height: size
             )
-            x += LedgeMetrics.slabWidth + LedgeMetrics.slabGap
         }
-        if needsRecentre {
-            needsRecentre = false
-            scrollOffset = openingOffset()
-        }
-        scrollOffset = clamp(scrollOffset)
-        content.frame = CGRect(x: -scrollOffset, y: 0, width: contentWidth, height: shelfY)
-
-        shelfLine.frame = CGRect(
-            x: LedgeMetrics.shelfPadX,
-            y: shelfY,
-            width: well,
-            height: LedgeMetrics.hairline
-        )
-        refreshEdgeFade()
         syncPointer()
     }
 
-    // MARK: - Panning the shelf
-
-    /// Where the shelf sits the moment it opens: the current session's slab in
-    /// the middle of the well, clamped to the ends. A shelf that always opened
-    /// at its beginning would hide the session you zoomed out *of* the moment
-    /// the strip outgrew the panel, which is the one slab you are certain to
-    /// want to see.
-    private func openingOffset() -> CGFloat {
-        guard let current,
-              let slab = slabViews.first(where: { $0.slab.app == current })
-        else { return 0 }
-        return clamp(slab.baseFrame.midX - viewport.bounds.width / 2)
-    }
-
-    private func clamp(_ offset: CGFloat) -> CGFloat {
-        min(max(0, offset), maxScrollOffset)
-    }
-
-    /// Slide the shelf. Returns whether it actually moved, so a wheel over a
-    /// shelf with nothing to reveal is handed back to the responder chain
-    /// instead of being silently eaten.
-    @discardableResult
-    func pan(by delta: CGFloat) -> Bool {
-        let next = clamp(scrollOffset + delta)
-        guard next != scrollOffset else { return false }
-        scrollOffset = next
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        content.frame.origin.x = -scrollOffset
-        CATransaction.commit()
-        refreshEdgeFade()
-        // The rise is a function of where the cursor is *on the shelf*, and the
-        // shelf just moved under a cursor that did not: re-read it, or the slab
-        // that is lifted is the one that used to be there.
-        syncPointer()
-        return true
-    }
-
-    /// The wheel, and a trackpad's two fingers. A mouse has no horizontal axis
-    /// at all, so the larger of the two deltas is the one that means "along the
-    /// shelf" — the only axis this surface has.
-    override func scrollWheel(with event: NSEvent) {
-        let delta = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
-            ? event.scrollingDeltaX
-            : event.scrollingDeltaY
-        // Already at the end it did not move, and an unmoved shelf must not eat
-        // the wheel: whoever is above this surface may still want it.
-        if !pan(by: -delta) { super.scrollWheel(with: event) }
-    }
-
-    /// design.html's ticker mask, on the side that is actually cut. No mask at
-    /// all when the whole strip fits: a gradient mask forces the layer offscreen
-    /// to composite, and a shelf with nothing hidden has nothing to soften.
-    private func refreshEdgeFade() {
-        let width = viewport.bounds.width
-        let leading = scrollOffset > 0.5
-        let trailing = scrollOffset < maxScrollOffset - 0.5
-        guard width > 0, leading || trailing else {
-            viewport.layer?.mask = nil
-            return
-        }
-        let opaque = NSColor.black.cgColor
-        let clear = NSColor.black.withAlphaComponent(0).cgColor
-        let stop = min(LedgeMetrics.shelfFadeWidth, width / 3) / width
-        var colors: [CGColor] = []
-        var locations: [NSNumber] = []
-        if leading {
-            colors += [clear, opaque]
-            locations += [0, NSNumber(value: Double(stop))]
-        } else {
-            colors.append(opaque)
-            locations.append(0)
-        }
-        if trailing {
-            colors += [opaque, clear]
-            locations += [NSNumber(value: Double(1 - stop)), 1]
-        } else {
-            colors.append(opaque)
-            locations.append(1)
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        edgeFade.frame = viewport.bounds
-        edgeFade.colors = colors
-        edgeFade.locations = locations
-        viewport.layer?.mask = edgeFade
-        CATransaction.commit()
-    }
-
-    // MARK: - The rise (design.html §04's page script)
+    // MARK: - The swell toward the cursor
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -314,7 +163,7 @@ final class OverviewSurfaceView: FlippedView {
     override func mouseMoved(with event: NSEvent) { syncPointer() }
     override func mouseExited(with event: NSEvent) { syncPointer() }
 
-    /// Whether the shelf magnifies at all. Reduce Motion keeps every slab flat
+    /// Whether the grid magnifies at all. Reduce Motion keeps every card flat
     /// and still — the ✕ is a *reveal*, so it survives (principle 10: Reduce
     /// Motion swaps motion for fades, it does not remove affordances).
     var magnifies: Bool {
@@ -329,159 +178,106 @@ final class OverviewSurfaceView: FlippedView {
 
     /// Always measured against the live pointer, never against a stale
     /// enter/exit pair: the panel morphs under a stationary cursor all the time
-    /// (shell/README.md), and the shelf arrives in the middle of exactly that.
+    /// (shell/README.md), and the grid arrives in the middle of exactly that.
     private func syncPointer() {
         guard let window else {
-            apply(pointerX: nil)
+            apply(pointer: nil)
             return
         }
-        let point = convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
-        // Outside the well is off the shelf, even when it is still on the panel:
-        // the room either side of the hairline is not shelf, and a cursor parked
-        // there must not be lifting the slab that happens to be behind the fade.
-        guard viewport.frame.contains(point) else {
-            apply(pointerX: nil)
-            return
-        }
-        apply(pointerX: shelfX(fromSurface: point.x))
+        apply(pointer: convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil))
     }
 
-    /// A surface-space x, in the shelf's own scrolled coordinates. Everything
-    /// about the rise is measured here, so sliding the shelf under a stationary
-    /// cursor lifts whatever arrived under it.
-    func shelfX(fromSurface x: CGFloat) -> CGFloat {
-        x - viewport.frame.minX + scrollOffset
-    }
-
-    /// The whole gesture, on a plain coordinate **in the shelf's scrolled
-    /// space** (`shelfX(fromSurface:)` converts): which slab is under the
-    /// cursor, how far each one rises, and where the ✕ goes. Exposed so the
-    /// falloff can be asserted without synthesizing mouse-moved events into a
-    /// window that does not exist headlessly.
-    func apply(pointerX: CGFloat?) {
-        var nearest: SlabView?
-        for view in slabViews {
-            let factor: CGFloat = if let pointerX, magnifies {
-                LedgeMetrics.slabMagnification(distance: pointerX - view.baseFrame.midX)
+    /// The whole gesture, on a plain coordinate in the surface's own space:
+    /// how much each card swells, which one is hovered, and where the ✕ goes.
+    /// Exposed so the falloff can be asserted without synthesizing mouse-moved
+    /// events into a window that does not exist headlessly.
+    func apply(pointer: CGPoint?) {
+        var under: CardView?
+        for view in cardViews {
+            let factor: CGFloat = if let pointer, magnifies {
+                LedgeMetrics.cardMagnification(
+                    distance: hypot(
+                        pointer.x - view.baseFrame.midX,
+                        pointer.y - view.baseFrame.midY
+                    )
+                )
             } else {
                 0
             }
             view.setMagnification(factor)
-            if let pointerX, view.baseFrame.minX <= pointerX, pointerX < view.baseFrame.maxX {
-                nearest = view
+            if let pointer, view.baseFrame.contains(pointer) {
+                under = view
             }
         }
-        setHovered(nearest)
+        setHovered(under)
     }
 
-    private func setHovered(_ view: SlabView?) {
+    private func setHovered(_ view: CardView?) {
         hovered?.isHovered = false
         hovered = view
         view?.isHovered = true
+        // A swollen card overlaps its neighbours, so the one under the hand
+        // comes forward — still under the ✕, which belongs to it.
+        if let view { addSubview(view, positioned: .below, relativeTo: closeBead) }
 
         // The ✕ belongs to a session, so the blank slot never has one: there is
         // nothing there to stop.
-        guard let view, let app = view.slab.app else {
+        guard let view, let app = view.card.app else {
             closeBead.isHidden = true
             return
         }
         let size = closeBead.intrinsicContentSize
         closeBead.isHidden = false
+        // Riding the swollen card's top-right corner, half on the glass —
+        // where a badge on a card goes, and it travels with the swell.
         closeBead.frame = CGRect(
-            x: view.baseFrame.midX - size.width / 2,
-            // Above the slab's *risen* top edge, so the bead travels with the
-            // slab it belongs to instead of hovering over a gap.
-            y: view.frame.minY - LedgeMetrics.slabCloseGap - size.height,
+            x: view.frame.maxX - 8 - size.width / 2,
+            y: view.frame.minY + 8 - size.height / 2,
             width: size.width,
             height: size.height
         )
-        closeBead.setAccessibilityLabel("Stop \(view.slab.name)")
+        closeBead.setAccessibilityLabel("Stop \(view.card.name)")
         stopAction = { [weak self] in self?.onStop?(app) }
     }
 
     // MARK: - Test seams
 
-    var slabViewsForTesting: [SlabView] { slabViews }
-    /// Where the slabs *stand* on the shelf, before the cursor lifts any of
-    /// them — in the shelf's own scrolled space, not the panel's.
-    var slabFrames: [CGRect] { slabViews.map(\.baseFrame) }
+    var cardViewsForTesting: [CardView] { cardViews }
+    /// Where the cards sit on the grid, before the cursor swells any of them.
+    var cardFrames: [CGRect] { cardViews.map(\.baseFrame) }
     /// …and where they are right now, which is the same thing until a pointer
     /// arrives.
-    var slabLiveFrames: [CGRect] { slabViews.map(\.frame) }
-    var slabRises: [CGFloat] { slabViews.map(\.rise) }
+    var cardLiveFrames: [CGRect] { cardViews.map(\.frame) }
+    var cardMagnifications: [CGFloat] { cardViews.map(\.magnification) }
     var closeBeadView: LedgeButton { closeBead }
     var isShowingClose: Bool { !closeBead.isHidden }
-    var shelfHairlineFrame: CGRect { shelfLine.frame }
-    /// The clipping well, in surface space. A slab is on screen exactly when its
-    /// panned frame intersects this.
-    var viewportFrame: CGRect { viewport.frame }
-    /// The well itself, so "the ✕ is inside the thing that clips" can be
-    /// asserted as a fact about the hierarchy rather than about a frame.
-    var viewportForTesting: NSView { viewport }
-    /// Which side of the shelf is currently softened, read off the live mask
-    /// rather than recomputed — the claim is about the pixels.
-    var edgeFadeSides: (leading: Bool, trailing: Bool) {
-        // A faded side is one the mask starts (or ends) transparent on — read
-        // off the colours, because the stops alone cannot tell a fade-in at the
-        // leading edge from a fade-out that begins near it.
-        guard viewport.layer?.mask === edgeFade,
-              let colors = edgeFade.colors as? [CGColor],
-              colors.count >= 2
-        else { return (false, false) }
-        return (leading: colors[0].alpha == 0, trailing: colors[colors.count - 1].alpha == 0)
-    }
 }
 
-/// A well that clips. The slabs pan inside it and the ✕ bead pans with them, so
-/// "the shelf ends here" is enforced by the view hierarchy and cannot be got
-/// wrong by a frame calculation.
-@MainActor
-final class ShelfViewportView: FlippedView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-}
-
-/// One session, standing on the shelf (design.html §04 `.slab`).
+/// One session, square on the grid.
 ///
-/// Not a `LedgeButton`: a bead is the glass swelling and this is a *pane* of it
-/// — square-bottomed, top-lit, and transformed from its bottom edge as the
-/// cursor passes. The only thing it shares with a button is that pressing it
-/// does something.
+/// Not a `LedgeButton`: a bead is the glass swelling and this is a *pane* of
+/// it — a card of the slab material, fully rounded, swelling about its own
+/// centre as the cursor nears. The only thing it shares with a button is that
+/// pressing it does something.
 @MainActor
-final class SlabView: FlippedView {
-    let slab: OverviewSurfaceView.Slab
+final class CardView: FlippedView {
+    let card: OverviewSurfaceView.Card
     var onPress: (() -> Void)?
 
     private let fill = CAGradientLayer()
-    private let topEdge = CALayer()
-    private let leftEdge = CALayer()
-    private let rightEdge = CALayer()
     private let dashed = CAShapeLayer()
     private let glyph = NSImageView()
     private(set) var magnification: CGFloat = 0
 
-    init(slab: OverviewSurfaceView.Slab) {
-        self.slab = slab
+    init(card: OverviewSurfaceView.Card) {
+        self.card = card
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
-        // **Top corners only.** A slab stands on the shelf: its bottom edge is
-        // where it meets the hairline, and a rounded foot would float.
-        layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        layer?.cornerRadius = LedgeMetrics.slabRadius
 
-        if slab.isBlank {
+        if card.isBlank {
             // "At most one blank exists" (flow.md) and it is drawn as an empty
-            // frame: a dashed outline with no fill and no bottom, so it reads as
-            // a space for a slab rather than a slab that failed to load.
+            // frame: a dashed rounded square with no fill, so it reads as a
+            // space for a card rather than a card that failed to load.
             dashed.fillColor = nil
             dashed.strokeColor = LedgeTheme.track.cgColor
             dashed.lineWidth = LedgeMetrics.hairline
@@ -491,14 +287,17 @@ final class SlabView: FlippedView {
             fill.startPoint = CGPoint(x: 0.5, y: 0)
             fill.endPoint = CGPoint(x: 0.5, y: 1)
             fill.colors = [LedgeTheme.slabFillTop.cgColor, LedgeTheme.slabFillBottom.cgColor]
+            // The card clips its own material; the shadow lives on the view's
+            // layer, which does not clip — a layer cannot cast a shadow it has
+            // clipped away.
+            fill.cornerCurve = .continuous
+            fill.masksToBounds = true
+            fill.borderWidth = LedgeMetrics.hairline
+            fill.borderColor = LedgeTheme.slabEdgeSide.cgColor
             layer?.addSublayer(fill)
-            topEdge.backgroundColor = LedgeTheme.slabEdgeHighlight.cgColor
-            leftEdge.backgroundColor = LedgeTheme.slabEdgeSide.cgColor
-            rightEdge.backgroundColor = LedgeTheme.slabEdgeSide.cgColor
-            for edge in [topEdge, leftEdge, rightEdge] { layer?.addSublayer(edge) }
-            // The slab rung of the shadow ramp: it is the panel's, because a
-            // risen slab hangs off the shelf exactly as the panel hangs off the
-            // notch. There is no fourth shadow (principle 15).
+            // The card rung of the shadow ramp: a swollen card hangs off the
+            // grid exactly as the panel hangs off the notch. There is no fourth
+            // shadow (principle 15).
             if let layer {
                 LedgeShadow.panel.applyGeometry(to: layer)
                 layer.shadowOpacity = 0
@@ -506,25 +305,25 @@ final class SlabView: FlippedView {
         }
 
         glyph.image = NSImage(
-            systemSymbolName: slab.icon,
-            accessibilityDescription: slab.name
+            systemSymbolName: card.icon,
+            accessibilityDescription: card.name
         )?.withSymbolConfiguration(
             NSImage.SymbolConfiguration(
-                pointSize: LedgeMetrics.slabGlyphPointSize,
-                weight: LedgeMetrics.slabGlyphWeight
+                pointSize: LedgeMetrics.cardGlyphPointSize,
+                weight: LedgeMetrics.cardGlyphWeight
             )
         )
-        // Big and white — a slab's whole content is its glyph, so this is the
+        // Big and white — a card's whole content is its glyph, so this is the
         // one place the catalog icon is the datum rather than a label's
         // punctuation (principle 5). The blank slot's `+` is quieter: it is an
         // invitation, not a session.
-        glyph.contentTintColor = slab.isBlank ? LedgeTheme.tertiary : LedgeTheme.primary
+        glyph.contentTintColor = card.isBlank ? LedgeTheme.tertiary : LedgeTheme.primary
         glyph.imageScaling = .scaleProportionallyDown
         addSubview(glyph)
 
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
-        setAccessibilityLabel(slab.name)
+        setAccessibilityLabel(card.name)
     }
 
     @available(*, unavailable)
@@ -534,39 +333,28 @@ final class SlabView: FlippedView {
 
     override func layout() {
         super.layout()
+        // The radius swells with the card, so a zoomed card is the same card
+        // closer to you rather than one whose corners tightened.
+        let scale = 1 + LedgeMetrics.cardMagnify * magnification
+        let radius = LedgeMetrics.cardRadius * scale
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         fill.frame = bounds
+        fill.cornerRadius = radius
         dashed.frame = bounds
-        // No bottom: the dashed frame is open where it meets the shelf, exactly
-        // as the mockup draws it (`border-bottom: none`).
-        let path = CGMutablePath()
-        let inset = LedgeMetrics.hairline / 2
-        let radius = LedgeMetrics.slabRadius
-        path.move(to: CGPoint(x: inset, y: bounds.maxY))
-        path.addLine(to: CGPoint(x: inset, y: inset + radius))
-        path.addQuadCurve(
-            to: CGPoint(x: inset + radius, y: inset),
-            control: CGPoint(x: inset, y: inset)
-        )
-        path.addLine(to: CGPoint(x: bounds.maxX - inset - radius, y: inset))
-        path.addQuadCurve(
-            to: CGPoint(x: bounds.maxX - inset, y: inset + radius),
-            control: CGPoint(x: bounds.maxX - inset, y: inset)
-        )
-        path.addLine(to: CGPoint(x: bounds.maxX - inset, y: bounds.maxY))
-        dashed.path = path
-
-        let hairline = LedgeMetrics.hairline
-        topEdge.frame = CGRect(x: 0, y: 0, width: bounds.width, height: hairline)
-        leftEdge.frame = CGRect(x: 0, y: 0, width: hairline, height: bounds.height)
-        rightEdge.frame = CGRect(
-            x: bounds.width - hairline, y: 0, width: hairline, height: bounds.height
+        dashed.path = CGPath(
+            roundedRect: bounds.insetBy(
+                dx: LedgeMetrics.hairline / 2,
+                dy: LedgeMetrics.hairline / 2
+            ),
+            cornerWidth: radius,
+            cornerHeight: radius,
+            transform: nil
         )
         layer?.shadowPath = CGPath(
             roundedRect: bounds,
-            cornerWidth: LedgeMetrics.slabRadius,
-            cornerHeight: LedgeMetrics.slabRadius,
+            cornerWidth: radius,
+            cornerHeight: radius,
             transform: nil
         )
         CATransaction.commit()
@@ -580,59 +368,56 @@ final class SlabView: FlippedView {
         )
     }
 
-    /// Where this slab stands when nothing is lifting it — its place on the
-    /// shelf, set by the shelf's own layout. The live `frame` is this plus
+    /// Where this card sits when nothing is swelling it — its place on the
+    /// grid, set by the grid's own layout. The live `frame` is this plus
     /// whatever the cursor is doing to it.
     var baseFrame: CGRect = .zero {
         didSet {
             guard baseFrame != oldValue else { return }
-            applyRise()
+            applySwell()
         }
     }
 
-    /// How far this slab is currently displaced upward. Read by the shelf to
-    /// place the ✕ bead, and by the tests that assert the falloff.
-    var rise: CGFloat { LedgeMetrics.slabRise * magnification }
-
-    /// Apply one frame of the rise. `factor` is the gaussian's value: 0 flat on
-    /// the shelf, 1 directly under the cursor.
+    /// Apply one frame of the swell. `factor` is the gaussian's value: 0 at
+    /// rest, 1 directly under the cursor.
     func setMagnification(_ factor: CGFloat) {
         guard factor != magnification else { return }
         magnification = factor
-        applyRise()
+        applySwell()
     }
 
-    /// Grow **about the bottom edge**, then rise (design.html:
-    /// `transform-origin: 50% 100%`).
+    /// Grow **about the centre** — the card comes toward you; it is not
+    /// standing on anything.
     ///
-    /// Real geometry, not a layer transform. Two reasons, and the second is the
-    /// one that decided it: a transformed layer-backed view does not appear in
-    /// `cacheDisplay`, so every snapshot of the shelf would show it flat — and a
-    /// scaled *glyph* is a blurred glyph, where a slab that grows around a glyph
-    /// that stays the size it was reads exactly like a pane coming forward.
-    private func applyRise() {
-        let scale = 1 + LedgeMetrics.slabMagnify * magnification
+    /// Real geometry, not a layer transform: a transformed layer-backed view
+    /// does not appear in `cacheDisplay` (every snapshot would show the grid
+    /// flat), and a scaled *glyph* is a blurred glyph — a card that grows
+    /// around a glyph that stays sharp reads exactly like a pane coming
+    /// forward.
+    private func applySwell() {
+        let scale = 1 + LedgeMetrics.cardMagnify * magnification
         let width = baseFrame.width * scale
         let height = baseFrame.height * scale
         frame = CGRect(
             x: baseFrame.midX - width / 2,
-            y: baseFrame.maxY - height - rise,
+            y: baseFrame.midY - height / 2,
             width: width,
             height: height
         )
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.shadowOpacity = slab.isBlank ? 0 : LedgeShadow.panel.opacity * Float(magnification)
+        layer?.shadowOpacity = card.isBlank ? 0 : LedgeShadow.panel.opacity * Float(magnification)
         CATransaction.commit()
+        needsLayout = true
     }
 
     var isHovered = false {
         didSet {
-            guard isHovered != oldValue, !slab.isBlank else { return }
+            guard isHovered != oldValue, !card.isBlank else { return }
             CATransaction.begin()
             CATransaction.setAnimationDuration(LedgeMotion.fast)
-            topEdge.backgroundColor = (
-                isHovered ? LedgeTheme.slabEdgeHighlightHover : LedgeTheme.slabEdgeHighlight
+            fill.borderColor = (
+                isHovered ? LedgeTheme.slabEdgeHighlightHover : LedgeTheme.slabEdgeSide
             ).cgColor
             CATransaction.commit()
         }
@@ -640,7 +425,7 @@ final class SlabView: FlippedView {
 
     override func mouseDown(with event: NSEvent) {
         // Press-and-release inside, like every other control in the kit; the
-        // slab does not sink, because it is already moving under the cursor.
+        // card does not sink, because it is already moving under the cursor.
         var inside = true
         while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
             let point = convert(next.locationInWindow, from: nil)

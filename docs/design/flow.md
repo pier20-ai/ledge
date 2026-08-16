@@ -47,7 +47,7 @@ the window (parked).
 | Visit | pointer away > Texit | Resting |
 | Parked | ⌃, or click the bare notch | Visit (flies home) |
 
-Knobs, feel-tuned on device: **Th** ≈ 0.35 s (below it, the notch swells a
+Knobs, feel-tuned on device: **Th** ≈ 0.15 s (below it, the notch swells a
 breath — a promise, not a surface) · **Ti** ≈ 6 s for ambient-class,
 alert-class holds · **Ta** holder-declared · **Texit** ≈ 2.5 s of pointer
 fully away, and the timer never runs while the pill or the app holds the
@@ -59,9 +59,13 @@ keyboard, during a drag, or while a tool is running.
   put on stage; a session with no stage is just a conversation.
 - The right wing `<|>` walks the strip; a horizontal swipe does the same.
   Walking past either end lands on the blank slot — at most one blank exists.
-- Zoom out to the overview — **the ledge**: sessions as slabs on a shelf.
-  Click jumps; the only ✕ in the product lives here. Trigger: the `|` divider.
-- Width is per-session; blank slots take the default. Wings never move.
+- Zoom out to the overview — **the ledge**: sessions as a grid of square
+  glass cards that swell toward the cursor; the blank slot is a dashed card,
+  last. Click jumps; the only ✕ in the product lives here, riding the hovered
+  card's corner. Trigger: the `|` divider, or ⌂ — which wears a back arrow
+  while the ledge is up. (The shelf-of-slabs specimen retired at G2.5.)
+- Width is per-session, floored at the islands' span; blank slots take the
+  default. Wings never move.
 
 ## Visit modes
 

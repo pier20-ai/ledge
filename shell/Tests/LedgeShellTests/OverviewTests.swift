@@ -4,14 +4,19 @@ import Testing
 @testable import LedgeShell
 @testable import LedgeShellCore
 
-/// **The ledge** — flow.md's "The strip", and design.html §04's left specimen.
+/// **The ledge** — flow.md's "The strip", zoomed out.
 ///
-/// > Zoom out to the overview — the ledge: sessions as slabs on a shelf. Click
-/// > jumps; the only ✕ in the product lives here. Trigger: the `|` divider.
+/// > Sessions as a grid of square glass cards that swell toward the cursor;
+/// > the blank slot is a dashed card, last. Click jumps; the only ✕ in the
+/// > product lives here. Trigger: the `|` divider, or ⌂.
 ///
-/// Four claims, and this suite is one per claim: the trigger reaches it, the
-/// shelf is the strip (blank slot included), the slabs rise toward the cursor on
-/// design.html's own falloff, and the ✕ stops a session without uninstalling it.
+/// The G2.5 redesign: the first ledge was a shelf of flat-bottomed slabs that
+/// panned sideways, and on device it read as a truncated x-y list. The grid
+/// shows the whole strip at once — square cards, fully rounded, swelling
+/// toward the hand on a 2-D gaussian — so this suite is one claim per law:
+/// the trigger reaches it, the grid *is* the strip, the geometry is a grid of
+/// squares, the swell follows the cursor, and the ✕ stops a session without
+/// uninstalling it.
 @MainActor
 @Suite("The ledge — the strip, zoomed out")
 struct OverviewTests {
@@ -21,6 +26,25 @@ struct OverviewTests {
         session.openReplay()
         session.inject(try Fixtures.envelope("catalog.json"))
         return (session, controller)
+    }
+
+    /// A grid big enough to wrap: nine sessions and the blank slot, which is
+    /// what a real machine's catalog looks like. Built here rather than out of
+    /// the catalog fixture, which holds three apps and never fills a row.
+    private func crowded(current: String? = nil, sessions: Int = 9) -> OverviewSurfaceView {
+        let grid = OverviewSurfaceView()
+        var cards = (0..<sessions).map {
+            OverviewSurfaceView.Card(app: "app\($0)", name: "App \($0)", icon: "circle")
+        }
+        cards.append(.blank)
+        grid.apply(cards: cards, current: current)
+        grid.frame = CGRect(
+            x: 0, y: 0,
+            width: PanelLimits.defaultWidth,
+            height: OverviewSurfaceView.panelHeight(count: cards.count)
+        )
+        grid.layoutSubtreeIfNeeded()
+        return grid
     }
 
     // MARK: - The trigger
@@ -44,317 +68,191 @@ struct OverviewTests {
         #expect(opened == 0, "the geometry is the claim here; the press is the next test")
     }
 
-    @Test("Opening the ledge presents it, and the left wing reads Back")
+    @Test("Opening the ledge presents it, and the ⌂ lights up wearing a back arrow")
     func openingTheLedge() throws {
         let (session, controller) = try loaded()
         controller.present(.expanded(app: session.strip.apps[0]), animated: false)
-        controller.enterOverview()
+        let split = controller.surfaceForTesting.panelWingBarView.splitView
+        #expect(split.homeZone.symbolName == "house")
 
+        controller.enterOverview()
         #expect(controller.presentation == .overview)
         #expect(controller.presentation.isExpanded, "the ledge is a visit, zoomed out")
-        let split = controller.surfaceForTesting.panelWingBarView.splitView
-        #expect(split.homeZone.isLit, "⌂ lights while the shelf is up — it is the way off it")
+        #expect(split.homeZone.isLit, "⌂ lights while the ledge is up — it is the way off it")
         #expect(!split.homeZone.isHidden)
+        // G2.5: while you are viewing all apps, the press means "back to the
+        // app", and the icon says so.
+        #expect(split.homeZone.symbolName == "arrow.left")
+
+        controller.leaveOverview()
+        #expect(split.homeZone.symbolName == "house", "and the ⌂ comes back with the stage")
     }
 
-    // MARK: - The shelf is the strip
+    // MARK: - The grid is the strip
 
-    @Test("One slab per session, the blank slot last, with the catalog's own glyphs")
-    func theShelfIsTheStrip() throws {
+    @Test("One card per session, the blank slot last, with the catalog's own glyphs")
+    func theGridIsTheStrip() throws {
         let (session, controller) = try loaded()
         controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
+        let grid = try #require(controller.overviewForTesting)
 
-        #expect(shelf.slabs.count == session.strip.slots.count)
-        #expect(shelf.slabs.dropLast().allSatisfy { !$0.isBlank })
-        #expect(shelf.slabs.last?.isBlank == true, "at most one blank exists, and it is last")
-        for (slab, app) in zip(shelf.slabs, session.strip.apps) {
-            #expect(slab.app == app)
-            #expect(slab.icon == session.icon(for: app))
-            #expect(slab.name == session.name(for: app))
+        #expect(grid.cards.count == session.strip.slots.count)
+        #expect(grid.cards.dropLast().allSatisfy { !$0.isBlank })
+        #expect(grid.cards.last?.isBlank == true, "at most one blank exists, and it is last")
+        for (card, app) in zip(grid.cards, session.strip.apps) {
+            #expect(card.app == app)
+            #expect(card.icon == session.icon(for: app))
+            #expect(card.name == session.name(for: app))
         }
     }
 
-    @Test("Slabs stand on the shelf hairline, in one row, at the mockup's size")
-    func slabsStandOnTheShelf() throws {
-        let (_, controller) = try loaded()
-        controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
-        shelf.frame = CGRect(x: 0, y: 0, width: PanelLimits.defaultWidth, height: OverviewSurfaceView.panelHeight)
-        shelf.layoutSubtreeIfNeeded()
+    @Test("The cards are squares on a grid: rows of gridColumns, every row centred")
+    func theCardsAreSquares() {
+        let grid = crowded()                                   // 10 cards: 4+4+2
+        let frames = grid.cardFrames
+        #expect(frames.allSatisfy { $0.width == LedgeMetrics.cardSize })
+        #expect(frames.allSatisfy { $0.height == LedgeMetrics.cardSize }, "square, not slab")
 
-        let frames = shelf.slabFrames
-        #expect(frames.count > 1)
-        #expect(frames.allSatisfy { $0.maxY == shelf.shelfHairlineFrame.minY })
-        #expect(frames.allSatisfy { $0.height == LedgeMetrics.slabHeight })
-        #expect(frames.allSatisfy { $0.width == LedgeMetrics.slabWidth })
-        #expect(frames.first!.minX >= 0)
-        // Left to right, no overlaps, and the mockup's air between them.
-        for (a, b) in zip(frames, frames.dropFirst()) {
-            #expect(b.minX - a.maxX == LedgeMetrics.slabGap)
+        let columns = LedgeMetrics.gridColumns
+        for (index, frame) in frames.enumerated() {
+            let row = index / columns
+            let column = index % columns
+            #expect(
+                frame.minY == LedgeMetrics.gridPad
+                    + CGFloat(row) * (LedgeMetrics.cardSize + LedgeMetrics.cardGap)
+            )
+            if column > 0 {
+                #expect(frame.minX - frames[index - 1].maxX == LedgeMetrics.cardGap)
+            }
         }
+        // Full rows and the short last row are each centred on the panel.
+        let mid = grid.bounds.midX
+        #expect(abs((frames[0].minX + frames[3].maxX) / 2 - mid) < 0.5)
+        #expect(abs((frames[8].minX + frames[9].maxX) / 2 - mid) < 0.5,
+                "two cards in the last row: centred, not left-hung")
+        // Nothing pans and nothing is cut: every card is inside the surface.
+        #expect(frames.allSatisfy { grid.bounds.contains($0) })
     }
 
-    // MARK: - The shelf pans (G3.2)
-
-    /// A shelf longer than the panel: nine sessions and the blank slot, which is
-    /// what a real machine's catalog looks like and exactly the case the audit
-    /// caught. Built here rather than out of the catalog fixture, which holds
-    /// three apps and would never overflow anything.
-    private func crowded(current: String? = nil, sessions: Int = 9) -> OverviewSurfaceView {
-        let shelf = OverviewSurfaceView()
-        var slabs = (0..<sessions).map {
-            OverviewSurfaceView.Slab(app: "app\($0)", name: "App \($0)", icon: "circle")
-        }
-        slabs.append(.blank)
-        shelf.apply(slabs: slabs, current: current)
-        shelf.frame = CGRect(
-            x: 0, y: 0,
-            width: PanelLimits.defaultWidth,
-            height: OverviewSurfaceView.panelHeight
-        )
-        shelf.layoutSubtreeIfNeeded()
-        return shelf
+    /// The grid does not scroll — it grows a row, and the panel grows with it.
+    @Test("The panel height is a function of the rows")
+    func thePanelGrowsByRows() {
+        let one = OverviewSurfaceView.panelHeight(count: 3)
+        let two = OverviewSurfaceView.panelHeight(count: 5)
+        let three = OverviewSurfaceView.panelHeight(count: 9)
+        #expect(two - one == LedgeMetrics.cardSize + LedgeMetrics.cardGap)
+        #expect(three - two == LedgeMetrics.cardSize + LedgeMetrics.cardGap)
+        #expect(OverviewSurfaceView.panelHeight(count: 4) == one, "a fuller row is not taller")
+        #expect(OverviewSurfaceView.rows(count: 4) == 1)
+        #expect(OverviewSurfaceView.rows(count: 5) == 2)
+        #expect(OverviewSurfaceView.columns(count: 2) == 2, "two cards, two columns, centred")
     }
 
-    /// The audit's finding: nine sessions no longer fit, and the old layout paid
-    /// for that by slicing the first slab off the panel edge. **Slabs never
-    /// shrink** — the shelf is longer than the well and slides.
-    @Test("A crowded shelf grows past the well instead of squeezing its slabs")
-    func aCrowdedShelfPans() {
-        let shelf = crowded()
-        #expect(shelf.slabFrames.allSatisfy { $0.width == LedgeMetrics.slabWidth })
-        #expect(shelf.contentWidth == OverviewSurfaceView.contentWidth(count: shelf.slabs.count))
-        #expect(shelf.contentWidth > shelf.viewportFrame.width, "it does not fit, and does not pretend to")
-        #expect(shelf.maxScrollOffset == shelf.contentWidth - shelf.viewportFrame.width)
+    // MARK: - The swell toward the cursor
 
-        // A shelf that fits does not scroll, and stays centred in the well.
-        let roomy = crowded(sessions: 2)
-        #expect(roomy.maxScrollOffset == 0)
-        #expect(roomy.contentWidth == roomy.viewportFrame.width)
-        let span = roomy.slabFrames.first!.minX + (roomy.viewportFrame.width - roomy.slabFrames.last!.maxX)
-        #expect(abs(roomy.slabFrames.first!.minX - span / 2) < 0.5, "centred, with equal air either side")
-    }
-
-    @Test("The wheel slides the shelf, and it stops at both ends")
-    func theShelfSlides() throws {
-        let shelf = crowded()
-        let limit = shelf.maxScrollOffset
-        try #require(limit > 0)
-        #expect(shelf.scrollOffset == 0, "no current session: it opens at the beginning")
-        #expect(!shelf.pan(by: -40), "…and says so, so the wheel goes on to whoever else wants it")
-
-        #expect(shelf.pan(by: 30))
-        #expect(shelf.scrollOffset == 30)
-        shelf.pan(by: limit * 2)
-        #expect(shelf.scrollOffset == limit, "it does not slide off its end")
-        #expect(!shelf.pan(by: 40))
-        shelf.pan(by: -limit * 2)
-        #expect(shelf.scrollOffset == 0, "nor off its beginning")
-    }
-
-    /// The blank slot is flow.md's guarantee — "at most one blank exists" and it
-    /// is always there. Pushed off the right edge it was not; at the end of a
-    /// shelf you can slide, it is.
-    @Test("The blank slot is at the trailing end, and sliding to the end shows all of it")
-    func theBlankSlotIsReachable() throws {
-        let shelf = crowded()
-        #expect(shelf.slabs.last?.isBlank == true)
-        let blank = try #require(shelf.slabFrames.last)
-        #expect(blank.maxX == shelf.contentWidth, "it is the trailing end of the shelf")
-
-        shelf.pan(by: shelf.maxScrollOffset)
-        // On screen means: inside the well, once the shelf has been slid over.
-        let onScreen = blank.offsetBy(dx: -shelf.scrollOffset, dy: 0)
-        #expect(onScreen.minX >= 0)
-        #expect(onScreen.maxX <= shelf.viewportFrame.width + 0.5)
-    }
-
-    @Test("The shelf opens centred on the session it was zoomed out of")
-    func theShelfOpensOnTheCurrentSession() throws {
-        // One in the middle: centred exactly, with shelf either side of it.
-        let middle = crowded(current: "app4")
-        let index = try #require(middle.slabs.firstIndex { $0.app == "app4" })
-        let centre = middle.slabFrames[index].midX - middle.scrollOffset
-        #expect(abs(centre - middle.viewportFrame.width / 2) < 0.5)
-        #expect(middle.scrollOffset > 0 && middle.scrollOffset < middle.maxScrollOffset)
-
-        // One at the far end: as centred as an end allows, and no further.
-        let last = crowded(current: "app8")
-        #expect(last.scrollOffset == last.maxScrollOffset)
-        let lastIndex = try #require(last.slabs.firstIndex { $0.app == "app8" })
-        let lastCentre = last.slabFrames[lastIndex].midX - last.scrollOffset
-        #expect(lastCentre > last.viewportFrame.width / 2)
-        #expect(lastCentre < last.viewportFrame.width)
-
-        // The controller passes what Back points at, so zooming out of a session
-        // and zooming out of the ledge cannot disagree about which one it is.
-        let (session, controller) = try loaded()
-        let app = session.strip.apps[1]
-        controller.present(.expanded(app: app), animated: false)
-        controller.enterOverview()
-        #expect(controller.overviewForTesting?.current == app)
-    }
-
-    /// A hard clip reads as a rendering fault; a fade reads as more shelf. The
-    /// mask is on whichever side is actually cut, and on neither when the whole
-    /// strip fits.
-    @Test("The cut edge fades, on the side that is cut")
-    func theCutEdgeFades() {
-        let shelf = crowded()
-        #expect(shelf.edgeFadeSides == (leading: false, trailing: true))
-
-        shelf.pan(by: shelf.maxScrollOffset / 2)
-        #expect(shelf.edgeFadeSides == (leading: true, trailing: true))
-
-        shelf.pan(by: shelf.maxScrollOffset)
-        #expect(shelf.edgeFadeSides == (leading: true, trailing: false))
-
-        // A shelf that fits is not cut anywhere, so it wears no mask at all.
-        #expect(crowded(sessions: 2).edgeFadeSides == (leading: false, trailing: false))
-    }
-
-    /// The rise is measured on the shelf, not on the panel: slide the shelf
-    /// under a cursor that has not moved and the slab that arrives under it is
-    /// the one that lifts.
-    @Test("The rise follows the shelf's own coordinates once it is scrolled")
-    func theRiseFollowsTheScroll() throws {
-        let shelf = crowded()
-        try #require(shelf.maxScrollOffset > 0)
-        // A cursor parked in the middle of the well, in surface coordinates.
-        let parked = shelf.viewportFrame.midX
-        shelf.apply(pointerX: shelf.shelfX(fromSurface: parked))
-        let before = try #require(shelf.slabRises.firstIndex { $0 > LedgeMetrics.slabRise / 2 })
-
-        shelf.pan(by: LedgeMetrics.slabWidth + LedgeMetrics.slabGap)
-        shelf.apply(pointerX: shelf.shelfX(fromSurface: parked))
-        let after = try #require(shelf.slabRises.firstIndex { $0 > LedgeMetrics.slabRise / 2 })
-        #expect(after == before + 1, "one slab of travel, one slab further along the shelf")
-    }
-
-    // MARK: - Slabs rise toward the cursor
-
-    /// design.html §04's page script, as arithmetic: `exp(-d² / 2σ²)`, σ = 72.
-    /// One function, so the view and the mockup cannot drift apart.
-    @Test("The falloff is design.html's gaussian")
+    /// One function for the falloff, so the view and the tests cannot drift
+    /// apart: `exp(-d² / 2σ²)`, σ = `cardFalloff`.
+    @Test("The falloff is one gaussian")
     func theFalloff() {
-        #expect(LedgeMetrics.slabMagnification(distance: 0) == 1)
-        #expect(abs(LedgeMetrics.slabMagnification(distance: 72) - exp(-0.5)) < 0.0001)
-        #expect(LedgeMetrics.slabMagnification(distance: 300) < 0.001)
-        // Symmetric: a cursor to the left lifts a slab exactly as much as one
+        #expect(LedgeMetrics.cardMagnification(distance: 0) == 1)
+        #expect(
+            abs(LedgeMetrics.cardMagnification(distance: LedgeMetrics.cardFalloff) - exp(-0.5))
+                < 0.0001
+        )
+        #expect(LedgeMetrics.cardMagnification(distance: 400) < 0.001)
+        // Symmetric: a cursor to the left swells a card exactly as much as one
         // the same distance to the right.
         #expect(
-            LedgeMetrics.slabMagnification(distance: -40)
-                == LedgeMetrics.slabMagnification(distance: 40)
+            LedgeMetrics.cardMagnification(distance: -40)
+                == LedgeMetrics.cardMagnification(distance: 40)
         )
     }
 
-    @Test("The slab under the cursor rises fully, its neighbours partly, the far ones not at all")
-    func slabsRise() throws {
-        let (_, controller) = try loaded()
-        controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
-        shelf.frame = CGRect(x: 0, y: 0, width: PanelLimits.defaultWidth, height: OverviewSurfaceView.panelHeight)
-        shelf.layoutSubtreeIfNeeded()
+    @Test("The card under the cursor swells fully, its neighbours partly, the far corner not at all")
+    func cardsSwell() throws {
+        let grid = crowded()
+        let frames = grid.cardFrames
+        try #require(frames.count == 10)
 
-        let frames = shelf.slabFrames
-        try #require(frames.count >= 3)
-        shelf.apply(pointerX: frames[0].midX)
-        let rises = shelf.slabRises
-        #expect(abs(rises[0] - LedgeMetrics.slabRise) < 0.001)
-        #expect(rises[1] > 0 && rises[1] < rises[0])
-        #expect(rises.dropFirst().allSatisfy { $0 < rises[0] })
+        grid.apply(pointer: CGPoint(x: frames[0].midX, y: frames[0].midY))
+        let factors = grid.cardMagnifications
+        #expect(abs(factors[0] - 1) < 0.001, "directly under the cursor: the full swell")
+        #expect(factors[1] > 0.05 && factors[1] < factors[0], "its neighbour leans")
+        #expect(factors[4] > 0.05, "…and so does the card below: the gaussian is 2-D")
+        #expect(factors[7] < 0.01, "the far corner does not move")
 
-        // Pointer off the shelf: every slab flat on it again.
-        shelf.apply(pointerX: nil)
-        #expect(shelf.slabRises.allSatisfy { $0 == 0 })
+        // The swell is real geometry, centred on the card's own centre.
+        let live = grid.cardLiveFrames[0]
+        #expect(live.width > frames[0].width)
+        #expect(abs(live.midX - frames[0].midX) < 0.001)
+        #expect(abs(live.midY - frames[0].midY) < 0.001)
+
+        // Pointer gone: every card back at rest.
+        grid.apply(pointer: nil)
+        #expect(grid.cardMagnifications.allSatisfy { $0 == 0 })
+        for (live, base) in zip(grid.cardLiveFrames, grid.cardFrames) {
+            // Within float noise: the rest frame is recomputed off midX/midY.
+            #expect(abs(live.minX - base.minX) < 0.001)
+            #expect(abs(live.minY - base.minY) < 0.001)
+            #expect(live.size == base.size)
+        }
     }
 
     /// Principle 10: "Reduce Motion swaps motion for fades" — it does not
-    /// remove affordances. The shelf stops magnifying; the ✕ still appears.
-    @Test("Reduce Motion holds the slabs still and keeps the ✕")
-    func reduceMotion() throws {
-        let (_, controller) = try loaded()
-        controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
-        shelf.reduceMotionOverride = true
-        shelf.frame = CGRect(x: 0, y: 0, width: PanelLimits.defaultWidth, height: OverviewSurfaceView.panelHeight)
-        shelf.layoutSubtreeIfNeeded()
-
-        shelf.apply(pointerX: shelf.slabFrames[0].midX)
-        #expect(!shelf.magnifies)
-        #expect(shelf.slabRises.allSatisfy { $0 == 0 }, "nothing moves")
-        #expect(shelf.isShowingClose, "…but the ✕ is still a reveal, and still reveals")
+    /// remove affordances. The grid stops swelling; the ✕ still appears.
+    @Test("Reduce Motion holds the cards still and keeps the ✕")
+    func reduceMotion() {
+        let grid = crowded()
+        grid.reduceMotionOverride = true
+        let frames = grid.cardFrames
+        grid.apply(pointer: CGPoint(x: frames[0].midX, y: frames[0].midY))
+        #expect(!grid.magnifies)
+        #expect(grid.cardMagnifications.allSatisfy { $0 == 0 }, "nothing moves")
+        #expect(grid.isShowingClose, "…but the ✕ is still a reveal, and still reveals")
     }
 
     // MARK: - The only ✕ in the product
 
-    @Test("The ✕ belongs to a session: it follows the hover and never lands on the blank slot")
+    @Test("The ✕ rides the hovered card's corner and never lands on the blank slot")
     func theOnlyClose() throws {
-        let (_, controller) = try loaded()
-        controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
-        shelf.frame = CGRect(x: 0, y: 0, width: PanelLimits.defaultWidth, height: OverviewSurfaceView.panelHeight)
-        shelf.layoutSubtreeIfNeeded()
+        let grid = crowded()
+        #expect(!grid.isShowingClose, "nothing is hovered yet")
 
-        #expect(!shelf.isShowingClose, "nothing is hovered yet")
-        let frames = shelf.slabFrames
-        shelf.apply(pointerX: frames[0].midX)
-        #expect(shelf.isShowingClose)
-        // Above the slab it belongs to, and travelling with it as it rises.
-        let bead = shelf.closeBeadView.frame
-        #expect(bead.midX == frames[0].midX)
-        #expect(bead.maxY <= frames[0].minY - shelf.slabRises[0])
+        let frames = grid.cardFrames
+        grid.apply(pointer: CGPoint(x: frames[0].midX, y: frames[0].midY))
+        #expect(grid.isShowingClose)
+        // On the swollen card's top-right corner, straddling it like a badge.
+        let bead = grid.closeBeadView.frame
+        let live = grid.cardLiveFrames[0]
+        #expect(abs(bead.midX - (live.maxX - 8)) < 0.5)
+        #expect(abs(bead.midY - (live.minY + 8)) < 0.5)
+        // …and never past the surface: `gridPad` reserves the bead's ride.
+        #expect(bead.minY >= 0)
 
         // The blank slot has no session to stop.
-        shelf.apply(pointerX: frames.last!.midX)
-        #expect(!shelf.isShowingClose)
+        let blank = try #require(frames.last)
+        grid.apply(pointer: CGPoint(x: blank.midX, y: blank.midY))
+        #expect(!grid.isShowingClose)
     }
 
-    /// The audit's second finding: with the shelf overflowing, the ✕ for the
-    /// clipped first slab floated in the panel's top-left corner, above nothing.
-    /// It cannot any more — the bead lives *inside* what pans and what clips, so
-    /// it goes where its slab goes and stops where its slab stops.
-    @Test("The ✕ is clipped and panned with its slab, never orphaned beside it")
-    func theCloseTravelsWithItsSlab() throws {
-        let shelf = crowded()
-        let bead = shelf.closeBeadView
-        #expect(bead.isDescendant(of: shelf.viewportForTesting))
-        #expect(bead.superview === shelf.slabViewsForTesting.first?.superview)
-        #expect(shelf.viewportForTesting.layer?.masksToBounds == true)
-
-        // The last session's ✕, out at the far end of a shelf that overflows: in
-        // surface space it is off the panel entirely until the shelf is slid.
-        let index = shelf.slabs.count - 2
-        shelf.apply(pointerX: shelf.slabFrames[index].midX)
-        try #require(shelf.isShowingClose)
-        let parked = shelf.convert(bead.frame, from: bead.superview)
-        #expect(parked.minX > shelf.viewportFrame.maxX, "clipped away with its slab")
-
-        shelf.pan(by: shelf.maxScrollOffset)
-        shelf.apply(pointerX: shelf.slabFrames[index].midX)
-        let slid = shelf.convert(bead.frame, from: bead.superview)
-        // Half a point of slack: a fully risen slab's cap lands exactly on the
-        // well's top edge, which is what `shelfTopPad` is derived to guarantee.
-        #expect(
-            shelf.viewportFrame.insetBy(dx: -0.5, dy: -0.5).contains(slid),
-            "and inside it once the shelf is slid over"
-        )
-    }
-
-    @Test("Pressing the ✕ stops that session and leaves the shelf standing")
+    @Test("Pressing the ✕ stops that session and leaves the ledge standing")
     func pressingTheClose() throws {
         let (session, controller) = try loaded()
         let victim = session.strip.apps[0]
         controller.present(.expanded(app: victim), animated: false)
         controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
-        shelf.frame = CGRect(x: 0, y: 0, width: PanelLimits.defaultWidth, height: OverviewSurfaceView.panelHeight)
-        shelf.layoutSubtreeIfNeeded()
-        shelf.apply(pointerX: shelf.slabFrames[0].midX)
+        let grid = try #require(controller.overviewForTesting)
+        grid.frame = CGRect(
+            x: 0, y: 0,
+            width: PanelLimits.defaultWidth,
+            height: OverviewSurfaceView.panelHeight(count: grid.cards.count)
+        )
+        grid.layoutSubtreeIfNeeded()
+        let first = grid.cardFrames[0]
+        grid.apply(pointer: CGPoint(x: first.midX, y: first.midY))
 
-        #expect(shelf.closeBeadView.accessibilityPerformPress())
-        #expect(controller.presentation == .overview, "stopping one session does not leave the shelf")
+        #expect(grid.closeBeadView.accessibilityPerformPress())
+        #expect(controller.presentation == .overview, "stopping one session does not leave the ledge")
         // …and Back no longer aims at the session that was stopped.
         controller.leaveOverview()
         #expect(controller.presentation.app != victim)
@@ -381,6 +279,17 @@ struct OverviewTests {
     }
 
     // MARK: - Back
+
+    /// The controller passes what Back points at, so zooming out of a session
+    /// and zooming out of the ledge cannot disagree about which one it is.
+    @Test("The grid knows the session it was zoomed out of")
+    func theGridKnowsItsOrigin() throws {
+        let (session, controller) = try loaded()
+        let app = session.strip.apps[1]
+        controller.present(.expanded(app: app), animated: false)
+        controller.enterOverview()
+        #expect(controller.overviewForTesting?.current == app)
+    }
 
     @Test("Back returns to the session that was showing, in the mode it was in")
     func backReturnsToTheSession() throws {
@@ -409,21 +318,21 @@ struct OverviewTests {
         #expect(controller.presentation == .collapsed)
     }
 
-    @Test("Clicking a slab jumps to that session; the blank slab opens the blank slot")
-    func clickingASlabJumps() throws {
+    @Test("Clicking a card jumps to that session; the blank card opens the blank slot")
+    func clickingACardJumps() throws {
         let (session, controller) = try loaded()
         controller.present(.expanded(app: session.strip.apps[0]), animated: false)
         controller.enterOverview()
-        let shelf = try #require(controller.overviewForTesting)
+        let grid = try #require(controller.overviewForTesting)
 
         let second = session.strip.apps[1]
-        let slab = try #require(shelf.slabViewsForTesting.first { $0.slab.app == second })
-        #expect(slab.accessibilityPerformPress())
+        let card = try #require(grid.cardViewsForTesting.first { $0.card.app == second })
+        #expect(card.accessibilityPerformPress())
         #expect(controller.presentation == .expanded(app: second))
 
         controller.enterOverview()
-        let blank = try #require(shelf.slabViewsForTesting.last)
-        #expect(blank.slab.isBlank)
+        let blank = try #require(grid.cardViewsForTesting.last)
+        #expect(blank.card.isBlank)
         #expect(blank.accessibilityPerformPress())
         #expect(controller.presentation == .newApp)
     }
@@ -431,7 +340,7 @@ struct OverviewTests {
     /// The overview is a *mode*, so the strip still walks out of it — and
     /// walking is leaving, not zooming further.
     @Test("Walking the strip from the ledge lands on a session")
-    func walkingLeavesTheShelf() throws {
+    func walkingLeavesTheLedge() throws {
         let (_, controller) = try loaded()
         controller.present(.overview, animated: false)
         #expect(controller.handleSwipe(.left))

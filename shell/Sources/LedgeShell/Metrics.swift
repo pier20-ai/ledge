@@ -174,15 +174,20 @@ enum LedgeMetrics {
     ///
     /// The bar is a *fixed* width — the same on every session, every screen,
     /// every panel (principle 8: persistent controls are notch-anchored, never
-    /// panel-anchored; principle 15: the number is stated once). design.html §01
-    /// draws a 470 pt bar over a 168 pt cutout, which is 151 a side; 150 is that
-    /// proportion, rounded to the grid.
+    /// panel-anchored; principle 15: the number is stated once).
     ///
-    /// The consequence is the silhouette: a panel narrower than the bar hangs
-    /// beneath it, centred, married by concave fillets (the mockup's 336 under
-    /// its 470); a wider one meets the bar's edges. `ShellSurfaceView.notchPath`
-    /// draws both as one body.
-    static let visitBarWing: CGFloat = 150
+    /// **Derived, not chosen** (G2.5): the islands hug the cutout, so the reach
+    /// is exactly what they need — the cutout margin (8), the wider island (the
+    /// walker: two 28 pt zones and the 11 pt seam, 67), and a fillet's worth of
+    /// breathing (15) so a bead never sits on the silhouette's rounded corner.
+    /// The old 150 was the retired bar band's proportion, and it left the
+    /// islands floating past a narrow panel's glass — over bare wallpaper.
+    ///
+    /// The consequence is the silhouette's **floor**: a visit is never narrower
+    /// than `cutout + 2 × visitBarWing`, so the islands always stand on glass
+    /// and the shape stays one uniform width top to bottom
+    /// (`ShellSurfaceView.shapeSize`).
+    static let visitBarWing: CGFloat = 90
     /// Gap between items an app puts in its left wing.
     static let panelWingGap: CGFloat = 6
     /// The default left-zone content: the app's catalog name, in the same face
@@ -204,62 +209,45 @@ enum LedgeMetrics {
     /// control, and this one opens the ledge overview.
     static let walkerDividerLane: CGFloat = 11
 
-    // MARK: - The ledge (the overview — design.html §04)
+    // MARK: - The ledge (the overview — a grid of cards, G2.5)
 
-    /// A slab: one session, standing on the shelf. 64 × 86 is the mockup's, and
-    /// it is the *only* size a slab has — a strip too long for the panel pans
-    /// (G3.2). `slabMinWidth` / `slabMinGap` were the squeeze that produced the
-    /// sliced shelf the audit caught, and they are gone rather than unused.
-    static let slabWidth: CGFloat = 64
-    static let slabHeight: CGFloat = 86
-    static let slabGap: CGFloat = 18
-    /// How far the shelf's content fades out where the well cuts it — the
-    /// ticker's mask in design.html §02, in points rather than percent, so the
-    /// softening is the same on a shelf of three and a shelf of thirty.
-    static let shelfFadeWidth: CGFloat = 22
-    /// Top corners only: a slab **stands on** the shelf, so its bottom corners
-    /// are square where they meet the hairline. The card rung (D4).
-    static let slabRadius: CGFloat = rCard
-    /// The room above the shelf — where the ✕ bead lives — **derived, not
-    /// chosen**: a risen slab, the air above it, and the bead itself. The
-    /// mockup's 44 was measured off a panel with no cutout row above it; here
-    /// anything less puts the ✕ under the camera housing on the one frame a
-    /// slab is fully up.
-    ///
-    /// A slab under the cursor both *lifts* by `slabRise` and *grows* about its
-    /// bottom edge, so its top travels `slabRise + slabHeight · slabMagnify`.
-    /// The growth was missing from this sum until G3.2 and the shortfall — 8.6
-    /// points — went unnoticed because nothing above the shelf clipped: the ✕
-    /// simply drew outside the surface. The shelf's well clips now, so the
-    /// derivation has to be the whole of the travel or the bead loses its cap.
-    static var shelfTopPad: CGFloat {
-        slabRise + slabHeight * slabMagnify + slabCloseGap + Size.s.height
+    /// A card: one session, one square (G2.5: "each card should be a square",
+    /// "don't truncate the bottom … make it rounded as before"). The shelf
+    /// metaphor — slabs standing on a hairline, panning sideways — is retired:
+    /// the ledge is a grid that shows the whole strip at once.
+    static let cardSize: CGFloat = 76
+    static let cardGap: CGFloat = 16
+    /// Fully rounded, all four corners: the card floats in the grid, it does
+    /// not stand on anything. The card rung (D4).
+    static let cardRadius: CGFloat = rCard
+    /// Most cards per row. Four keeps a default-width panel's grid centred with
+    /// the mockup's side air; fewer sessions than columns just centre.
+    static let gridColumns: Int = 4
+    /// Air above the first row and below the last. Enough for a zoomed card's
+    /// growth (`cardSize · cardMagnify / 2`) plus the ✕ bead's half that rides
+    /// above the card's corner — derived the way `shelfTopPad` was.
+    static var gridPad: CGFloat {
+        (cardSize * cardMagnify) / 2 + Size.s.height / 2 + 4
     }
-    static let shelfPadX: CGFloat = 26
-    static let shelfRoom: CGFloat = 40
-    /// Air between a slab's top edge and the ✕ bead above it.
-    static let slabCloseGap: CGFloat = 8
 
-    /// **Slabs rise toward the cursor** (design.html §04's page script, copied
-    /// whole): each slab is displaced by `rise · f` and scaled by `1 + magnify ·
-    /// f`, where `f` is a gaussian of the pointer's distance from its centre.
-    /// The transform origin is the slab's *bottom* — it is standing on a shelf,
-    /// and a thing standing on a shelf grows upward.
-    static let slabRise: CGFloat = 16
-    static let slabMagnify: CGFloat = 0.10
-    /// σ of that gaussian, in points. Wide enough that three slabs move at once
-    /// (which is what makes it read as a surface rather than a hover state).
-    static let slabFalloff: CGFloat = 72
+    /// **Cards swell toward the cursor** (G2.5: "when i mouse over, let the
+    /// cards zoom; make the interaction a lot of fun!"): each card scales by
+    /// `1 + magnify · f` about its own centre, where `f` is a gaussian of the
+    /// pointer's 2-D distance from it — the Dock's magnification, in two axes,
+    /// so the whole neighbourhood leans toward the hand.
+    static let cardMagnify: CGFloat = 0.18
+    /// σ of that gaussian, in points. About one card-and-gap: the hovered card
+    /// swells fully, its neighbours visibly, the far corner not at all.
+    static let cardFalloff: CGFloat = 84
 
-    /// The app's catalog glyph, at the size the mockup draws it: big, white, and
-    /// the only thing on the slab.
-    static let slabGlyphPointSize: CGFloat = 22
-    static let slabGlyphWeight: NSFont.Weight = .regular
+    /// The app's catalog glyph: big, white, and the only thing on the card.
+    static let cardGlyphPointSize: CGFloat = 24
+    static let cardGlyphWeight: NSFont.Weight = .regular
 
     /// The gaussian itself, so the falloff is one function rather than a formula
     /// copied into a view and a test.
-    static func slabMagnification(distance: CGFloat) -> CGFloat {
-        exp(-(distance * distance) / (2 * slabFalloff * slabFalloff))
+    static func cardMagnification(distance: CGFloat) -> CGFloat {
+        exp(-(distance * distance) / (2 * cardFalloff * cardFalloff))
     }
 
     // MARK: - The swell (notification + summary)

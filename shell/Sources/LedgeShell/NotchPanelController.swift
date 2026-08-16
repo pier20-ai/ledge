@@ -628,18 +628,17 @@ final class NotchPanelController {
             width = PanelLimits.defaultWidth
             height = card.panelHeight + surface.panelWingRowHeight
         case .overview:
-            // **The ledge**: the strip, all of it, standing on a shelf. Shell
-            // chrome — so the shell's own width, and a fixed height, whatever
-            // the session it was zoomed out of happened to be.
-            let shelf = overviewView()
-            // The shelf opens centred on the session it was zoomed out of — the
-            // one slab you are certain to want to see once the strip is longer
-            // than the panel. `overviewOrigin` is where Back points, so this is
-            // the same fact asked a second way rather than a second copy of it.
-            shelf.apply(slabs: overviewSlabs(), current: overviewOrigin?.app)
-            content = shelf
+            // **The ledge**: the strip, all of it, as a grid of cards. Shell
+            // chrome — so the shell's own width, and a height that is a
+            // function of the strip: a grid does not scroll, it grows a row.
+            // `overviewOrigin` is where Back points, so `current` is the same
+            // fact asked a second way rather than a second copy of it.
+            let grid = overviewView()
+            grid.apply(cards: overviewCards(), current: overviewOrigin?.app)
+            content = grid
             width = PanelLimits.defaultWidth
-            height = OverviewSurfaceView.panelHeight + surface.panelWingRowHeight
+            height = OverviewSurfaceView.panelHeight(count: grid.cards.count)
+                + surface.panelWingRowHeight
         }
 
         let mode: PanelWingBarView.Mode = if presentation == .overview {
@@ -860,7 +859,7 @@ final class NotchPanelController {
 
     // MARK: - The ledge (flow.md, "The strip")
 
-    /// Zoom out: the strip becomes slabs on a shelf. Remembers what it zoomed
+    /// Zoom out: the strip becomes a grid of cards. Remembers what it zoomed
     /// out *of*, because that is what **Back** means.
     func enterOverview() {
         guard shellState.presentation != .overview else { return }
@@ -885,20 +884,20 @@ final class NotchPanelController {
 
     /// Whether a remembered surface is still somewhere to go back to. Only the
     /// app-bearing ones can go stale, and they go stale exactly when the ✕ on
-    /// the shelf stopped them.
+    /// the ledge stopped them.
     private func isStillReachable(_ presentation: ShellPresentation) -> Bool {
         guard let app = presentation.app else { return true }
         return session.strip.apps.contains(app)
     }
 
-    /// The shelf's contents: the strip, in strip order, with the one blank slot
+    /// The grid's contents: the strip, in strip order, with the one blank slot
     /// last (`SessionStrip.slots`). The icons are the catalog's, which are SF
     /// Symbol names already (spec §3.6).
-    private func overviewSlabs() -> [OverviewSurfaceView.Slab] {
+    private func overviewCards() -> [OverviewSurfaceView.Card] {
         session.strip.slots.map { slot in
             switch slot {
             case .app(let app):
-                OverviewSurfaceView.Slab(
+                OverviewSurfaceView.Card(
                     app: app,
                     name: session.name(for: app),
                     icon: session.icon(for: app)
@@ -911,8 +910,8 @@ final class NotchPanelController {
 
     private func overviewView() -> OverviewSurfaceView {
         if let overviewSurface { return overviewSurface }
-        let shelf = OverviewSurfaceView()
-        shelf.onSelect = { [weak self] app in
+        let grid = OverviewSurfaceView()
+        grid.onSelect = { [weak self] app in
             guard let self else { return }
             // "Click jumps": that session takes the stage, and the zoom-out is
             // over — so the origin goes with it.
@@ -925,9 +924,9 @@ final class NotchPanelController {
                 self.present(.newApp)
             }
         }
-        shelf.onStop = { [weak self] app in self?.stopSession(app) }
-        overviewSurface = shelf
-        return shelf
+        grid.onStop = { [weak self] app in self?.stopSession(app) }
+        overviewSurface = grid
+        return grid
     }
 
     /// **The only ✕ in the product** (flow.md, "The strip"). It stops the app's

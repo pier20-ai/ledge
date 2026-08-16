@@ -101,9 +101,11 @@ struct PanelWingTests {
             let (left, right, dead) = zones(surface)
             lefts.append(left)
             rights.append(right)
-            // Real room on every one of them, which the narrow panel never had.
-            #expect(left.width > 100)
-            #expect(right.width > 100)
+            // Real room on every one of them — enough for the wider island
+            // (the 67 pt walker) with air, which the narrow panel never had.
+            // (The reach shrank from 150 to what the islands need at G2.5.)
+            #expect(left.width > 67)
+            #expect(right.width > 67)
             #expect(dead.width == surface.hardwareCutoutRect.width
                     + LedgeMetrics.panelWingCutoutMargin * 2)
         }

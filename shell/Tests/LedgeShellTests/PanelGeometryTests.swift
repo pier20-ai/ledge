@@ -60,12 +60,14 @@ struct PanelGeometryTests {
         surface.metrics = .fallback
         surface.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
 
-        // One uniform width, top to bottom (G2.4): the shape is the panel and
-        // nothing else — the controls float beside the cutout, outside it.
+        // One uniform width, top to bottom (G2.4), floored at the islands'
+        // span (G2.5): a session wider than the floor gets its own width; a
+        // narrower one gets the floor, because the islands must stand on glass.
         let wide = surface.shapeSize(expanded: true, width: 620, height: 300)
         #expect(wide.width == 620 + ShellSurfaceView.fillet * 2)
         let narrow = surface.shapeSize(expanded: true, width: 360, height: 300)
-        #expect(narrow.width == 360 + ShellSurfaceView.fillet * 2)
+        #expect(narrow.width == surface.visitBarWidth + ShellSurfaceView.fillet * 2)
+        #expect(360 < surface.visitBarWidth, "the case under test: narrower than the floor")
 
         surface.present(.expanded(app: "chess"), content: nil, width: 520, height: 300, animated: false)
         #expect(surface.expandedWidth == 520)
@@ -106,15 +108,21 @@ struct PanelGeometryTests {
             #expect(surface.visitBarWidth
                     == surface.metrics.closedWidth + LedgeMetrics.visitBarWing * 2)
             #expect(abs(surface.visitBarRect.midX - surface.hardwareCutoutRect.midX) < 0.01)
-            // …and noticeably wider than the cutout, which is the whole
-            // complaint: 210 → 510 on the mockup's own proportion.
-            #expect(surface.visitBarWidth > surface.metrics.closedWidth + 200)
+            // …and wide enough past the cutout for both islands and their
+            // breathing room (the walker is the wider one: 67 + the 8 pt
+            // cutout margin).
+            #expect(surface.visitBarWidth > surface.metrics.closedWidth + 150)
         }
         #expect(Set(bars.map { "\($0)" }).count == 1, "the bar moved: \(bars)")
 
-        // The silhouette is the session's width plus fillets, every time —
-        // one uniform width top to bottom (G2.4); only the islands are wider.
+        // The silhouette is the session's width plus fillets — floored at the
+        // bar, so the islands always stand on glass (G2.5) — and one uniform
+        // width top to bottom (G2.4).
         #expect(shapes.last! > shapes.first!)
+        #expect(shapes.allSatisfy {
+            $0 >= NotchMetrics.fallback.closedWidth
+                + LedgeMetrics.visitBarWing * 2 + ShellSurfaceView.fillet * 2
+        })
     }
 
     @Test("A catalog panel declaration drives the session's panel size (§3.6 → §5)")

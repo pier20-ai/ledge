@@ -248,17 +248,14 @@ enum SnapshotRenderer {
     /// The ledge, rendered against a real catalog: one slab per enabled app plus
     /// the one blank slot (`SessionStrip.slots`).
     private static func overviewSurface(catalog: [CatalogApp]) -> ShellSurfaceView {
-        let shelf = OverviewSurfaceView()
+        let grid = OverviewSurfaceView()
         let strip = SessionStrip(catalog: catalog)
-        // Opened from a session in the middle of the strip, which is the frame
-        // worth reviewing: the shelf panned to centre that slab, both cut ends
-        // softened, and shelf visibly continuing past each of them.
         let current = strip.apps.isEmpty ? nil : strip.apps[strip.apps.count / 2]
-        shelf.apply(slabs: strip.slots.map { slot in
+        grid.apply(cards: strip.slots.map { slot in
             switch slot {
             case .app(let app):
                 let row = catalog.first { $0.id == app }
-                return OverviewSurfaceView.Slab(
+                return OverviewSurfaceView.Card(
                     app: app,
                     name: row?.name ?? app,
                     icon: row?.symbolName ?? "square.dashed"
@@ -267,22 +264,23 @@ enum SnapshotRenderer {
                 return .blank
             }
         }, current: current)
-        let height = OverviewSurfaceView.panelHeight + NotchMetrics.fallback.closedHeight
+        let height = OverviewSurfaceView.panelHeight(count: grid.cards.count)
+            + NotchMetrics.fallback.closedHeight
         let view = surface(
             presentation: .overview,
-            content: shelf,
+            content: grid,
             height: height
         )
         // **After** the last layout pass, not before: `layout` re-reads the live
-        // pointer (which is nowhere near a headless view), so a rise applied
+        // pointer (which is nowhere near a headless view), so a swell applied
         // first is flattened by the pass that follows it.
         view.layoutSubtreeIfNeeded()
-        // The cursor on the slab the shelf opened onto: the gaussian puts that
+        // The cursor on the card the grid opened from: the gaussian puts that
         // one at 1 and its neighbours partway up, which is the shape of the
-        // whole gesture — and it puts the ✕ where it belongs, on a slab the
-        // shelf has actually scrolled to rather than on one behind the fade.
-        if let current, let index = shelf.slabs.firstIndex(where: { $0.app == current }) {
-            shelf.apply(pointerX: shelf.slabFrames[index].midX)
+        // whole gesture — and it puts the ✕ where it belongs.
+        if let current, let index = grid.cards.firstIndex(where: { $0.app == current }) {
+            let frame = grid.cardFrames[index]
+            grid.apply(pointer: CGPoint(x: frame.midX, y: frame.midY))
         }
         view.displayIfNeeded()
         return view
