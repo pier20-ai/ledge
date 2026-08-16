@@ -180,6 +180,18 @@ final class NotchPanelController {
     /// pull the surface off the notch, and that gesture always puts the window
     /// under the pointer, so a remembered corner would never be consulted.
     private var parkedCorner: CGPoint?
+    /// Watches the parked window move (G2.8). Two jobs: keep `parkedCorner`
+    /// honest when the *system* drags the window (its glass is
+    /// `isMovableByWindowBackground`, so moves happen entirely outside this
+    /// object — the stale corner was why a strip walk teleported the window
+    /// back to the tear's first drop point), and notice a drop at the notch.
+    private var parkedMoveObserver: NSObjectProtocol?
+    /// True while `setParkedFrame` is the one moving the window, so the
+    /// observer only reacts to the user's own drags.
+    private var movingParkedProgrammatically = false
+    /// The release-poll for "dropped at the notch" (G2.8: dragging the window
+    /// back to the notch flies it home).
+    private var flyHomePoll: DispatchWorkItem?
     /// The parked window's own dwell timer. The notch's `dwellTimer` belongs to
     /// a swell that is a *presentation*; the parked band is not one (see
     /// `notifyParked`), so it cannot share the machine's timer.
@@ -281,6 +293,10 @@ final class NotchPanelController {
     func parkForTesting(at topLeft: CGPoint = CGPoint(x: 400, y: 400)) {
         tearOff(to: topLeft)
     }
+
+    /// The drop-at-the-notch predicate, for the tests: the poll and the mouse
+    /// button are wall-clock and hardware, but the geometry is just geometry.
+    var parkedWindowIsAtTheNotchForTesting: Bool { parkedWindowIsAtTheNotch }
 
     var overviewForTesting: OverviewSurfaceView? { overviewSurface }
 
@@ -681,10 +697,14 @@ final class NotchPanelController {
         // same either way, because what is presented does not depend on where.
         if let parked {
             parked.view.rowHeight = surface.panelWingRowHeight
+            parked.view.cutoutWidth = surface.metrics.closedWidth
             parked.view.setBodyMaterial(presentation.isConversation ? .chatGlass : .solid)
             parked.view.setPanelWing(mode: mode, canToggleGlass: canToggleGlass)
             parked.view.present(presentation, content: content, animated: animated)
-            resizeParked(width: width, height: height)
+            // Floored like the notch's own silhouette (G2.5/G2.8): the window
+            // carries the same islands with the same notch-sized gap between
+            // them, so it can never be narrower than they are.
+            resizeParked(width: max(width, surface.visitBarWidth), height: height)
             surface.setContentOwner(.shell)
             surface.present(.collapsed, content: nil, height: 0, animated: animated)
         } else {
@@ -971,11 +991,12 @@ final class NotchPanelController {
     private func tearOff(to topLeft: CGPoint) {
         guard parked == nil, shellState.isExpanded else { return }
         let shape = surface.currentShapeRect
-        // The panel's own body, not the bar it hangs from: what tears off is the
-        // surface the user was looking at, and the bar's overhang is notch
-        // furniture that has no meaning once the body has left the notch.
+        // The glass the user was looking at, minus the fillets (notch
+        // furniture): since G2.5 the silhouette is floored at the islands'
+        // span, and the window keeps that floor — the same islands, the same
+        // notch-sized gap between them (G2.8).
         let size = CGSize(
-            width: max(PanelLimits.minWidth, min(shape.width, surface.expandedWidth)),
+            width: max(PanelLimits.minWidth, shape.width - ShellSurfaceView.fillet * 2),
             height: max(PanelLimits.minHeight, shape.height)
         )
         send(.dragOffNotch)
@@ -1007,6 +1028,17 @@ final class NotchPanelController {
         window.animationBehavior = .none
         window.acceptsMouseMovedEvents = true
         parked = (window, view)
+        // The window's glass is `isMovableByWindowBackground`: the user's own
+        // drags happen entirely inside the system, and this is the only seam
+        // that hears about them (G2.8 — the stale-corner teleport, and the
+        // drop-at-the-notch fly-home).
+        parkedMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.parkedWindowMoved() }
+        }
 
         // Wings pause the moment the surface leaves (flow.md: "wings pause").
         surface.setWing(nil, animated: false)
@@ -1038,10 +1070,55 @@ final class NotchPanelController {
     private func setParkedFrame(topLeft: CGPoint, size: CGSize) {
         guard let parked else { return }
         parkedCorner = topLeft
+        movingParkedProgrammatically = true
         parked.window.setFrame(
             CGRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height),
             display: true
         )
+        movingParkedProgrammatically = false
+    }
+
+    /// The parked window moved. Ours (`setParkedFrame`) is already accounted
+    /// for; the user's own background-drag is the case this exists for.
+    private func parkedWindowMoved() {
+        guard let parked, !movingParkedProgrammatically else { return }
+        let frame = parked.window.frame
+        // One position for Ledge, and it is wherever the user just put it.
+        parkedCorner = CGPoint(x: frame.minX, y: frame.maxY)
+        // Dropped at the notch, it flies home (G2.8). "Dropped" is when the
+        // fingers let go, which the system's drag never tells us — so poll the
+        // button, briefly, only while a candidate drop is in the air.
+        scheduleFlyHomeCheck()
+    }
+
+    private func scheduleFlyHomeCheck() {
+        guard flyHomePoll == nil else { return }
+        pollFlyHomeOnRelease()
+    }
+
+    private func pollFlyHomeOnRelease() {
+        flyHomePoll = nil
+        guard parked != nil else { return }
+        guard NSEvent.pressedMouseButtons == 0 else {
+            let work = DispatchWorkItem { [weak self] in self?.pollFlyHomeOnRelease() }
+            flyHomePoll = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: work)
+            return
+        }
+        if parkedWindowIsAtTheNotch { send(.flyHome) }
+    }
+
+    /// Whether the parked window has been carried back to the notch: hard
+    /// against the top of the usable screen, with the cutout within its reach.
+    /// The system constrains a background-drag below the menu bar, so "at the
+    /// top" is the visible frame's ceiling, not the screen's.
+    private var parkedWindowIsAtTheNotch: Bool {
+        guard let parked, let screen = parked.window.screen ?? NSScreen.main else { return false }
+        let frame = parked.window.frame
+        guard frame.maxY >= screen.visibleFrame.maxY - 8 else { return false }
+        let cutout = surface.metrics.closedWidth
+        let reach = (screen.frame.midX - cutout / 2 - 40)...(screen.frame.midX + cutout / 2 + 40)
+        return frame.maxX >= reach.lowerBound && frame.minX <= reach.upperBound
     }
 
     /// The fingers let go. Whatever corner they left it at is the window's
@@ -1086,6 +1163,10 @@ final class NotchPanelController {
         self.parked = nil
         parkedSwellTimer?.cancel()
         parkedSwellTimer = nil
+        if let parkedMoveObserver { NotificationCenter.default.removeObserver(parkedMoveObserver) }
+        parkedMoveObserver = nil
+        flyHomePoll?.cancel()
+        flyHomePoll = nil
         // The content is about to be reparented into the notch panel by the
         // refresh below; the shrinking window must stop laying it out (G2.4 —
         // the fly-home render bug).

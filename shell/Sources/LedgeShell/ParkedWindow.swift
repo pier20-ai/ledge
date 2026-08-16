@@ -69,6 +69,18 @@ final class ParkedSurfaceView: FlippedView {
     private(set) var presentation: ShellPresentation = .collapsed
     private(set) var bodyMaterial: ShellSurfaceView.BodyMaterial = .solid
 
+    /// The hardware cutout's width, pushed in by the controller. There is no
+    /// camera in a floating window — what the gap preserves is the *layout*
+    /// (G2.8: "keep a notch-sized empty space… the buttons stay where they
+    /// were"): the same islands, the same distance apart, so the torn-off
+    /// surface is recognisably the notch's body somewhere else.
+    var cutoutWidth: CGFloat = NotchMetrics.fallback.closedWidth {
+        didSet {
+            guard cutoutWidth != oldValue else { return }
+            needsLayout = true
+        }
+    }
+
     init(callbacks: ShellCallbacks) {
         wingBar = PanelWingBarView(
             onToggleGlass: callbacks.toggleChat,
@@ -257,12 +269,11 @@ final class ParkedSurfaceView: FlippedView {
             width: homeSize.width,
             height: homeSize.height
         )
-        // The visit's own controls, in the row the panel keeps for the camera.
-        // There is no camera here — nothing to exclude — so the row is pure
-        // chrome and the dead zone is nothing: `cutoutWidth = 0` puts the two
-        // controls at the row's outer ends, which is where design.html draws
-        // them on the panel too.
-        wingBar.cutoutWidth = 0
+        // The visit's own controls, with the notch-sized gap between them
+        // preserved (G2.8): no camera here, but the empty space is the body's
+        // identity — collapsing it made the islands crowd the middle and the
+        // window read as different chrome.
+        wingBar.cutoutWidth = cutoutWidth
         wingBar.rowHeight = rowHeight
         // A breath below the window's top edge (G2.4: the beads were touching
         // it — the notch panel gets this air from the cutout row; the window

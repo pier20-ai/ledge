@@ -59,6 +59,107 @@ struct ParkedTests {
         #expect(window.isMovableByWindowBackground, "fixed size, any position")
     }
 
+    /// G2.8: the window keeps the notch's floored glass — the same islands
+    /// with the same notch-sized gap between them — so the torn-off surface is
+    /// recognisably the same body somewhere else, never a crowded miniature.
+    @Test("The window carries the islands' floor and the notch-sized gap")
+    func theWindowKeepsTheNotchGap() throws {
+        let (_, controller, _) = try parked()
+        let window = try #require(controller.parkedWindowForTesting)
+        let view = try #require(controller.parkedSurfaceForTesting)
+        let surface = controller.surfaceForTesting
+        #expect(window.frame.width >= surface.visitBarWidth)
+        view.layoutSubtreeIfNeeded()
+        let bar = view.wingBarView
+        #expect(view.cutoutWidth == surface.metrics.closedWidth)
+        #expect(
+            bar.deadZoneRect.width
+                == surface.metrics.closedWidth + LedgeMetrics.panelWingCutoutMargin * 2,
+            "the empty space where the camera would be, kept on purpose"
+        )
+        #expect(bar.tearView.isHidden, "a window cannot tear off of itself")
+    }
+
+    /// G2.8 bug 3's regression: park, fly home, park again — the whole cycle,
+    /// twice, because the second tear is the one that used to be dead.
+    @Test("The tear works again after flying home")
+    func tearAfterFlyHome() throws {
+        let (_, controller, app) = try parked()
+        controller.surfaceForTesting.onClick?()
+        #expect(!controller.isParked)
+        #expect(controller.presentation == .expanded(app: app))
+
+        controller.parkForTesting()
+        #expect(controller.isParked, "the second tear parks exactly like the first")
+        #expect(controller.interactionState == .parked)
+        #expect(controller.parkedSurfaceForTesting?.presentation == .expanded(app: app))
+    }
+
+    /// G2.8 bug 2's regression: the user moves the window by its own glass —
+    /// a system drag this object never sees directly — and then walks the
+    /// strip. The window must stay where the user put it, not teleport back
+    /// to the tear's first drop point.
+    @Test("Walking after a hand-moved window keeps the moved corner")
+    func walkingKeepsTheMovedCorner() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        controller.present(.expanded(app: session.strip.apps[0]), animated: false)
+        controller.parkForTesting(at: CGPoint(x: 380, y: 700))
+        let window = try #require(controller.parkedWindowForTesting)
+
+        // The user's own drag: a frame change straight on the window, which
+        // posts `didMove` — the only signal the controller gets.
+        let moved = window.frame.offsetBy(dx: 140, dy: -120)
+        window.setFrame(moved, display: true)
+
+        _ = controller.handleSwipe(.left)
+        let after = try #require(controller.parkedWindowForTesting).frame
+        #expect(abs(after.minX - moved.minX) < 0.5, "the corner is wherever the user last put it")
+        #expect(abs(after.maxY - moved.maxY) < 0.5)
+    }
+
+    /// G2.8 bug 4: carried back up to the notch and let go, the window means
+    /// "home". The user's drag reaches the controller only as `didMove`;
+    /// headlessly no button is held, so the release-poll resolves at once and
+    /// the whole gesture is testable as geometry in, presentation out.
+    @Test("Dropped at the notch the window flies home; dropped elsewhere it stays")
+    func droppedAtTheNotch() throws {
+        let (_, controller, app) = try parked()
+        let window = try #require(controller.parkedWindowForTesting)
+        let screen = try #require(window.screen ?? NSScreen.main)
+        #expect(!controller.parkedWindowIsAtTheNotchForTesting, "parked at 400,400: not the notch")
+
+        // Against the ceiling but far to the side: near nothing that means home.
+        let frame = window.frame
+        window.setFrame(
+            CGRect(
+                x: screen.frame.minX,
+                y: screen.visibleFrame.maxY - frame.height,
+                width: frame.width,
+                height: frame.height
+            ),
+            display: true
+        )
+        #expect(controller.isParked, "the corner of the screen is not the notch")
+
+        // Astride the cutout, against the ceiling: that is the notch, and the
+        // drop flies the visit home.
+        window.setFrame(
+            CGRect(
+                x: screen.frame.midX - frame.width / 2,
+                y: screen.visibleFrame.maxY - frame.height,
+                width: frame.width,
+                height: frame.height
+            ),
+            display: true
+        )
+        #expect(!controller.isParked, "dropped at the notch: it flew home")
+        #expect(controller.presentation == .expanded(app: app))
+        #expect(controller.interactionState == .visit)
+    }
+
     @Test("The window is the size the panel was, and takes it from the pointer's corner")
     func theWindowTakesThePanelsSize() throws {
         let session = HostSession()

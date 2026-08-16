@@ -3,6 +3,13 @@ import QuartzCore
 
 class FlippedView: NSView {
     override var isFlipped: Bool { true }
+
+    /// Ledge is an accessory app whose panels are non-activating: **every**
+    /// click on it is a first mouse, forever. The islands learned this one at
+    /// a time (G2.4, the parked window's multi-click buttons; G2.8, the park
+    /// drag silently dropped on the bar's own background) — so it is the base
+    /// class's law now, not a per-view discovery.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 extension NSView {
