@@ -163,6 +163,12 @@ final class NotchPanelController {
     /// stage would be the overview quietly changing something.
     private var overviewOrigin: ShellPresentation?
 
+    /// What the last `refresh` drew — the seam that makes "entering chat" a
+    /// detectable transition. Entering always reopens the transcript (G2.6):
+    /// the ⌄ peek is state *inside* one chat visit, never carried into the
+    /// next one.
+    private var lastRefreshedPresentation: ShellPresentation = .collapsed
+
     /// **Parked** (flow.md, States). The window and its body, or nil when the
     /// surface is where it belongs. Everything that asks "is the visit on the
     /// notch or in a window" asks this.
@@ -591,6 +597,10 @@ final class NotchPanelController {
             // floats over it (flow.md, "Visit modes").
             let stage = session.content(for: app)
             let chat = chatView(for: app)
+            // Arriving from anywhere that is not chat, the conversation is
+            // showing — a transcript collapsed on the way out stays collapsed
+            // only within its own visit (G2.6).
+            if !lastRefreshedPresentation.isChat { chat.showTranscript() }
             chat.setStage(stage?.view, height: max(0, (stage?.height ?? 0) - session.chromeHeight))
             content = chat
             // The pane is a web view with a composer in it: right-clicking a
@@ -731,6 +741,7 @@ final class NotchPanelController {
         // re-decided here rather than only when the pointer moves.
         rearmExitTimer()
         updateOutsideClickMonitor()
+        lastRefreshedPresentation = presentation
     }
 
     /// Hold — or give back — key focus for the editor's text box.
@@ -822,10 +833,12 @@ final class NotchPanelController {
         case .openVisit(let app):
             cancelDwell()
             surface.setPromise(false)
-            if let app {
+            if let app, app != shellState.lastPresentedApp {
                 shellState.selectApp(app, reselectOpensChat: false)
             } else {
-                shellState.present(.expanded(app: shellState.lastPresentedApp))
+                // The remembered session comes back the way it was left —
+                // chat reopens as chat (G2.6, `ShellState.reopenVisit`).
+                shellState.reopenVisit()
             }
             refresh(animated: true)
 

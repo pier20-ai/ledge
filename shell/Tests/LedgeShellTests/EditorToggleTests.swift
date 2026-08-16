@@ -28,27 +28,47 @@ struct EditorToggleTests {
         return surface
     }
 
-    @Test("The lit zone names the surface that is up")
-    func litZoneNamesTheSurface() {
+    /// G2.6: the split belongs to the stage. Chat and the ledge wear a single
+    /// **‹ Back** in its exact place — "you're going back to the app; this is
+    /// cleaner" — so which island is up *is* the mode, and the word on it
+    /// names where the press goes.
+    @Test("The stage wears the split; chat and the ledge wear ‹ Back")
+    func theLeftIslandNamesTheWayOut() {
         let surface = makeSurface()
-        let split = surface.panelWingBarView.splitView
+        let bar = surface.panelWingBarView
 
         surface.setPanelWing(mode: .stage, canToggleGlass: true)
-        #expect(!split.homeZone.isLit)
-        #expect(!split.chatZone.isLit)
+        #expect(!bar.splitView.isHidden)
+        #expect(bar.backView.isHidden)
 
         surface.setPanelWing(mode: .editor, canToggleGlass: true)
-        #expect(!split.homeZone.isLit)
-        #expect(split.chatZone.isLit)
+        #expect(bar.splitView.isHidden)
+        #expect(!bar.backView.isHidden)
+        #expect(bar.backView.currentLabel == "Back")
 
         surface.setPanelWing(mode: .overview, canToggleGlass: true)
-        #expect(split.homeZone.isLit)
-        #expect(!split.chatZone.isLit)
+        #expect(bar.splitView.isHidden)
+        #expect(!bar.backView.isHidden)
 
         // And back — a toggle that only travels one way is a door.
         surface.setPanelWing(mode: .stage, canToggleGlass: true)
-        #expect(!split.homeZone.isLit)
-        #expect(!split.chatZone.isLit)
+        #expect(!bar.splitView.isHidden)
+        #expect(bar.backView.isHidden)
+    }
+
+    /// ‹ Back takes the split's anchorage, so the island never moves when the
+    /// surface changes underneath it (principle 8).
+    @Test("Back stands exactly where the split stood")
+    func backTakesTheSplitsAnchorage() {
+        let surface = makeSurface()
+        let bar = surface.panelWingBarView
+        surface.setPanelWing(mode: .stage, canToggleGlass: true)
+        surface.layoutSubtreeIfNeeded()
+        let splitTrailing = bar.splitView.frame.maxX
+
+        surface.setPanelWing(mode: .editor, canToggleGlass: true)
+        surface.layoutSubtreeIfNeeded()
+        #expect(abs(bar.backView.frame.maxX - splitTrailing) < 0.01)
     }
 
     /// Principle 1's two-tier control law: both islands are beads — one split

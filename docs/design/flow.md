@@ -47,11 +47,13 @@ the window (parked).
 | Visit | pointer away > Texit | Resting |
 | Parked | ⌃, or click the bare notch | Visit (flies home) |
 
-Knobs, feel-tuned on device: **Th** ≈ 0.15 s (below it, the notch swells a
+Knobs, feel-tuned on device: **Th** ≈ 0.1 s (below it, the notch swells a
 breath — a promise, not a surface) · **Ti** ≈ 6 s for ambient-class,
-alert-class holds · **Ta** holder-declared · **Texit** ≈ 2.5 s of pointer
+alert-class holds · **Ta** holder-declared · **Texit** ≈ 0.3 s of pointer
 fully away, and the timer never runs while the pill or the app holds the
-keyboard, during a drag, or while a tool is running.
+keyboard, during a drag, or while a tool is running. Closing does not lose
+the visit: reopening restores the session *and* its mode — a walked-away
+chat comes back as that chat.
 
 ## The strip
 
@@ -62,8 +64,10 @@ keyboard, during a drag, or while a tool is running.
 - Zoom out to the overview — **the ledge**: sessions as a grid of square
   glass cards that swell toward the cursor; the blank slot is a dashed card,
   last. Click jumps; the only ✕ in the product lives here, riding the hovered
-  card's corner. Trigger: the `|` divider, or ⌂ — which wears a back arrow
-  while the ledge is up. (The shelf-of-slabs specimen retired at G2.5.)
+  card's corner. Trigger: the `|` divider, or ⌂. While the ledge — or the
+  chat — is up, the left island is a single **‹ Back**: the exit from either
+  full-panel surface is the app, and the control says so. (The shelf-of-slabs
+  specimen retired at G2.5; the lit-zone split on chat/ledge at G2.6.)
 - Width is per-session, floored at the islands' span; blank slots take the
   default. Wings never move.
 

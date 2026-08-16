@@ -92,7 +92,8 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 18px 12px 12px;
+  /* padding-top mirrors ChatSurfaceView.topPad — the two must agree. */
+  padding: 22px 12px 12px;
 }
 
 /* --------------------------------------------------------------- the scroller
@@ -122,7 +123,10 @@ body {
   flex-direction: column;
   justify-content: flex-end;
   gap: 8px;
-  padding: 0 6px;
+  /* Headroom above the first exchange: scrolled to the top, the oldest
+     bubble clears the pane edge and the fade instead of being sliced by
+     them (G2.6). */
+  padding: 26px 6px 0;
 }
 
 /* ------------------------------------------------------------------- bubbles */
@@ -150,11 +154,15 @@ body {
   border-bottom-right-radius: 5px;
 }
 
-/* The agent. Cyan-tinted glass: a wash, a hairline, and a glow. */
+/* The agent. Cyan-tinted glass over an OPAQUE base (G2.6: "the chat bubbles
+   are transparent! They must be fully opaque") — the tint is the same wash it
+   always was, but the stage behind can no longer read through the words. */
 .bubble.agent {
   align-self: flex-start;
   color: var(--ink-1);
-  background: linear-gradient(160deg, rgba(46, 209, 240, 0.32), rgba(46, 209, 240, 0.15));
+  background:
+    linear-gradient(160deg, rgba(46, 209, 240, 0.32), rgba(46, 209, 240, 0.15)),
+    #0d1417;
   border: 1px solid rgba(46, 209, 240, 0.38);
   box-shadow:
     0 0 24px rgba(46, 209, 240, 0.35),
@@ -167,7 +175,9 @@ body {
    (flow.md, Edges). No card, no code, no stack trace — the agent's own sentence
    in red glass. */
 .bubble.agent.trouble {
-  background: linear-gradient(160deg, rgba(255, 69, 58, 0.28), rgba(255, 69, 58, 0.13));
+  background:
+    linear-gradient(160deg, rgba(255, 69, 58, 0.28), rgba(255, 69, 58, 0.13)),
+    #17100f;
   border-color: rgba(255, 69, 58, 0.38);
   box-shadow:
     0 0 24px rgba(255, 69, 58, 0.3),
@@ -391,6 +401,9 @@ body {
 
 .icosm svg {
   display: block;
+  /* Optical centring (G2.6): the glyph's visual mass sits high in the
+     circle; one point down is the difference between measured and centred. */
+  transform: translateY(1px);
 }
 
 /* The transcript toggle — the ONE coloured control on this surface, and it
@@ -416,6 +429,12 @@ body {
   box-shadow:
     0 0 22px rgba(46, 209, 240, 0.65),
     inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.toggle svg {
+  display: block;
+  /* Same optical centring as .icosm: the chevron reads high without it. */
+  transform: translateY(1px);
 }
 
 .toggle svg {

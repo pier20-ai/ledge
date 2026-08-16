@@ -68,24 +68,28 @@ struct OverviewTests {
         #expect(opened == 0, "the geometry is the claim here; the press is the next test")
     }
 
-    @Test("Opening the ledge presents it, and the ⌂ lights up wearing a back arrow")
+    @Test("Opening the ledge presents it, and the left island becomes ‹ Back")
     func openingTheLedge() throws {
         let (session, controller) = try loaded()
-        controller.present(.expanded(app: session.strip.apps[0]), animated: false)
-        let split = controller.surfaceForTesting.panelWingBarView.splitView
-        #expect(split.homeZone.symbolName == "house")
+        let app = session.strip.apps[0]
+        controller.present(.expanded(app: app), animated: false)
+        let bar = controller.surfaceForTesting.panelWingBarView
+        #expect(!bar.splitView.isHidden, "the stage wears the split")
+        #expect(bar.backView.isHidden)
 
         controller.enterOverview()
         #expect(controller.presentation == .overview)
         #expect(controller.presentation.isExpanded, "the ledge is a visit, zoomed out")
-        #expect(split.homeZone.isLit, "⌂ lights while the ledge is up — it is the way off it")
-        #expect(!split.homeZone.isHidden)
-        // G2.5: while you are viewing all apps, the press means "back to the
-        // app", and the icon says so.
-        #expect(split.homeZone.symbolName == "arrow.left")
+        // G2.6: while you are viewing all apps the island is one word — Back —
+        // because the press means "back to the app" and the control says so.
+        #expect(bar.splitView.isHidden)
+        #expect(!bar.backView.isHidden)
 
-        controller.leaveOverview()
-        #expect(split.homeZone.symbolName == "house", "and the ⌂ comes back with the stage")
+        // …and pressing it actually goes there (the G2.6 bug: ⌂ was wired to
+        // *enter* the overview, so from inside it the press went nowhere).
+        #expect(bar.backView.accessibilityPerformPress())
+        #expect(controller.presentation == .expanded(app: app))
+        #expect(!bar.splitView.isHidden, "and the split comes back with the stage")
     }
 
     // MARK: - The grid is the strip

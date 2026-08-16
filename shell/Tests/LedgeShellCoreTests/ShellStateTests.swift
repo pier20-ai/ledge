@@ -61,6 +61,15 @@ struct ShellStateTests {
         state.toggleChat()
         #expect(state.presentation.app == "stocks")
         #expect(state.presentation.isChat)
+        // Reopening restores the session AND its mode (G2.6, flow.md Knobs):
+        // the conversation you walked away from is the one that comes back.
+        state.collapse()
+        state.toggleExpansion()
+        #expect(state.presentation == .chat(app: "stocks"))
+        // Left on the stage, it reopens on the stage — the memory is the mode,
+        // not a preference for chat.
+        state.toggleChat()
+        #expect(state.presentation == .expanded(app: "stocks"))
         state.collapse()
         state.toggleExpansion()
         #expect(state.presentation == .expanded(app: "stocks"))

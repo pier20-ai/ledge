@@ -199,10 +199,11 @@ struct PanelWingTests {
         )
         surface.setPanelWing(mode: .editor, canToggleGlass: true)
         surface.layoutSubtreeIfNeeded()
-        let after = surface.convert(bar.splitView.bounds, from: bar.splitView)
-        // Only the word changed. The two labels differ by a point or two in
-        // width, so the frame is compared where it is anchored.
-        #expect(bar.splitView.chatZone.isLit)
+        // G2.6: the editor wears ‹ Back, in the split's exact anchorage — only
+        // the island changed, not the place.
+        #expect(bar.splitView.isHidden)
+        #expect(!bar.backView.isHidden)
+        let after = surface.convert(bar.backView.bounds, from: bar.backView)
         #expect(abs(after.maxX - before.maxX) < 0.01)
         #expect(after.height == before.height)
     }

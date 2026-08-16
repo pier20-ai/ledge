@@ -32,8 +32,10 @@ import QuartzCore
 final class ChatSurfaceView: FlippedView {
     // MARK: - The measurements (design.html §01 `.glasspanel` / `.stage-min`)
 
-    /// The breath above the stage (Manu at G2.3: more air around the stage).
-    static let topPad: CGFloat = 18
+    /// The breath above the stage (G2.3: more air; G2.6: "sufficient margin on
+    /// all 4 edges — let the glassy surface bleed through"). Matches the
+    /// page's own `.pane` padding-top — the two must agree (token-sync note).
+    static let topPad: CGFloat = 22
     /// The pill and the air around it — `margin-top: 10` + 40 pt capsule +
     /// `padding-bottom: 12`. The pill never moves, so this never changes.
     static let pillRoom: CGFloat = 62
@@ -44,8 +46,9 @@ final class ChatSurfaceView: FlippedView {
     /// A slot with no stage is pure conversation, and takes the whole pane.
     static let blankPanelHeight: CGFloat = 384
     /// The stage's reduced prominence. Not a thumbnail and not a screenshot —
-    /// the live tree, one step back — with real air on every side.
-    static let stageScale: CGFloat = 0.90
+    /// the live tree, one step back — with real air on every side (0.88 since
+    /// G2.6: 6% of the panel a side, so the glass visibly bleeds through).
+    static let stageScale: CGFloat = 0.88
     static let stageDim: CGFloat = 0.92
     /// Scrolled into the past, it recedes further — a dim only. No blur: the
     /// stage stays legible behind the history (Manu's G2.4 wireframe: "not
@@ -211,6 +214,14 @@ final class ChatSurfaceView: FlippedView {
     }
 
     // MARK: - The two states the page can put the pane in
+
+    /// Entering chat always shows the conversation (G2.6): whoever presents
+    /// this surface after a stage or a ledge calls this, so a transcript
+    /// collapsed on the way out never greets the next arrival.
+    func showTranscript() {
+        collapsed = false
+        bridge.showTranscript()
+    }
 
     private func setCollapsed(_ next: Bool) {
         guard next != collapsed else { return }

@@ -324,6 +324,11 @@ final class PanelWingBarView: FlippedView {
     private let leftZone = ClippingView()
     private let rightZone = ClippingView()
     private let split: HomeChatSplitView
+    /// **‹ Back** — the left island while the chat or the ledge is up (G2.6:
+    /// "you're going back to the app; this is cleaner"). One word instead of
+    /// two lit zones: from either full-panel surface the only exit that needs
+    /// a permanent control is *back*, and the bead says so.
+    private let back: LedgeButton
     private let walker: WingWalkerView
 
     /// The hardware cutout's width and the row's height, pushed in by the
@@ -337,14 +342,24 @@ final class PanelWingBarView: FlippedView {
         onWalk: @escaping (Int) -> Void,
         onOverview: @escaping () -> Void
     ) {
-        // The left island is the [⌂|✦] split (Manu's O2 conclusion): ⌂ shows
-        // the ledge — the word "Apps" opening a chat was the counterintuitive
-        // thing — and ✦ lowers the glass. Both are the glass swelling
-        // (design.html §01, principle 1's two-tier control law).
+        // The left island on the stage is the [⌂|✦] split (Manu's O2
+        // conclusion): ⌂ shows the ledge — the word "Apps" opening a chat was
+        // the counterintuitive thing — and ✦ lowers the glass. Both are the
+        // glass swelling (design.html §01, principle 1's two-tier control law).
         split = HomeChatSplitView(onHome: onOverview, onChat: onToggleGlass)
+        // …and on the chat and the ledge it is ‹ Back (G2.6). One action, one
+        // wire: `onToggleGlass` already means "leave this full-panel surface
+        // for the app" on both — it raises the glass in chat and it is Back's
+        // own path out of the overview.
+        back = LedgeButton("Back", symbol: "chevron.left", variant: .bead, size: .s) {
+            onToggleGlass()
+        }
         walker = WingWalkerView(onWalk: onWalk, onOverview: onOverview)
         super.init(frame: .zero)
+        back.isHidden = true
+        back.setAccessibilityLabel("Back to the app")
         leftZone.addSubview(split)
+        leftZone.addSubview(back)
         rightZone.addSubview(walker)
         addSubview(leftZone)
         addSubview(rightZone)
@@ -368,13 +383,15 @@ final class PanelWingBarView: FlippedView {
     /// exactly when it must be there.
     func apply(mode: Mode, canToggleGlass: Bool) {
         self.mode = mode
-        // The lit zone answers "where am I"; the press still means "take me
-        // there / back" — ⌂ toggles the ledge, ✦ toggles the glass.
-        split.apply(
-            homeLit: mode == .overview,
-            chatLit: mode == .editor,
-            chatHidden: !canToggleGlass
-        )
+        // On the stage, the split: ⌂ opens the ledge, ✦ lowers the glass. On
+        // the chat and the ledge, one word — **Back** (G2.6): from either
+        // full-panel surface the exit is the app, and the control says so.
+        let showsBack = mode != .stage
+        split.isHidden = showsBack
+        back.isHidden = !showsBack
+        if !showsBack {
+            split.apply(homeLit: false, chatLit: false, chatHidden: !canToggleGlass)
+        }
         needsLayout = true
     }
 
@@ -436,6 +453,17 @@ final class PanelWingBarView: FlippedView {
             height: toggle.height
         )
 
+        // ‹ Back takes the split's exact anchorage: trailing edge against the
+        // dead zone, so swapping between them never moves the island.
+        let backSize = back.intrinsicContentSize
+        let backWidth = min(ceil(backSize.width), left.width)
+        back.frame = CGRect(
+            x: max(0, left.width - backWidth),
+            y: (left.height - backSize.height) / 2,
+            width: backWidth,
+            height: backSize.height
+        )
+
         let walkerSize = walker.intrinsicContentSize
         let walkerWidth = min(walkerSize.width, right.width)
         walker.frame = CGRect(
@@ -449,6 +477,7 @@ final class PanelWingBarView: FlippedView {
     // MARK: - Test seams
 
     var splitView: HomeChatSplitView { split }
+    var backView: LedgeButton { back }
     var walkerView: WingWalkerView { walker }
 }
 
@@ -712,18 +741,13 @@ final class HomeChatSplitView: FlippedView {
     }
 
     /// Which surface is up — the lit zone — and whether there is any glass to
-    /// lower at all (the blank slot keeps ⌂ and loses ✦).
-    ///
-    /// While the ledge is up the ⌂ wears a **back arrow** (G2.5): the press
-    /// returns to the app, and the icon says so — the same "name where the
-    /// press goes" law the retired text toggle obeyed.
+    /// lower at all (the blank slot keeps ⌂ and loses ✦). Since G2.6 the split
+    /// only ever shows on the stage — chat and the ledge wear ‹ Back instead
+    /// (`PanelWingBarView`) — so in practice neither zone is ever lit; the
+    /// states remain for the law that a lit zone *would* be honest.
     func apply(homeLit: Bool, chatLit: Bool, chatHidden: Bool) {
         home.isLit = homeLit
         chat.isLit = chatLit
-        home.setSymbol(
-            homeLit ? "arrow.left" : "house",
-            label: homeLit ? "Back to the app" : "Show all apps"
-        )
         if self.chatHidden != chatHidden {
             self.chatHidden = chatHidden
             chat.isHidden = chatHidden

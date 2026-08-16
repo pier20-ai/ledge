@@ -301,11 +301,12 @@ enum LedgeInteraction {
     /// a surface. At it, the summary (or the visit, for a session that declares
     /// no summary).
     ///
-    /// 0.35 read as designed on paper and as *lag* on device (G2.5: "it now
-    /// needs the mouse hovering for a long time"). 0.15 is still two frames of
-    /// promise — a drive-by across the menu bar does not open anything — but a
-    /// pointer that has come to the notch on purpose gets its surface at once.
-    static let hoverThreshold: TimeInterval = 0.15
+    /// 0.35 read as designed on paper and as *lag* on device; 0.15 was still
+    /// slow to Manu's hand (G2.6). 0.1 keeps a breath of promise — a drive-by
+    /// across the menu bar does not open anything — but a pointer that has
+    /// come to the notch on purpose gets its surface at once. Feel-tuning
+    /// continues on device.
+    static let hoverThreshold: TimeInterval = 0.1
 
     /// **Ti** — an ambient notification's dwell. Alert-class holds until acted
     /// on or dismissed, so this number does not apply to it at all
@@ -319,8 +320,10 @@ enum LedgeInteraction {
 
     /// **Texit** — how long the pointer must be *fully* away from the visit
     /// before it closes. Never runs while anything is in flight; see
-    /// `ExitInhibitor`.
-    static let exitDelay: TimeInterval = 2.5
+    /// `ExitInhibitor`. 2.5 at ratification; 0.3 since G2.6 — Manu is
+    /// feel-tuning the walk-away on device, and a visit that lingers seconds
+    /// after the hand has left reads as a window, not a glance.
+    static let exitDelay: TimeInterval = 0.3
 
     // MARK: - The promissory swell (hover < Th)
 

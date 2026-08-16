@@ -275,6 +275,12 @@ export function App() {
           setStage({ present: Boolean(event.present), inset: Number(event.inset) || 0 });
           return;
         }
+        if (event.event === "transcript") {
+          // Entering chat always shows the conversation (G2.6): the ⌄ peek is
+          // state inside one visit, and Swift resets it on every arrival.
+          setCollapsed(Boolean(event.collapsed));
+          return;
+        }
         if (event.event === "created") {
           // The blank slot just became an app's chat. Adopt the id WITHOUT
           // clearing anything: the transcript already holds the prompt that

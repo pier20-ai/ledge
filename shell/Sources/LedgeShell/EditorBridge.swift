@@ -116,6 +116,16 @@ final class EditorBridge {
         ]))
     }
 
+    /// Reopen the transcript over the stage. Entering chat always shows the
+    /// conversation (G2.6 ruling): the ⌄ is a way to peek at the stage inside
+    /// one chat visit, not a mode the next visit inherits.
+    func showTranscript() {
+        emit(.object([
+            "event": .string("transcript"),
+            "collapsed": .bool(false),
+        ]))
+    }
+
     // MARK: - Swift → JS
 
     /// Deliver one `builder` envelope (spec §3.6). Returns false when the event

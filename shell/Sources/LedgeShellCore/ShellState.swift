@@ -253,6 +253,20 @@ public struct ShellState: Equatable, Sendable {
         if presentation.isExpanded {
             present(.collapsed)
         } else {
+            reopenVisit()
+        }
+    }
+
+    /// Reopen the last visit **the way it was left** (G2.6: hover away and
+    /// come back, and the conversation you were having must still be the
+    /// surface — a walk-away that silently swapped chat for stage was read as
+    /// the state being lost). The mode memory is `visitMode`, the same one the
+    /// strip walk honours; it only ever applies to the remembered session,
+    /// because it was that session's conversation.
+    public mutating func reopenVisit() {
+        if visitMode == .chat, let app = lastPresentedApp {
+            present(.chat(app: app))
+        } else {
             present(.expanded(app: lastPresentedApp))
         }
     }

@@ -136,11 +136,13 @@ struct ParkedTests {
         controller.enterOverview()
         #expect(controller.presentation == .overview)
         #expect(controller.isParked)
-        #expect(view.wingBarView.splitView.homeZone.isLit)
+        #expect(!view.wingBarView.backView.isHidden, "the ledge wears ‹ Back in the window too")
+        #expect(view.wingBarView.splitView.isHidden)
 
         controller.leaveOverview()
         #expect(controller.presentation == .expanded(app: app))
-        #expect(!view.wingBarView.splitView.homeZone.isLit)
+        #expect(!view.wingBarView.splitView.isHidden)
+        #expect(view.wingBarView.backView.isHidden)
     }
 
     // MARK: - While parked

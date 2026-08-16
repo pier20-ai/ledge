@@ -167,12 +167,54 @@ struct ChatModeTests {
         #expect(chat.bridge.emitted.count == before + 1)
         let script = try! #require(chat.bridge.emitted.last)
         #expect(script.contains("\"stage\""))
-        #expect(script.contains("144"))                  // 160 × 0.90
+        #expect(script.contains("141"))                  // 160 × 0.88, rounded to 0.5
 
         // A re-layout that changed nothing costs nothing: `layout` runs on every
         // applied commit, and a live app commits several times a second.
         chat.bridge.setStage(present: true, inset: Self.stageHeight * ChatSurfaceView.stageScale)
         #expect(chat.bridge.emitted.count == before + 1)
+    }
+
+    // MARK: - What the next visit inherits (G2.6)
+
+    /// flow.md, Knobs: "Closing does not lose the visit: reopening restores
+    /// the session *and* its mode." Walking away from a conversation and
+    /// coming back must not silently swap it for the stage.
+    @Test("A closed chat reopens as that chat")
+    func aClosedChatReopensAsChat() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        let app = session.strip.apps[0]
+
+        controller.present(.chat(app: app), animated: false)
+        controller.present(.collapsed, animated: false)
+        controller.surfaceForTesting.onClick?()
+        #expect(controller.presentation == .chat(app: app))
+
+        // …and a stage visit reopens as the stage: the memory is the mode the
+        // user left, not a preference for chat.
+        controller.present(.expanded(app: app), animated: false)
+        controller.present(.collapsed, animated: false)
+        controller.surfaceForTesting.onClick?()
+        #expect(controller.presentation == .expanded(app: app))
+    }
+
+    /// The other half of the ruling: the ⌄ peek is state *inside* one chat
+    /// visit. Every arrival into chat shows the conversation.
+    @Test("Entering chat always reopens the transcript")
+    func enteringChatShowsTheTranscript() {
+        let (chat, _) = makeChat()
+        chat.bridge.submit(.ready)                       // the page is up
+        chat.editor.onTranscript?(true)                  // the page's ⌄
+        #expect(chat.collapsed)
+
+        chat.showTranscript()
+        #expect(!chat.collapsed)
+        let script = chat.bridge.emitted.last
+        #expect(script?.contains("\"transcript\"") == true, "the page is told, not just the view")
+        #expect(script?.contains("\"collapsed\":false") == true)
     }
 
     // MARK: - Esc
