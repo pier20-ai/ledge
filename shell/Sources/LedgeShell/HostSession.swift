@@ -22,6 +22,10 @@ final class HostSession {
     private var transport: SocketTransport?
     private var drawTimer: Timer?
 
+    /// The app holding a live `ctx.record` session, for the global hotkey:
+    /// ⌃⌥Space while the tape rolls lands on the recorder (G3).
+    var recordingOwner: String? { capabilities.recordingOwner }
+
     /// What the screen allows a panel to be. Set by the panel controller from
     /// the display it sits on; the fallback only applies before the first
     /// `reposition` (and in headless snapshot rendering).

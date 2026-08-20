@@ -67,6 +67,12 @@ struct InteractionMachine: Equatable {
         case clickOutside
         /// Texit elapsed with the pointer fully away and nothing in flight.
         case exitTimeout
+        /// ⌃⌥Space (`HotkeyCenter`): open the notch with no pointer anywhere
+        /// near it. `app` is the session the shell would rather land on — the
+        /// one holding a live recording — or nil for "whatever you were last
+        /// in". A second press with the visit already up closes it: a key
+        /// that only opens strands the hands-on-keyboard user it exists for.
+        case hotkey(app: String?)
         /// `‹` / `›`, or a horizontal swipe across the visit.
         case walkStrip(steps: Int)
         /// The panel was dragged down off the notch, far enough to tear.
@@ -223,6 +229,13 @@ struct InteractionMachine: Equatable {
             showingOverview = false
             return [.unpromise, .openVisit(app: nil)]
 
+        case (.resting, .hotkey(let app)), (.ambient, .hotkey(let app)):
+            // The keyboard's pill click — same landing, no pointer required.
+            ground = wingHeld ? .ambient : .resting
+            state = .visit
+            showingOverview = false
+            return [.unpromise, .openVisit(app: app)]
+
         // MARK: Summary
 
         case (.summary, .click):
@@ -240,6 +253,14 @@ struct InteractionMachine: Equatable {
             state = ground.state
             _ = app
             return [.retractSwell]
+
+        case (.summary, .hotkey(let app)):
+            // The keyboard's "click anywhere": through to the visit, landing
+            // on the preferred session when the key carries one.
+            let shown = swellApp
+            swellApp = nil
+            state = .visit
+            return [.openVisit(app: app ?? shown)]
 
         case (.summary, .notificationArrived(let app, let priority)):
             // An interruption outranks a glance: the swell is already up, so
@@ -293,6 +314,15 @@ struct InteractionMachine: Equatable {
             // It arrived on its own schedule and leaves on its own schedule.
             return []
 
+        case (.interruption, .hotkey(let app)):
+            // Like a click elsewhere on the swell — the visit opens — except
+            // the key's preference outranks the notification's owner: the
+            // user reaching for the recorder mid-ring meant the recorder.
+            let shown = swellApp
+            swellApp = nil
+            state = .visit
+            return [.openVisit(app: app ?? shown)]
+
         // MARK: Visit
 
         case (.visit, .walkStrip(let steps)):
@@ -314,6 +344,19 @@ struct InteractionMachine: Equatable {
             showingOverview = false
             return [.closeVisit]
 
+        case (.visit, .hotkey(let app)):
+            // A preference for a session the visit is not showing is a jump,
+            // not a toggle: ⌃⌥Space during a recording lands on the recorder
+            // from anywhere. Otherwise the second press is the way back out.
+            if let app, app != visitApp {
+                showingOverview = false
+                return [.openVisit(app: app)]
+            }
+            state = wingHeld ? .ambient : .resting
+            ground = wingHeld ? .ambient : .resting
+            showingOverview = false
+            return [.closeVisit]
+
         case (.visit, .dragOffNotch):
             // "Visit | drag the panel down off the notch | Parked". The whole
             // surface goes — the mode it was in goes with it, overview included,
@@ -330,6 +373,15 @@ struct InteractionMachine: Equatable {
             // is parked is the surface, not one session of it.
             showingOverview = false
             return [.walkStrip(steps: steps)]
+
+        case (.parked, .hotkey):
+            // "Open the notch" with the surface out as a window: bring it
+            // home. The strongest reading of the key is "put Ledge in front
+            // of me", and the parked window may be on another desktop.
+            let app = parkedApp
+            parkedApp = nil
+            state = .visit
+            return [.flyHome(app: app)]
 
         case (.parked, .flyHome), (.parked, .click):
             // "Parked | ⌃, or click the bare notch | Visit (flies home)". The

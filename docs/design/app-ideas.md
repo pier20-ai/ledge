@@ -21,10 +21,14 @@ the folder.
 | **Tetris** | carried over | frame-rate draw + keyboard proof · score is a bare number | DRAW |
 | **Now Playing** | what's playing; skip/pause without switching apps · owns the resting pill | the live waveform in the wing | APPLE, WING |
 | **Weather** | the sky, glanceable; drag the ruler to time-travel | the pane: drops that refract the scene, fog that wipes clear, light that swings with the real sun | DRAW, canvas drag (0001-A1), Open-Meteo |
-| **Breath** | mindfulness: pranayama the way Weather does the sky — a *simulated substance* the breath moves, not a timer with a circle | one pane, one medium (proposal pending Manu's ratification, G2.9) | DRAW, WING (width), MINI |
+| **Scribe** | record the room and the call, and mark the moments while they happen | the twin-needle meter — the first honest levels on the platform — and jots stamped against the tape | DRAW, WING, `ctx.record` (G3) |
 
-*(Focus retired at G2.9 — "not useful". Its slot goes to Breath, promoted
+*(Focus retired at G2.9 — "not useful". Its slot went to Breath, promoted
 from the live-built tier; the timer/alarm jobs survive in the archive.)*
+
+*(Breath retired at G3, superseded by Scribe, which takes its shipping slot.
+The mindfulness job itself is not replaced — that slot stays open, and the
+pane-of-fogged-glass treatment is worth carrying to whatever fills it.)*
 
 Weather pane notes (the "how it feels real"): simulate the glass, not the
 weather. Droplets are lenses — sharp, inverted, squeezed copy of the blurred

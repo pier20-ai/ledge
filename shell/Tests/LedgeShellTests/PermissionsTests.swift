@@ -123,7 +123,7 @@ struct PermissionsTests {
         #expect(quiet.footnote == nil)
     }
 
-    /// The three usage-description keys are load-bearing: calling the matching
+    /// The five usage-description keys are load-bearing: calling the matching
     /// authorization API in a bundle that lacks one **terminates the process**,
     /// so `SystemPermissionProbe` refuses to offer a button for it. If a key
     /// name here drifts from the one `scripts/bundle-app.sh` writes, every
@@ -133,8 +133,45 @@ struct PermissionsTests {
         #expect(LedgePermission.automation.usageDescriptionKey == "NSAppleEventsUsageDescription")
         #expect(LedgePermission.calendar.usageDescriptionKey == "NSCalendarsFullAccessUsageDescription")
         #expect(LedgePermission.location.usageDescriptionKey == "NSLocationWhenInUseUsageDescription")
+        // G3: `ctx.record`'s two sources are two separate TCC services, and both
+        // kill the process if their key is missing — the mic on the first
+        // `AVCaptureDevice` request, the tap on the first `AudioHardwareCreate…`.
+        #expect(LedgePermission.microphone.usageDescriptionKey == "NSMicrophoneUsageDescription")
+        #expect(LedgePermission.systemAudio.usageDescriptionKey == "NSAudioCaptureUsageDescription")
         #expect(LedgePermission.notifications.usageDescriptionKey == nil)
         #expect(LedgePermission.screenRecording.usageDescriptionKey == nil)
+    }
+
+    /// The list itself, pinned by length and order. `listIsComplete` proves the
+    /// ordered list and the case list are the same *set*; this is the shape the
+    /// card is measured against below, and the reason a row added without a
+    /// second thought shows up as two failing tests rather than one.
+    @Test("Seven rows, in the order the card draws them")
+    func orderedRows() {
+        #expect(LedgePermission.ordered.count == 7)
+        #expect(LedgePermission.ordered == [
+            .automation, .notifications, .screenRecording, .microphone, .systemAudio,
+            .calendar, .location,
+        ])
+        // The record pair sits next to Screen Recording rather than beside the
+        // other two data grants: what those three have in common is that an app
+        // is capturing the machine, which is the comparison a user is making
+        // when they read down the card.
+    }
+
+    /// System Audio is the second row that cannot answer its own question, and
+    /// for a different reason from Automation's: TCC's audio-capture service has
+    /// no public preflight at all — creating the tap *is* the ask. So the row
+    /// says so instead of showing "Not asked" as though it knew.
+    @Test("System Audio is unreadable by design; the microphone is not")
+    func systemAudioIsUnreadable() {
+        let rows = permissionRows(from: FakePermissionProbe([.microphone: .granted]))
+        let system = rows.first { $0.permission == .systemAudio }
+        #expect(system?.status == .unreadable(LedgePermission.systemAudio.unreadableReason ?? ""))
+        #expect(system?.action == .openSettings, "there is nothing to ask, only a pane to open")
+        // The microphone has an ordinary preflight, so the probe's answer stands.
+        #expect(rows.first { $0.permission == .microphone }?.status == .granted)
+        #expect(LedgePermission.microphone.unreadableReason == nil)
     }
 
     // MARK: - The surface
@@ -152,19 +189,38 @@ struct PermissionsTests {
 
         #expect(quietCard.panelHeight > 0)
         // Every denied row carries the "macOS will not ask again" line, so the
-        // noisy panel is exactly five footnote-heights taller.
+        // noisy panel is exactly one footnote-height per row taller.
         #expect(noisyCard.panelHeight > quietCard.panelHeight)
-        // Still a panel: it has to fit under the notch on the smallest screen
-        // `PanelLimits` will clamp to, cutout row included.
-        // Still a panel. The worst case — all five refused, so every row carries
-        // its "macOS will not ask again" line — has to fit under the notch on
-        // the smallest Mac that has one: a 14" MacBook Pro caps the panel at
-        // roughly 660 pt (`PanelLimits.detect`), cutout row included.
-        #expect(noisyCard.panelHeight + NotchMetrics.fallback.closedHeight < 660)
-        // And the case that actually happens on a fresh machine — two rows with
-        // something to say — stays svelte.
+
+        // **Seven rows outgrew every screen, and the card now clamps.**
+        //
+        // Until G3 the card was five rows and its natural height stayed under
+        // every cap on its own. `ctx.record` added Microphone and System Audio
+        // — and System Audio's second line is permanent (unreadable by
+        // design), so the natural card is 711 pt fresh and 809 pt worst-case,
+        // against a ~661 pt ceiling on the smallest notched Mac. The fix is
+        // `maxPanelHeight`: the controller hands the card the screen's
+        // allowance, `panelHeight` clamps to it, and the rows scroll behind
+        // the glass while Done stays on it. Three facts pinned here: the
+        // scroller is genuinely earning its place, the clamp holds at both
+        // historic caps, and the natural height keeps its growth ratchet.
         let fresh = PermissionsCardView(probe: FakePermissionProbe())
-        #expect(fresh.panelHeight < 560)
+        #expect(
+            fresh.measuredHeight > PanelLimits.fallback.maxHeight,
+            "the natural card fits every screen again — the scroller could go back to being a plain view"
+        )
+        fresh.maxPanelHeight = 560
+        #expect(fresh.panelHeight == 560)
+        noisyCard.maxPanelHeight = 660 - NotchMetrics.fallback.closedHeight
+        #expect(noisyCard.panelHeight + NotchMetrics.fallback.closedHeight <= 660)
+        // The growth ratchet, kept from the interregnum: the NATURAL height
+        // may not quietly grow another row's worth either — a taller card is
+        // more scrolling on every machine, and a new permission row should
+        // come with this number consciously re-cut.
+        #expect(fresh.measuredHeight <= 711)
+        #expect(
+            noisyCard.measuredHeight + NotchMetrics.fallback.closedHeight <= 809
+        )
     }
 
     @Test("Pressing a row's button does the one thing that row offers")

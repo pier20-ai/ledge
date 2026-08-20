@@ -58,14 +58,15 @@ OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 # here lives in protocol/demo-apps-archive, which is not an apps root and is
 # never scanned — chess and tetris came back out of it in D4, rewritten against
 # principles.md rather than restored, and `settings` went the other way when
-# Settings became a native macOS window in the shell.
+# Settings became a native macOS window in the shell. `breath` went the same
+# way at G3, and `scribe` — the recorder — took the slot it was holding.
 #
 # Both are canvas apps whose panel is a well, and both now paint into it here:
 # `--wing` runs their monitor, the monitor draws, and the `draws` map carries
 # those frames to the shell. To see a *particular* state rather than the opening
 # one (a mid-game position, a live score), pass `--props` to dump-commits
 # directly and read the panel.
-APPS=(nowplaying weather breath timer radio chess tetris)
+APPS=(nowplaying weather scribe timer radio chess tetris)
 
 COMMITS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ledge-commits.XXXXXX")"
 

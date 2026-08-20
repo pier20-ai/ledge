@@ -658,8 +658,12 @@ final class NotchPanelController {
         case .permissions:
             // The one chrome surface that measures itself: a row grows a line
             // when its status has something to say, so the panel's height is a
-            // function of what macOS currently reports (see `PermissionsCardView`).
+            // function of what macOS currently reports (see `PermissionsCardView`)
+            // — clamped to the screen's allowance, exactly as the chat path is.
+            // Seven rows outgrew the smallest notched Mac (G3); past the clamp
+            // the rows scroll and the Done button stays on the glass.
             let card = permissionsView()
+            card.maxPanelHeight = surface.limits.maxHeight - surface.panelWingRowHeight
             content = card
             width = PanelLimits.defaultWidth
             height = card.panelHeight + surface.panelWingRowHeight
@@ -838,6 +842,13 @@ final class NotchPanelController {
     /// `ctx.expand`, the first-run permission card).
     private func send(_ event: InteractionMachine.Event) {
         for effect in machine.apply(event) { perform(effect) }
+    }
+
+    /// ⌃⌥Space (`HotkeyCenter`, via `AppDelegate`). What the key *means* is
+    /// the machine's row to decide from where the surface is; the controller
+    /// contributes only who is recording, which is the landing it prefers.
+    func hotkeyPressed() {
+        send(.hotkey(app: session.recordingOwner))
     }
 
     private func perform(_ effect: InteractionMachine.Effect) {

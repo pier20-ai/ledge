@@ -22,6 +22,8 @@
 //   ctx.platform.spotlight({query})      NSMetadataQuery, capped and bounded
 //   ctx.platform.audio() / .setVolume(v) the default output device
 //   ctx.platform.speak(text, {voice})    AVSpeechSynthesizer, one at a time
+//   ctx.record.status() / .start()       the microphone and system audio, both
+//   ctx.record.stop() / .levels()        owned by the shell (TCC + one engine)
 //
 // The agentic three (`apple` made real, `capture`, `agent`) are the same
 // principle as the rest: `ctx` carries only what the app's own process cannot
@@ -49,6 +51,10 @@ import type {
   NotificationClass,
   NotifyAction,
   PlatformObserveSource,
+  RecordLevels,
+  RecordSession,
+  RecordStatus,
+  RecordStopResult,
   SpotlightHit,
   WorkerToHost,
   WorkspaceInfo,
@@ -197,6 +203,57 @@ export interface PrivilegedPlatformBridge extends PlatformBridge {
   quit(): Promise<void>;
 }
 
+/**
+ * Recording — the microphone and the system's own output, captured by the
+ * SHELL (spec §6 extension).
+ *
+ * It is on `ctx` for the reason everything here is: the microphone prompt is
+ * TCC, and macOS attributes consent to the process with the UI, so a faceless
+ * worker cannot ask for it. The capture engine is also one per process, which is
+ * why the policy is **one recording at a time across all apps**: the hardware is
+ * global, so the capability is too. Only the app that started a recording may
+ * stop it, and a worker that dies mid-session finalizes it (stops, never
+ * deletes) rather than losing the take.
+ *
+ * Every call except `status` rejects with a sentence when it cannot be done —
+ * "already recording for 'scribe'", "microphone access was denied", "nothing is
+ * recording" — because a start that quietly did not start is the one failure a
+ * recorder must never have. `status` always answers: it is the question an app
+ * asks *before* it knows whether any of this works.
+ *
+ * **Playback is deliberately not here.** A worker plays a finished file by
+ * spawning `afplay` itself, the way radio spawns its own player: nothing about
+ * reading a file off disk and making noise needs the shell's identity, and a
+ * capability that adds nothing but a hop is a capability that should not exist.
+ * The same goes for revealing a session in Finder (`open`) and deleting one.
+ */
+export interface RecordBridge {
+  /** The recorder, in one answer — see `RecordStatus`. Never rejects: an app
+   * with no recording capability at all still gets `{available: false, reason}`
+   * and can say so in its panel. */
+  status(): Promise<RecordStatus>;
+  /**
+   * Begin a session and resolve once the files are actually open.
+   *
+   * `sources` defaults to both (`["mic", "system"]`) and `format` to `"aac"`;
+   * pass `"wav"` when the recording is going somewhere that wants PCM. Both are
+   * omitted from the wire when absent, so the shell — not the worker — owns what
+   * "default" means.
+   *
+   * The first call raises the microphone prompt and **blocks until the user
+   * answers it**, which is why this one call gets the two-minute deadline the
+   * screenshot bridge has. A denial rejects.
+   */
+  start(options?: { sources?: string[]; format?: string }): Promise<RecordSession>;
+  /** End this app's session and resolve with where the files landed. Rejects if
+   * nothing is recording, or if the live session belongs to another app. */
+  stop(): Promise<RecordStopResult>;
+  /** The current levels, 0…1 per source, plus the session's elapsed seconds. A
+   * meter polls this; nothing pushes, because a level is only ever wanted by an
+   * app that is drawing a frame and it knows when that is. */
+  levels(): Promise<RecordLevels>;
+}
+
 export interface Ctx {
   /**
    * The system's **Reduce Motion** preference (spec §4.2, principle 10).
@@ -303,6 +360,10 @@ export interface Ctx {
    * the seven request/reply calls; only Settings gets the app-management calls,
    * because those change *other* apps. */
   platform: PlatformBridge;
+  /** The recorder — see `RecordBridge`. Its own namespace rather than four more
+   * `ctx.platform` calls, because a recording is a *session* with a lifetime an
+   * app has to hold, not a question with an answer. */
+  record: RecordBridge;
 }
 
 /** Settings' ctx (spec §8): everything above, plus app management. */
@@ -455,6 +516,29 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       })) as Promise<void>,
   };
 
+  const record: RecordBridge = {
+    status: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordStatus" } })) as Promise<RecordStatus>,
+    start: (startOptions) =>
+      request((id) => ({
+        type: "platform",
+        id,
+        // Absent, not null — the calendar rule: the shell owns the defaults, and
+        // a null would have to be re-read as "absent" at every layer between.
+        request: {
+          kind: "recordStart",
+          ...(Array.isArray(startOptions?.sources)
+            ? { sources: startOptions.sources.map(String) }
+            : {}),
+          ...(typeof startOptions?.format === "string" ? { format: startOptions.format } : {}),
+        },
+      })) as Promise<RecordSession>,
+    stop: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordStop" } })) as Promise<RecordStopResult>,
+    levels: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordLevels" } })) as Promise<RecordLevels>,
+  };
+
   /** The Settings-only half (spec §8), layered over the observe bridge every
    * app has. Split rather than gated inside each method: an ordinary app should
    * not be able to *see* a call it may not make. */
@@ -540,6 +624,7 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     collapse: () => io.post({ type: "chrome", request: "collapse" }),
     permissions: () => io.post({ type: "chrome", request: "permissions" }),
     platform,
+    record,
   };
   if (options.privileged) {
     (ctx as PrivilegedCtx).platform = privilegedPlatform;

@@ -263,6 +263,70 @@ export interface AudioInfo {
 }
 
 /**
+ * One live recording, as both `ctx.record.start()` and a `status` reply describe
+ * it. Sessions are **per app**: `dir` is `<recordings root>/<appId>/<id>/`, so
+ * two apps that record on different days never share a folder.
+ *
+ * `startedAt` is an ISO-8601 string, like every other time on this bridge.
+ * `sources` is the subset of `"mic"`/`"system"` actually being captured — an app
+ * that asked for both on a machine that can only do one learns it here rather
+ * than from a silent file.
+ */
+export interface RecordSession {
+  id: string;
+  dir: string;
+  startedAt: string;
+  sources: string[];
+  /** `"aac"` (`.m4a`) or `"wav"` (PCM). */
+  format: string;
+}
+
+/**
+ * `ctx.record.status()` — the whole recorder in one answer.
+ *
+ * The hardware is global, so there is **one** recording at a time across all
+ * apps: `recording` says the machine is busy and `mine` says it is busy with
+ * *this* app's session. An app that finds `recording && !mine` is being told to
+ * keep its hands off, and one that finds `recording && mine` has just come back
+ * from a worker restart with its own session still running (the shell keeps
+ * recording across those) — which is an adoption, not a new take.
+ *
+ * `root` is this app's own recordings directory. It may not exist yet; a reader
+ * that lists it must treat ENOENT as "no sessions", not as an error.
+ */
+export interface RecordStatus {
+  available: boolean;
+  /** Why not, when `available` is false — a sentence, for the panel. */
+  reason?: string;
+  recording: boolean;
+  mine: boolean;
+  root: string;
+  /** Present only while a recording is live AND owned by the asking app. */
+  session?: RecordSession;
+  /** Speech-to-text over the finished files, when the OS can do it at all. */
+  transcription: { available: boolean; reason?: string };
+}
+
+/** What `ctx.record.stop()` resolves with. `files` holds **absolute** paths and
+ * a source that was never requested has no key at all. The shell also leaves a
+ * `meta.json` in `dir` describing the same session, with basenames instead. */
+export interface RecordStopResult {
+  id: string;
+  dir: string;
+  seconds: number;
+  files: { mic?: string; system?: string };
+}
+
+/** `ctx.record.levels()` — 0…1 RMS per source being captured, plus how long the
+ * session has been running. A source not in the session has no key, which is
+ * what makes an absent needle different from a silent one. */
+export interface RecordLevels {
+  mic?: number;
+  system?: number;
+  seconds: number;
+}
+
+/**
  * `ctx.platform.*`.
  *
  * Three groups with different audiences, deliberately in one type because they
@@ -272,9 +336,12 @@ export interface AudioInfo {
  *   invalidation half of a polling monitor, and every monitor app has the same
  *   three-second-latency problem Music does.
  * - `calendar`/`workspace`/`location`/`spotlight`/`audio`/`setVolume`/`speak`
- *   are also for every app: each asks the shell one question the worker process
- *   structurally cannot answer, because the answer needs a TCC prompt attributed
- *   to the process with the UI, or a per-process framework registration.
+ *   and the four `record*` calls are also for every app: each asks the shell one
+ *   question the worker process structurally cannot answer, because the answer
+ *   needs a TCC prompt attributed to the process with the UI, or a per-process
+ *   framework registration. Recording is both — the microphone prompt is TCC and
+ *   the capture engine is one per process, which is also why only one app may
+ *   record at a time.
  * - `enable`/`disable`/`reorder`/`stats`/`quit` remain Settings-only (spec §8) —
  *   they change *other* apps, or end everything.
  *
@@ -297,7 +364,14 @@ export type PlatformRequest =
   | { kind: "spotlight"; query: string; scopes?: string[] }
   | { kind: "audio" }
   | { kind: "setVolume"; value: number }
-  | { kind: "speak"; text: string; voice?: string; rate?: number };
+  | { kind: "speak"; text: string; voice?: string; rate?: number }
+  | { kind: "recordStatus" }
+  // `sources` is a subset of "mic"/"system" and `format` is "aac" or "wav";
+  // both are absent when the app did not choose, and the shell defaults them
+  // (both sources, AAC) rather than the worker guessing on its behalf.
+  | { kind: "recordStart"; sources?: string[]; format?: string }
+  | { kind: "recordStop" }
+  | { kind: "recordLevels" };
 
 /**
  * Worker → host. Everything the app runtime pushes up.
@@ -320,7 +394,10 @@ export type PlatformRequest =
  * - `capture`    ctx.capture — shell-side screenshot; host replies by `id`.
  * - `agent`      ctx.agent — one headless turn of the user's agent CLI (§8);
  *                host replies by `id` with an AgentResult.
- * - `platform`   ctx.platform.* — Settings-only request; host replies by `id`.
+ * - `platform`   ctx.platform.* and ctx.record.* — one shell capability call;
+ *                host replies by `id`. Both surfaces ride this one message
+ *                because they are the same thing on the wire: a `kind`, some
+ *                fields, one reply.
  * - `console`    captured console.* output; the host folds it into the app log
  *                and crash.log (spec §6, §7).
  * - `crash`      an uncaught throw; the host decides restart policy (§6 rule 2,

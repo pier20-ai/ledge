@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CoreGraphics
 import CoreLocation
 import EventKit
@@ -60,6 +61,13 @@ final class SystemPermissionProbe: NSObject, PermissionProbing {
             return Self.translate(EKEventStore.authorizationStatus(for: .event))
         case .location:
             return Self.translate(locationManager.authorizationStatus)
+        case .microphone:
+            return Self.translate(AVCaptureDevice.authorizationStatus(for: .audio))
+        case .systemAudio:
+            // TCC's audio-capture service has no public preflight (the tap's
+            // creation IS the ask), and the catalog's `unreadableReason` says
+            // so — this arm exists for exhaustiveness, not for reaching.
+            return .unreadable(permission.unreadableReason ?? "")
         }
     }
 
@@ -131,6 +139,16 @@ final class SystemPermissionProbe: NSObject, PermissionProbing {
             askCalendar(answer)
         case .location:
             askLocation(answer)
+        case .microphone:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                Task { @MainActor in answer(self.status(of: .microphone)) }
+            }
+        case .systemAudio:
+            // Unreadable → `.openSettings`, so this is unreachable in the same
+            // sense Automation's arm is: raising the prompt would mean standing
+            // up a real tap just to be refused, which is the ambush this
+            // surface exists to prevent.
+            answer(status(of: permission))
         }
     }
 
@@ -196,6 +214,15 @@ final class SystemPermissionProbe: NSObject, PermissionProbing {
     }
 
     // MARK: - Translation
+
+    nonisolated static func translate(_ status: AVAuthorizationStatus) -> PermissionStatus {
+        switch status {
+        case .authorized: .granted
+        case .denied, .restricted: .denied
+        case .notDetermined: .notDetermined
+        @unknown default: .notDetermined
+        }
+    }
 
     nonisolated static func translate(_ status: EKAuthorizationStatus) -> PermissionStatus {
         switch status {

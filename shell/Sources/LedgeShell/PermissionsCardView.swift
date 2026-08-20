@@ -48,6 +48,12 @@ final class PermissionsCardView: FlippedView {
 
     private let probe: PermissionProbing
     private let content = FlippedView()
+    /// The rows live behind a scroller since G3: seven permissions outgrew
+    /// every Mac's panel ceiling (711 pt fresh against a ~661 pt cap on the
+    /// smallest notched machine), and a Done button below the glass is a
+    /// surface that cannot be left. Overlay style, so a card that fits looks
+    /// exactly as it always did.
+    private let scroll = NSScrollView()
     private var rows: [PermissionRow] = []
     private var rowViews: [LedgePermission: PermissionRowView] = [:]
     /// An ask can know more than a subsequent preflight read. Screen Recording
@@ -63,13 +69,33 @@ final class PermissionsCardView: FlippedView {
 
     /// Total panel height for this content, including the app strip — the number
     /// `NotchPanelController` needs before it can present. Measured rather than
-    /// declared, because the rows grow a line when a status has something to say.
+    /// declared, because the rows grow a line when a status has something to say
+    /// — and clamped to `maxPanelHeight`, because what the rows want and what
+    /// the screen allows stopped being the same number at seven rows.
     private(set) var panelHeight: CGFloat = 0
+    /// The card's natural height, unclamped: what `panelHeight` would be on an
+    /// infinite screen. What the growth-ratchet tests pin.
+    private(set) var measuredHeight: CGFloat = 0
+    /// What the screen allows, minus the wing row — set by the controller
+    /// before it reads `panelHeight` (the same allowance chat's path applies).
+    /// Past it the rows scroll; the Done button never leaves the glass.
+    var maxPanelHeight: CGFloat = .greatestFiniteMagnitude {
+        didSet {
+            guard oldValue != maxPanelHeight else { return }
+            applyClamp()
+        }
+    }
 
     init(probe: PermissionProbing) {
         self.probe = probe
         super.init(frame: .zero)
-        addSubview(content)
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.documentView = content // FlippedView: the document anchors top
+        addSubview(scroll)
         reload()
     }
 
@@ -183,19 +209,34 @@ final class PermissionsCardView: FlippedView {
         )
         content.addSubview(done)
 
-        let measured = y + LedgeMetrics.Size.s.height + Self.pad + Self.appStripHeight
-        let grew = measured != panelHeight && panelHeight != 0
-        panelHeight = measured
-        content.frame = CGRect(x: 0, y: 0, width: Self.width, height: panelHeight)
+        measuredHeight = y + LedgeMetrics.Size.s.height + Self.pad + Self.appStripHeight
+        applyClamp()
+    }
+
+    /// Derive `panelHeight` from what the rows want and what the screen
+    /// allows, and announce a change. One door for both callers — a reload
+    /// that regrew a row, and a controller handing over the screen's limit.
+    private func applyClamp() {
+        let previous = panelHeight
+        panelHeight = min(measuredHeight, maxPanelHeight)
+        // The document is the content WITHOUT the reserved app strip: the
+        // strip is the panel's own band, and rows scrolling through it would
+        // put a permission behind the session chips.
+        content.frame = CGRect(x: 0, y: 0, width: Self.width, height: measuredHeight - Self.appStripHeight)
         needsLayout = true
         // Only after the first build: the controller asks for `panelHeight`
         // straight after init, so announcing it then would re-enter `refresh`
         // for a surface that is not on screen yet.
-        if grew { onResize?() }
+        if previous != 0, previous != panelHeight { onResize?() }
     }
 
     override func layout() {
         super.layout()
+        scroll.frame = CGRect(
+            x: 0, y: 0,
+            width: bounds.width,
+            height: max(0, bounds.height - Self.appStripHeight)
+        )
         content.frame = CGRect(x: 0, y: 0, width: bounds.width, height: content.frame.height)
     }
 

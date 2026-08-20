@@ -64,9 +64,10 @@ export const CAPTURE_TIMEOUT_MS = 120_000;
  * deadline covers the bounded calls — spotlight caps itself at 5 s and location
  * at 8 s shell-side, so this only ever fires when the shell has gone away. */
 export const PLATFORM_TIMEOUT_MS = 10_000;
-/** The two calls whose first use raises a **TCC prompt**: the thing they are
- * waiting for is a person reading a modal, which is `ctx.capture`'s reasoning
- * verbatim. Once granted they answer in milliseconds. */
+/** The three calls whose first use raises a **TCC prompt** (calendar, location,
+ * and starting a recording): the thing they are waiting for is a person reading
+ * a modal, which is `ctx.capture`'s reasoning verbatim. Once granted they answer
+ * in milliseconds. */
 export const PLATFORM_GRANT_TIMEOUT_MS = 120_000;
 /** `speak` resolves when the utterance *finishes*, and 500 characters at a slow
  * rate is minutes of speech. Timing it out at ten seconds would reject a Promise
@@ -792,6 +793,9 @@ export class Router implements SupervisorSink {
     switch (request.kind) {
       case "calendar":
       case "location":
+      // The microphone prompt blocks the start call until the user answers it,
+      // so this deadline is a person's reading speed, not the shell's.
+      case "recordStart":
         return this.platformGrantTimeoutMs;
       case "speak":
         return this.platformSpeakTimeoutMs;
@@ -1058,7 +1062,19 @@ function platformWirePayload(
     case "audio":
     // `quit` takes no fields — the verb is the whole request.
     case "quit":
+    // Nor do three of the four recording calls: which session they mean is the
+    // shell's own state (there is only ever one), not something the app names.
+    case "recordStatus":
+    case "recordStop":
+    case "recordLevels":
       return { id, call: request.kind };
+    case "recordStart":
+      return {
+        id,
+        call: "recordStart",
+        ...(request.sources === undefined ? {} : { sources: request.sources }),
+        ...(request.format === undefined ? {} : { format: request.format }),
+      };
     case "spotlight":
       return {
         id,

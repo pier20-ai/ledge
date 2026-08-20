@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelController: NotchPanelController?
     private var hostSession: HostSession?
     private var hostProcess: HostProcess?
+    private var hotkey: HotkeyCenter?
     /// Socket path override; `nil` means `~/.ledge/ledge.sock` (spec §1).
     var socketPath: String?
 
@@ -29,6 +30,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let controller = NotchPanelController(session: session)
         panelController = controller
         controller.start()
+
+        // ⌃⌥Space opens the notch from anywhere (G3). Registered after the
+        // controller exists because the key is nothing but a message to it.
+        hotkey = HotkeyCenter { [weak controller] in
+            controller?.hotkeyPressed()
+        }
 
         // The shell is the listener (spec §1): it binds the socket and the host
         // connects to it. Failing to bind is not fatal — the panel still opens

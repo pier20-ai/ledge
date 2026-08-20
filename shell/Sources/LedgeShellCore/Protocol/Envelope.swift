@@ -443,6 +443,13 @@ public enum PlatformCall: Sendable, Equatable {
     case audio
     case setVolume(Double)
     case speak(text: String, voice: String?, rate: Double?)
+    /// `ctx.record.*` (G3): the four verbs of the audio-capture capability.
+    /// Start carries what to record and in what container; the other three are
+    /// bare verbs whose only context is the envelope's own `app`.
+    case recordStatus
+    case recordStart(sources: [RecordingSource], format: RecordingFormat)
+    case recordStop
+    case recordLevels
     /// End the process. Settings only, and the only quit the user has: there is
     /// no menu-bar item and no Dock icon (see `AppDelegate`).
     case quit
@@ -493,6 +500,9 @@ public struct PlatformPayload: Codable, Sendable, Equatable {
     public var text: String?
     public var voice: String?
     public var rate: Double?
+    // recordStart
+    public var sources: [String]?
+    public var format: String?
 
     public init(
         id: Int,
@@ -506,7 +516,9 @@ public struct PlatformPayload: Codable, Sendable, Equatable {
         value: Double? = nil,
         text: String? = nil,
         voice: String? = nil,
-        rate: Double? = nil
+        rate: Double? = nil,
+        sources: [String]? = nil,
+        format: String? = nil
     ) {
         self.id = id
         self.call = call
@@ -520,6 +532,8 @@ public struct PlatformPayload: Codable, Sendable, Equatable {
         self.text = text
         self.voice = voice
         self.rate = rate
+        self.sources = sources
+        self.format = format
     }
 
     /// The validated call, or nil for an unknown verb / a missing field.
@@ -551,6 +565,26 @@ public struct PlatformPayload: Codable, Sendable, Equatable {
         case "speak":
             guard let text, !text.isEmpty else { return nil }
             return .speak(text: text, voice: voice, rate: rate)
+        case "recordStatus":
+            return .recordStatus
+        case "recordStart":
+            // Defaults live here, not in the executor: "record" with no fields
+            // means both sources in AAC, and a source or format the shell has
+            // never heard of is a malformed request, not a silent drop of one
+            // stream — half a recording is the worst possible reading.
+            let named = sources ?? RecordingSource.allCases.map(\.rawValue)
+            var parsed: [RecordingSource] = []
+            for raw in named {
+                guard let source = RecordingSource(rawValue: raw) else { return nil }
+                if !parsed.contains(source) { parsed.append(source) }
+            }
+            guard !parsed.isEmpty else { return nil }
+            guard let container = RecordingFormat(rawValue: format ?? "aac") else { return nil }
+            return .recordStart(sources: parsed.sorted(), format: container)
+        case "recordStop":
+            return .recordStop
+        case "recordLevels":
+            return .recordLevels
         case "quit":
             // No fields: the envelope's own `app` is the only context there is,
             // and quitting takes no argument.

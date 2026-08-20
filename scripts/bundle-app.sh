@@ -242,6 +242,11 @@ cat > "$CONTENTS/Info.plist" <<EOF
   <!-- ctx.platform.location, at reduced accuracy (see SystemLocation). -->
   <key>NSLocationWhenInUseUsageDescription</key>
   <string>Ledge apps use your rough location for things like local weather.</string>
+  <!-- ctx.record (G3): the mic and the system tap, each its own consent. -->
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Ledge apps record your side of a conversation when you press record.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Ledge apps record what the machine plays — the other side of a call.</string>
 </dict>
 </plist>
 EOF

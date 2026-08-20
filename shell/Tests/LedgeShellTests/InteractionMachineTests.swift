@@ -30,6 +30,11 @@ import Testing
 /// | Visit | click outside, or Esc | Resting |
 /// | Visit | pointer away > Texit | Resting |
 /// | Parked | ⌃, or click the bare notch | Visit (flies home) |
+///
+/// ⌃⌥Space is prose in flow.md rather than a row, because it cuts across every
+/// row above: "opens the visit from anywhere, prefers the recording session,
+/// pressed again it closes, and parked it flies home". Its cases are walked
+/// under `MARK: - | anywhere | ⌃⌥Space |` below.
 @Suite("The interaction machine — flow.md's Transitions table")
 struct InteractionMachineTests {
     private typealias Machine = InteractionMachine
@@ -366,6 +371,128 @@ struct InteractionMachineTests {
         machine.sync(to: .expanded(app: "focus"))
         #expect(machine.state == .parked, "presenting inside the window does not unpark it")
         #expect(machine.apply(.flyHome) == [.flyHome(app: "focus")])
+    }
+
+    // MARK: - | anywhere | ⌃⌥Space | Visit (the recorder, if one is rolling) |
+
+    /// **The keyboard's pill click** (G3, `HotkeyCenter`). The key exists for the
+    /// hands-on-keyboard case — a recording running behind a full-screen app,
+    /// with the pointer nowhere near the notch — so its rows are the click rows
+    /// plus two facts a click cannot express: it carries a *preferred* session
+    /// (the one holding the live recording), and pressing it twice puts the
+    /// surface away again.
+    ///
+    /// `app` is a preference, not an order: nil means "whatever you were last
+    /// in", exactly as a click on the pill does.
+    @Test("⌃⌥Space from the bare notch opens the visit on the preferred session")
+    func hotkeyFromResting() {
+        var machine = resting()
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.unpromise, .openVisit(app: "scribe")])
+        #expect(machine.state == .visit)
+
+        // No preference is the pill click's own answer: the last session.
+        var plain = resting()
+        #expect(plain.apply(.hotkey(app: nil)) == [.unpromise, .openVisit(app: nil)])
+        #expect(plain.state == .visit)
+    }
+
+    /// Ambient is the state the key is *for*: Scribe holds a wing while it
+    /// records, so the notch is wearing one when the user reaches for the key.
+    @Test("⌃⌥Space over a live wing opens the visit and remembers the wing")
+    func hotkeyFromAmbient() {
+        var machine = ambient()
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.unpromise, .openVisit(app: "scribe")])
+        #expect(machine.state == .visit)
+        #expect(machine.ground == .ambient, "the wing is still held; the visit rose from it")
+    }
+
+    /// A swell is up and the key goes through it, the way a click on it would —
+    /// except that the key's preference outranks the swell's owner. A user
+    /// reaching for the recorder mid-ring meant the recorder.
+    @Test("⌃⌥Space through a summary or a notification lands on the key's session")
+    func hotkeyThroughASwell() {
+        var fromSummary = summary(app: "chess")
+        #expect(fromSummary.apply(.hotkey(app: "scribe")) == [.openVisit(app: "scribe")])
+        #expect(fromSummary.state == .visit)
+
+        var fromNotification = interruption(app: "alarm")
+        #expect(fromNotification.apply(.hotkey(app: "scribe")) == [.openVisit(app: "scribe")])
+        #expect(fromNotification.state == .visit)
+
+        // With no preference the swell's own session is what opens — the swell
+        // is the only thing on screen, so it is "whatever you were last in".
+        var noPreference = interruption(app: "alarm")
+        #expect(noPreference.apply(.hotkey(app: nil)) == [.openVisit(app: "alarm")])
+    }
+
+    /// **The second press closes.** A key that only opens strands exactly the
+    /// user it exists for: hands on the keyboard, no pointer to flick away with.
+    @Test("A second ⌃⌥Space closes the visit it opened")
+    func hotkeyTogglesClosed() {
+        var machine = resting()
+        machine.apply(.hotkey(app: "scribe"))
+        machine.sync(to: .expanded(app: "scribe"))
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.closeVisit])
+        #expect(machine.state == .resting)
+
+        // …and with no preference at all, which is the ordinary case once the
+        // recording has stopped.
+        var plain = visit()
+        #expect(plain.apply(.hotkey(app: nil)) == [.closeVisit])
+        #expect(plain.state == .resting)
+    }
+
+    /// The one row that is not a toggle: a preference for a session the visit is
+    /// **not** showing is a jump. ⌃⌥Space during a recording lands on the
+    /// recorder from anywhere, including from a visit of something else.
+    @Test("⌃⌥Space in a visit of another session re-opens on the recorder instead of closing")
+    func hotkeyJumpsRatherThanClosing() {
+        var machine = visit()
+        machine.sync(to: .expanded(app: "chess"))
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.openVisit(app: "scribe")])
+        #expect(machine.state == .visit, "a jump is not a close")
+
+        // Landing there, the next press is a toggle again — the visit is now
+        // showing the session the key prefers.
+        machine.sync(to: .expanded(app: "scribe"))
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.closeVisit])
+        #expect(machine.state == .resting)
+    }
+
+    /// Closing by key falls back exactly where closing by Esc does. The wing is
+    /// the case that matters: Scribe holds one for the whole recording, so the
+    /// notch the key puts away is still wearing it.
+    @Test("Closing with the key goes back to Ambient over a held wing, not to Resting")
+    func hotkeyClosePreservesTheWing() {
+        var machine = visit()
+        machine.apply(.wingGranted)
+        machine.sync(to: .expanded(app: "scribe"))
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.closeVisit])
+        #expect(machine.state == .ambient)
+        #expect(machine.ground == .ambient)
+        // The overview goes with it, like any other close.
+        #expect(!machine.showingOverview)
+    }
+
+    /// Parked, the strongest reading of the key is "put Ledge in front of me" —
+    /// and the window may be on another desktop entirely, where opening a second
+    /// surface in the notch would be two Ledges at once.
+    @Test("⌃⌥Space with the surface parked flies it home rather than opening a second one")
+    func hotkeyFromParked() {
+        var machine = visit()
+        machine.sync(to: .expanded(app: "scribe"))
+        machine.apply(.dragOffNotch)
+        #expect(machine.state == .parked)
+        #expect(machine.apply(.hotkey(app: "scribe")) == [.flyHome(app: "scribe")])
+        #expect(machine.state == .visit)
+        #expect(machine.parkedApp == nil, "the window is gone, not merely behind")
+
+        // A preference for something else does not make it a jump: what is
+        // parked is the surface, and it comes home whole.
+        var other = visit()
+        other.sync(to: .expanded(app: "chess"))
+        other.apply(.dragOffNotch)
+        #expect(other.apply(.hotkey(app: "scribe")) == [.flyHome(app: "chess")])
     }
 
     // MARK: - The ledge (a mode of the visit, not a seventh state)

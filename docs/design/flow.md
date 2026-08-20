@@ -47,6 +47,17 @@ the window (parked).
 | Visit | pointer away > Texit | Resting |
 | Parked | ⌃, or click the bare notch | Visit (flies home) |
 
+**⌃⌥Space** is the keyboard's pill click, and the one way in that needs no
+pointer: it opens the visit from anywhere, over a full-screen app, from any
+state above. It lands on the session holding a live recording when there is
+one and on whatever you were last in when there is not — a preference, not an
+order. Pressed again it closes, because a key that only opens strands exactly
+the user it exists for; the one exception is a visit of *another* session while
+a recording runs, where the key is a jump to the recorder rather than a way
+out. Parked, it flies the window home instead of opening a second surface — the
+window may be on another desktop, and the strongest reading of the key is "put
+Ledge in front of me".
+
 Knobs, feel-tuned on device: **Th** ≈ 0.1 s (below it, the notch swells a
 breath — a promise, not a surface) · **Ti** ≈ 6 s for ambient-class,
 alert-class holds · **Ta** holder-declared · **Texit** ≈ 0.3 s of pointer

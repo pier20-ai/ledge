@@ -27,13 +27,18 @@ public enum LedgePermission: String, CaseIterable, Sendable {
     case calendar
     /// `ctx.platform.location` — CoreLocation.
     case location
+    /// `ctx.record` with a `mic` source — AVFoundation capture (G3).
+    case microphone
+    /// `ctx.record` with a `system` source — the Core Audio process tap (G3).
+    case systemAudio
 
     /// Display order: the ones an app is most likely to reach first, and the two
     /// that can be settled in one click last. Automation leads because it is
     /// both the most-used bridge and the only one whose story needs telling —
     /// see `detail`.
     public static let ordered: [LedgePermission] = [
-        .automation, .notifications, .screenRecording, .calendar, .location,
+        .automation, .notifications, .screenRecording, .microphone, .systemAudio,
+        .calendar, .location,
     ]
 
     /// SF Symbol for the row. Chosen to name the *capability*, not the framework.
@@ -44,6 +49,8 @@ public enum LedgePermission: String, CaseIterable, Sendable {
         case .screenRecording: "camera.viewfinder"
         case .calendar: "calendar"
         case .location: "location"
+        case .microphone: "mic"
+        case .systemAudio: "speaker.wave.2"
         }
     }
 
@@ -54,6 +61,8 @@ public enum LedgePermission: String, CaseIterable, Sendable {
         case .screenRecording: "Screen Recording"
         case .calendar: "Calendar"
         case .location: "Location"
+        case .microphone: "Microphone"
+        case .systemAudio: "System Audio"
         }
     }
 
@@ -65,6 +74,8 @@ public enum LedgePermission: String, CaseIterable, Sendable {
         case .screenRecording: "Apps that take a screenshot for you."
         case .calendar: "Reading today's events. Ledge never writes to a calendar."
         case .location: "Roughly where you are — city-level, for weather and the like."
+        case .microphone: "Your side of a recording, for apps like Scribe."
+        case .systemAudio: "What the machine plays — the other side of a call."
         }
     }
 
@@ -80,8 +91,10 @@ public enum LedgePermission: String, CaseIterable, Sendable {
             nil
         case .screenRecording:
             "macOS may ask you to quit and reopen Ledge afterwards."
-        case .calendar, .location:
+        case .calendar, .location, .microphone:
             nil
+        case .systemAudio:
+            "Recorded separately from the mic, which is what tells the two voices apart."
         }
     }
 
@@ -102,6 +115,10 @@ public enum LedgePermission: String, CaseIterable, Sendable {
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars"
         case .location:
             "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
+        case .microphone:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+        case .systemAudio:
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture"
         }
     }
 
@@ -126,8 +143,13 @@ public enum LedgePermission: String, CaseIterable, Sendable {
             // read, only a per-target one that would have to be prompted for")
             // is above.
             "macOS asks for each app Ledge talks to, the first time it does."
-        case .notifications, .screenRecording, .calendar, .location:
+        case .notifications, .screenRecording, .calendar, .location, .microphone:
             nil
+        case .systemAudio:
+            // True as of Sequoia: TCC's audio-capture service has no public
+            // preflight — the tap's creation IS the ask. The row says so
+            // rather than pretending "Not asked" is knowledge.
+            "macOS asks the first time an app records — there is no reading it beforehand."
         }
     }
 
@@ -143,6 +165,8 @@ public enum LedgePermission: String, CaseIterable, Sendable {
         case .automation: "NSAppleEventsUsageDescription"
         case .calendar: "NSCalendarsFullAccessUsageDescription"
         case .location: "NSLocationWhenInUseUsageDescription"
+        case .microphone: "NSMicrophoneUsageDescription"
+        case .systemAudio: "NSAudioCaptureUsageDescription"
         case .notifications, .screenRecording: nil
         }
     }

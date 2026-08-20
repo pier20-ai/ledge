@@ -388,6 +388,57 @@ struct EnvelopeFixtureTests {
         #expect(payload(["id": .int(1), "call": .string("calendar")])?.invocation == .calendar(from: nil, to: nil))
     }
 
+    /// **`recordStart`'s defaults and refusals** (G3). Decoding is where the
+    /// vocabulary is settled: the executor is handed `[RecordingSource]` and a
+    /// `RecordingFormat` and never sees a string, so anything the shell has
+    /// never heard of has to die here or not at all.
+    ///
+    /// The refusals matter more than the defaults. A source the shell cannot
+    /// open must fail the whole call rather than quietly recording the half it
+    /// understood — an app that asked for both sides of a call and got one is
+    /// worse off than an app that got an error, because it does not find out
+    /// until someone plays the file back.
+    @Test("recordStart defaults to both sources in AAC, and refuses a vocabulary it does not know")
+    func recordStartParsing() {
+        func payload(_ object: [String: JSONValue]) -> PlatformPayload? {
+            let envelope = Envelope(app: "scribe", seq: 1, type: "platform", payload: .object(object))
+            return try? envelope.decodePayload(PlatformPayload.self)
+        }
+        func start(_ fields: [String: JSONValue] = [:]) -> PlatformPayload? {
+            payload(["id": .int(1), "call": .string("recordStart")].merging(fields) { _, new in new })
+        }
+
+        // "record" with no fields at all: both sources, AAC. An app that says
+        // nothing means "record the conversation", which is two-sided.
+        #expect(start()?.invocation == .recordStart(sources: [.mic, .system], format: .aac))
+
+        // Named explicitly, in either order, the list comes back sorted — so the
+        // wire, the session's `sources`, and `meta.json` all agree on one order
+        // and a test never has to care which the app wrote.
+        #expect(start(["sources": .array([.string("system"), .string("mic")])])?.invocation
+            == .recordStart(sources: [.mic, .system], format: .aac))
+        #expect(start(["sources": .array([.string("mic")]), "format": .string("wav")])?.invocation
+            == .recordStart(sources: [.mic], format: .wav))
+
+        // A repeat is a duplicate ask, not two streams: deduped rather than
+        // refused, because it costs nothing and the intent is unambiguous.
+        #expect(start(["sources": .array([.string("mic"), .string("mic")])])?.invocation
+            == .recordStart(sources: [.mic], format: .aac))
+
+        // A source or a format the shell cannot open is malformed, whole.
+        #expect(start(["sources": .array([.string("mic"), .string("bluetooth")])])?.isSupported == false)
+        #expect(start(["format": .string("flac")])?.isSupported == false)
+        // An explicitly empty list is not "the default": it is a request to
+        // record nothing, which is a bug in the app rather than a session.
+        #expect(start(["sources": .array([])])?.isSupported == false)
+
+        // The other three verbs take no fields — the envelope's own `app` is the
+        // only context ownership needs.
+        #expect(payload(["id": .int(1), "call": .string("recordStatus")])?.invocation == .recordStatus)
+        #expect(payload(["id": .int(1), "call": .string("recordStop")])?.invocation == .recordStop)
+        #expect(payload(["id": .int(1), "call": .string("recordLevels")])?.invocation == .recordLevels)
+    }
+
     @Test("Panel-wing fixtures mount, update, and reject the reserved side (§5)")
     func wingFixtures() throws {
         let mount = try decode("commit-wing.json")

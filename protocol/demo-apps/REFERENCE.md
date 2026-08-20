@@ -16,11 +16,11 @@ machine, and searching for it finds nothing, slowly.
 
 Seven, and each one is here to be *felt* on the notch — every surface in this
 document is exercised by at least one of them. `nowplaying`, `weather` and
-`breath` are **default apps** (they ship); `timer`, `radio`, `chess` and
+`scribe` are **default apps** (they ship); `timer`, `radio`, `chess` and
 `tetris` are exercise apps. (`focus` retired to the archive at G2.9 — "not
-useful" — and `breath` took its launch slot; `beacon`, the notification
-harness, retired at G2.11 with its job done — `timer` still exercises the
-alert class.)
+useful"; `beacon`, the notification harness, retired at G2.11 with its job
+done — `timer` still exercises the alert class; `breath` retired at G3,
+superseded by `scribe`, which takes the shipping slot it held.)
 Read them as syntax; read `docs/design/principles.md` before you copy their
 taste.
 
@@ -30,7 +30,7 @@ taste.
 | `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
 | `timer` | **Alarms — a list you talk to** (G2.12): rows of alarm notes with pause/✕ at the trailing edge, and an `input` at the foot · a strict local grammar (clock times, compound durations, noon, tomorrow) that refuses whole what it cannot read whole, with everything else sent to a small OpenAI model (`OPENAI_API_KEY`; `LEDGE_ALARM_MODEL`, default `gpt-5.6-luna`) that returns an exact time and an intelligent note ("Sunset") · the shell's input fires `onChange` on Enter, and clearing the field is two commits with a breath between · a wing **meter** (`meter: { value }`) filling toward the soonest alarm · an **alert-class** `ctx.peek` over a `<mini>` with one action · an empty state that teaches the grammar and is honest about whether the model is armed · JSON persistence beside the app (`LEDGE_ALARM_STORE` seam for suites — `import.meta.url` resolves through symlinks) |
 | `radio` | **plays real radio**: two dozen deduped top stations from the Radio Browser directory (keyless; mirror fallback; cached beside the app), through one spawned AppleScriptObjC `AVPlayer` the worker kills to stop · the STAGE is an old-school car dial, front and centre — FM/AM rulers in cream numerals (theatre; the directory has no frequencies), the stations as gold markers on the band (data), and a red needle spanning the face · the needle IS the switcher: `onDrag` rides the finger dead, release snaps to the nearest marker and tunes it through a static-speckle sweep, and untouched it glides to the tuned marker on a spring · the station name sits below the face as the datum · a wing **canvas** of five breathing bars · a wing held as live activity and released when it stops · env seams (`LEDGE_RADIO_STATIONS`, `LEDGE_RADIO_MUTE`) so the suite never touches the network or the speakers |
-| `breath` | pranayama on the weatherglass doctrine: a pane of night glass your breath fogs — exhale blooms condensation up the pane, hold beads it (a long hold sends one run clearing a track), inhale clears it; Nadi Shodhana blooms one HALF per nostril · every phase annotated with start/end levels at select time so the frame is **pure in (t, pattern)** · a pure-shape **wing width** breathing at the session's cadence (the "breathing pacer" the wing law was written for); the phase word stands in under Reduce Motion · pattern glyphs load from `glyph-<id>.png` beside the app when present, SF Symbols until then |
+| `scribe` | the **recorder**, and the first app with `ctx.record`: the STAGE is a twin-needle meter drawn like the radio dial's deco machine face — MIC left, SYS right, arc-swept needles carrying the **first honest levels on the platform** (0…1 RMS from `ctx.record.levels()`, polled ~7/s, on radio's needle spring; set once a second and still under Reduce Motion) · one transport ghost (`sf:record.circle` → `sf:stop.circle`) with `mm:ss` beside it, taken from `levels().seconds` so the clock is the recorder's rather than a drifting local copy · **jots** while recording: an `input` at the foot whose Enter appends `{at, text}` and rewrites `jots.json` in the session dir (temp file + rename) · **sessions** while not: a `scroll` of past sessions read back from each `meta.json` + `jots.json`, newest first, with reveal-in-Finder and delete per row, and one tertiary line carrying `status.transcription.reason` · a live-activity **wing** claimed on start and released on stop — ticker text plus a small canvas dot pulsing on a sine, re-claimed on a 45 s heartbeat · `status()` once at monitor time **adopts** a live session the shell kept recording through a worker restart · no `<summary>`, no `<mini>`, no notifications; a failed start is one tertiary line under the transport · `LEDGE_RECORD_FAKE=1` (+ `LEDGE_RECORD_ROOT`) swaps the whole capability for a deterministic fake, which is how the suite drives it without a microphone |
 | `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
 | `tetris` | principle 5's worked example: **a score is a number**, so a 36 pt `display` numeral sits directly on the glass with `lv 6` beside it and nothing around either — the `SCORE`/`LINES`/`LEVEL` boxes are what the design reset was about · a `focusable` `<canvas>` with `onKey`, driven by a `setInterval` game loop and parked `monitor` · the next piece drawn *inside* the well rather than in a second framed canvas · a commit signature so a soft-drop point does not re-reconcile the panel · one ghost that starts, pauses, resumes and restarts · Reduce Motion audited and found to have nothing to switch off — every moving pixel is gameplay |
 
@@ -471,6 +471,9 @@ ctx.platform.spotlight({ query, scopes? })
 ctx.platform.audio() / ctx.platform.setVolume(v)
 ctx.platform.speak(text, { voice?, rate? })
 ctx.platform.observe(kind, name) / unobserve(kind, name)
+ctx.record.status()                  what this app may record, and what is recording now
+ctx.record.start({ sources?, format? })
+ctx.record.stop() / ctx.record.levels()
 ```
 
 `observe` kinds: `distributedNotification`, `workspace`, `pasteboard`, `power`,
@@ -504,6 +507,77 @@ those surfaces exist to prevent.
 Everything else is the platform directly: `fetch`, `bun:sqlite`, `Bun.sleep`,
 `Bun.$`, `fs`, timers, `import.meta.dir`, `console.*` (captured into the app's
 log). Do not look for a Ledge wrapper — there isn't one, by design.
+
+### Recording — `ctx.record`
+
+Audio capture, from the microphone and from the machine's own output, as two
+separate files. Two sources deliberately: the mic is the user and the system tap
+is everyone else, which makes two-party diarization a fact of the file layout
+instead of an ML problem. `scribe` is the worked example.
+
+```
+ctx.record.status()                          → status
+ctx.record.start({ sources?, format? })      → session      sources: subset of ["mic","system"], default both
+ctx.record.stop()                            → stopResult   format: "aac" (default) or "wav"
+ctx.record.levels()                          → levels
+```
+
+The four replies, in full:
+
+```
+status      { available, reason?, recording, mine, root,
+              session?: { id, dir, startedAt, sources, format },
+              transcription: { available, reason? } }
+session     { id, dir, startedAt, sources, format }
+stopResult  { id, dir, seconds, files: { mic?, system? } }
+levels      { mic?, system?, seconds }
+```
+
+`session` is present only while a recording is live **and** it is yours — one
+app never learns another's session directory. `files` holds absolute paths, and
+a source that was not requested has **no key** rather than an empty string;
+`levels` is 0…1 RMS per live source on the same rule, and its `seconds` rides
+along so your elapsed clock is the recorder's rather than a drifting local copy.
+`start` is the one call that can block for a long time — the microphone's TCC
+prompt sits in front of it — so it gets the 120 s grant timeout, not the
+ordinary platform one.
+
+**Sessions are per-app, and a session is a folder.**
+`~/Library/Application Support/Ledge/recordings/<appId>/<sessionId>/` holds
+`mic.m4a` / `system.m4a` (or `.wav`), a `meta.json` the shell writes on stop
+(`{ id, app, startedAt, seconds, sources, format, files }`, files as basenames
+there), and anything you add beside them — Scribe writes `jots.json`. Deleting
+the folder deletes the session whole, which is the only delete there is.
+`status.root` is **your** app's folder and is safe to `readdir` before it
+exists (it may not). The root moves with `LEDGE_RECORDINGS_DIR` on the shell
+process, which is how a suite records into a sandbox.
+
+**One recording at a time, globally, and only its owner may stop it.** The
+microphone and the system tap are hardware; two owners would be two apps each
+believing they own one stream. The claim is taken *before* the prompt is
+answered, so a second app asking while the dialog is up is refused rather than
+raced. A hard six-hour cap finalizes a runaway session on its own.
+
+**A worker dying does not stop the tape.** The shell keeps recording — a crashed
+recorder loses nothing — so call `status()` once at monitor time and, if it
+answers `recording && mine`, **adopt** the session that is already running:
+resume the elapsed clock, re-claim the wing, restart the levels loop.
+
+Errors reject the Promise with a `CapabilityError` sentence, and these are the
+sentences: `already recording for 'scribe'` · `nothing is recording` · `only
+'scribe' may stop this recording` · `microphone access was denied` · `system
+audio capture needs macOS 14.2 or later` · `this shell has no recording
+capability`.
+
+**Transcription is gated, and the gate is honest.** `status.transcription`
+reports `{ available: false, reason: "transcription needs macOS 26" }` on this
+build and always will — the long-form `SpeechAnalyzer` engine is a macOS 26 API,
+and a build against an older SDK reports the gap rather than half-transcribing.
+Show the reason; do not show a disabled button with no explanation.
+
+**Playback is not a capability.** There is nothing to add: a worker plays a file
+by spawning `afplay` itself, like any other Bun process — `Bun.spawn(["afplay",
+path])`, killed to stop. The same goes for revealing one: `["open", dir]`.
 
 ### Canvas and games
 
