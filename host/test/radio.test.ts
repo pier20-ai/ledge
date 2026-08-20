@@ -9,25 +9,23 @@ import type { Mutation } from "../src/render/mutations";
 import { Router } from "../src/router";
 
 // **Radio has to exercise.** It is the demo app whose entire job is to be
-// pressed: no summary, no mini, two ghost buttons and a wing it takes and gives
-// back. G2 reported it as "non-functional on device — clicking around it does
-// nothing", and nothing in the suite would have noticed, because every other
-// test that touches a button uses a three-line app written for the test.
+// handled: no summary, no mini, one ghost transport, a needle you drag, and a
+// wing it takes and gives back. G2 reported it as "non-functional on device —
+// clicking around it does nothing", and nothing in the suite would have
+// noticed, because every other test that touches a control uses a three-line
+// app written for the test.
 //
-// So this one drives the **real** `protocol/demo-apps/radio/app.jsx` through the
-// real Router and a real worker, and presses the buttons the way the shell does
-// — an `event` envelope naming a node id from the app's own mount batch. What it
-// asserts is the whole exercise:
+// So this one drives the **real** `protocol/demo-apps/radio/app.jsx` through
+// the real Router and a real worker, and handles it the way the shell does —
+// `event` envelopes naming node ids from the app's own mount batch. Since
+// G2.13 the switcher is the dial: a `drag` on the stage canvas (§4.1, phases
+// down/move/up) that snaps to the nearest station on release. The exercise:
 //
-//   press play  → the glyph becomes pause, the meter starts drawing, the notch
-//                 is claimed;
-//   press next  → the title changes and the wing's ticker changes **with it, in
-//                 place** — no release, no re-claim, no blink;
-//   press play  → the glyph goes back and the wing is handed in.
-//
-// It is deliberately not a unit test of `toggle()`: the defect it exists to
-// catch is a click that never arrives, and the only way to be sure one arrives
-// is to send it the way the shell sends it.
+//   press play   → the glyph becomes pause, the meter draws, the notch is
+//                  claimed;
+//   drag needle  → the name and the wing's ticker change **with it, in
+//                  place** — no release, no re-claim, no blink;
+//   press play   → the glyph goes back and the wing is handed in.
 
 const HOST_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NODE_MODULES = join(HOST_DIR, "node_modules");
@@ -125,23 +123,28 @@ describe("radio, pressed the way the shell presses it", () => {
     openRouter = router;
     await router.bindSession(session);
 
-    // The stations arrive from the monitor, so the rows land in a later commit
-    // than the mount: wait for the four buttons — three station rows (child
-    // form, no icon) and the one ghost transport.
+    // The stations arrive from the monitor, so the dial lands in a later
+    // commit than the mount: wait for the stage canvas (the 380 pt face) and
+    // the one ghost transport.
     const creates = () =>
       session
         .envelopesFor("radio", "commit")
         .flatMap((e) => e.payload.mutations as Mutation[])
         .filter((m): m is Extract<Mutation, { op: "create" }> => m.op === "create");
-    await waitFor(() => creates().filter((m) => m.kind === "button").length >= 4);
+    await waitFor(
+      () =>
+        creates().some((m) => m.kind === "canvas" && m.props.w === 380) &&
+        creates().some((m) => m.kind === "button" && m.props.icon),
+    );
 
-    const buttons = creates().filter((m) => m.kind === "button");
-    const rows = buttons.filter((m) => !m.props.icon);
-    const transport = buttons.find((m) => m.props.icon)!;
-    expect(rows).toHaveLength(3);
+    const stage = creates().find((m) => m.kind === "canvas" && m.props.w === 380)!;
+    const transport = creates().find((m) => m.kind === "button" && m.props.icon)!;
+    // The needle is the switcher: the stage declares the drag wire and there
+    // are no station rows — no other buttons at all.
+    expect(stage.props.onDrag).toBe(true);
+    expect(creates().filter((m) => m.kind === "button")).toHaveLength(1);
     expect(transport.props.variant).toBe("ghost");
     expect(transport.props.onClick).toBe(true);
-    for (const row of rows) expect(row.props.onClick).toBe(true);
 
     // The shell sends explicit lifecycle alongside a visit; the app paints on it.
     router.onEnvelope(session, envelope("radio", "lifecycle", { phase: "expanded", reduceMotion: false }));
@@ -161,7 +164,7 @@ describe("radio, pressed the way the shell presses it", () => {
     expect(claim).not.toBeNull();
     expect(claim.text).toBe("Dial One");
     // The wing mirrors the app's own METER canvas — one `ctx.draw`, two
-    // places. (The big VU stage is a second canvas; the wing is the 36 pt one.)
+    // places. (The dial face is a second canvas; the wing is the 36 pt one.)
     const meter = creates().find((m) => m.kind === "canvas" && m.props.w === 36)!;
     expect((claim.canvas as { id: number }).id).toBe(meter.id);
 
@@ -170,19 +173,27 @@ describe("radio, pressed the way the shell presses it", () => {
     await waitFor(() => session.envelopesFor("radio", "draw").length > restingDraws + 3);
 
     // ---------------------------------------------------------------- retune
-    // Click the second station's row: the dial turns, the wing's ticker turns
-    // with it **in place** — no release, no re-claim, no blink.
-    router.onEnvelope(session, envelope("radio", "event", { id: rows[1]!.id, name: "click", data: {} }));
+    // Drag the needle to the far end of the band and let go: the dial snaps
+    // to the nearest station, and the wing's ticker turns with it **in
+    // place** — no release, no re-claim, no blink. The band runs from x=30
+    // to x=350 (BAND_X / BAND_X + BAND_W in the app), so the right edge is
+    // the last fixture station.
+    const drag = (phase: string, x: number) =>
+      router.onEnvelope(
+        session,
+        envelope("radio", "event", { id: stage.id, name: "drag", data: { phase, x, y: 79 } }),
+      );
+    drag("down", 200);
+    drag("move", 340);
+    drag("up", 348);
     await waitFor(() => session.wings("radio").length >= 2);
     const retuned = session.wings("radio").at(-1)!;
     expect(retuned).not.toBeNull();
-    expect(retuned.text).toBe("Dial Two");
+    expect(retuned.text).toBe("Dial Three");
     expect(session.wings("radio").some((wing) => wing === null)).toBe(false);
-    // …and the tuned row moved with it: the second row's name is primary now.
-    const names = creates().filter((m) => m.kind === "text" && m.props.size === "m");
-    expect(names).toHaveLength(3);
-    expect(session.propsOf("radio", names[1]!.id).color).toBe("primary");
-    expect(session.propsOf("radio", names[0]!.id).color).toBe("tertiary");
+    // …and the name under the face moved with it, in place.
+    const name = creates().find((m) => m.kind === "text" && m.props.size === "l")!;
+    expect(session.propsOf("radio", name.id).content).toBe("Dial Three");
 
     // ---------------------------------------------------------------- stop
     router.onEnvelope(session, envelope("radio", "event", { id: transport.id, name: "click", data: {} }));

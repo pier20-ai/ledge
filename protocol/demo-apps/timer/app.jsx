@@ -37,6 +37,8 @@ const WING_HEARTBEAT_MS = 45_000;
 const STORE = process.env.LEDGE_ALARM_STORE
   ? new URL(`file://${process.env.LEDGE_ALARM_STORE}`)
   : new URL("./alarms.json", import.meta.url);
+/** Whether the model fallback is armed — the empty state tells the truth. */
+const HAS_MODEL = Boolean(process.env.OPENAI_API_KEY);
 
 let ctxRef = null;
 let alarms = []; // { id, note, fireAt, createdAt, remainMs|null (paused), pending }
@@ -442,6 +444,28 @@ export default function Alarms({
           <button label="Stop" variant="plain" size="s" onClick={() => onStop?.()} />
         </stack>
       </mini>
+
+      {/* The empty state (G2.13): the app's one trick, taught in its own
+          grammar. Honest about the model — the third line only promises what
+          the environment can actually deliver. */}
+      {rows.length === 0 ? (
+        <stack axis="v" pad={22} gap={10} align="center">
+          <image src="sf:alarm" w={26} h={26} />
+          <text content="An alarm is a sentence — type one below." size="s" color="secondary" />
+          <stack axis="v" gap={3} align="center">
+            <text content="7:30 pm  ·  in 20 min  ·  tomorrow 9am" size="xs" color="tertiary" />
+            <text
+              content={
+                HAS_MODEL
+                  ? "or an idea — “ping me at sunset” gets figured out"
+                  : "set OPENAI_API_KEY and “ping me at sunset” works too"
+              }
+              size="xs"
+              color="tertiary"
+            />
+          </stack>
+        </stack>
+      ) : null}
 
       {/* The list. Each row is its note; the machinery hangs off the right. */}
       <stack axis="v" gap={2} scroll>

@@ -264,13 +264,46 @@ const RULE_W = DECK_W - RULE_X * 2;
 const RULE_Y = 150;
 const ART = 56; // the album art, set into the face between the spools
 
+// The guide rollers the tape runs over, between the packs and the head.
+const ROLL_LX = 116;
+const ROLL_RX = 200;
+const ROLL_Y = 124;
+const ROLL_R = 5;
+
 let deck = null; // the stage canvas node, from a ref
 let thetaL = 0; // each reel's angle, radians
 let thetaR = 0;
 let reelVel = 0; // 0…1: how wound-up the transport is — coasts on pause
+let scrub = null; // 0…1 while a finger holds the ruler; null otherwise
 
 function deckCircle(ops, x, y, r, fill) {
   ops.push({ op: "rect", x: x - r, y: y - r, w: r * 2, h: r * 2, radius: r, fill });
+}
+
+/** The two points where the common outer tangent touches a pair of circles.
+ * The tape has to LEAVE the pack and LAND on the roller at a tangent (G2.13
+ * — drawn to fixed points it read as pinned to the rims, and it moved wrong
+ * as the packs wound). Screen coordinates, y down; `sign` picks the side. */
+function tangentRun(c1, r1, c2, r2, sign = 1) {
+  const base = Math.atan2(c2[1] - c1[1], c2[0] - c1[0]);
+  const span = Math.hypot(c2[0] - c1[0], c2[1] - c1[1]);
+  const lean = Math.acos(Math.max(-1, Math.min(1, (r1 - r2) / span)));
+  const a = base + sign * lean;
+  return [
+    [c1[0] + Math.cos(a) * r1, c1[1] + Math.sin(a) * r1],
+    [c2[0] + Math.cos(a) * r2, c2[1] + Math.sin(a) * r2],
+  ];
+}
+
+/** A few points along a circle from angle `a0` to `a1` — the tape wrapping a
+ * guide roller between its two tangent lines. */
+function wrapArc(cx, cy, r, a0, a1, n = 4) {
+  const points = [];
+  for (let i = 0; i <= n; i += 1) {
+    const a = a0 + ((a1 - a0) * i) / n;
+    points.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  return points;
 }
 
 /** One reel: gold flange rim, tape pack at its true radius, three olive
@@ -289,7 +322,9 @@ function pushReel(ops, cx, pack, theta) {
 
 function deckPaint() {
   if (!ctxRef || !deck || !shown) return;
-  const p = shown.duration > 0 ? Math.min(1, shown.position / shown.duration) : 0;
+  // A held ruler previews its position everywhere — packs, playhead, gold —
+  // so the machine winds under the finger before the player has even heard.
+  const p = scrub ?? (shown.duration > 0 ? Math.min(1, shown.position / shown.duration) : 0);
   const packL = PACK_MIN + (1 - p) * (PACK_MAX - PACK_MIN); // supply empties…
   const packR = PACK_MIN + p * (PACK_MAX - PACK_MIN); // …the takeup fills
 
@@ -301,25 +336,30 @@ function deckPaint() {
   pushReel(ops, REEL_LX, packL, thetaL);
   pushReel(ops, REEL_RX, packR, thetaR);
 
-  // The tape path: off the supply pack, over two rollers, across the head,
-  // onto the takeup pack — one honest polyline under the album art.
+  // The rollers and the head first: the tape crosses the head's face.
+  for (const rx of [ROLL_LX, ROLL_RX]) {
+    deckCircle(ops, rx, ROLL_Y, ROLL_R, "#FFFFFF33");
+    deckCircle(ops, rx, ROLL_Y, 1.5, INK_HUB);
+  }
+  ops.push({ op: "rect", x: 150, y: 117, w: 16, h: 13, radius: 2, fill: "#FFFFFF3B" });
+  ops.push({ op: "rect", x: 156.5, y: 114, w: 3, h: 5, radius: 1, fill: "#FFFFFF3B" });
+
+  // The tape path: off the supply pack at a tangent, wrapping the underside
+  // of each roller, tangent again onto the takeup — every straight run leaves
+  // its circle where geometry says it must, at every pack radius.
+  const [offPackL, ontoRollL] = tangentRun([REEL_LX, REEL_Y], packL, [ROLL_LX, ROLL_Y], ROLL_R);
+  const [offRollR, ontoPackR] = tangentRun([ROLL_RX, ROLL_Y], ROLL_R, [REEL_RX, REEL_Y], packR);
   ops.push({
     op: "line",
     points: [
-      [REEL_LX, REEL_Y + packL],
-      [116, 124],
-      [200, 124],
-      [REEL_RX, REEL_Y + packR],
+      offPackL,
+      ...wrapArc(ROLL_LX, ROLL_Y, ROLL_R, Math.atan2(ontoRollL[1] - ROLL_Y, ontoRollL[0] - ROLL_LX), Math.PI / 2),
+      ...wrapArc(ROLL_RX, ROLL_Y, ROLL_R, Math.PI / 2, Math.atan2(offRollR[1] - ROLL_Y, offRollR[0] - ROLL_RX)),
+      ontoPackR,
     ],
     stroke: INK_TAPE,
     width: 1.5,
   });
-  for (const rx of [116, 200]) {
-    deckCircle(ops, rx, 124, 5, "#FFFFFF33");
-    deckCircle(ops, rx, 124, 1.5, INK_HUB);
-  }
-  ops.push({ op: "rect", x: 150, y: 117, w: 16, h: 13, radius: 2, fill: "#FFFFFF3B" });
-  ops.push({ op: "rect", x: 156.5, y: 114, w: 3, h: 5, radius: 1, fill: "#FFFFFF3B" });
 
   // The album art, set into the face between the spools (G2.12). Without a
   // sleeve on disk the recess stays — a machine with an empty art slot, not a
@@ -352,10 +392,34 @@ function deckPaint() {
   ops.push({ op: "rect", x: RULE_X, y: RULE_Y + 5, w: RULE_W, h: 2, radius: 1, fill: "#FFFFFF1F" });
   ops.push({ op: "rect", x: RULE_X, y: RULE_Y + 5, w: Math.max(2, RULE_W * p), h: 2, radius: 1, fill: INK_PROGRESS });
   const headX = RULE_X + RULE_W * p;
-  deckCircle(ops, headX, RULE_Y + 6, 6, INK_PLAYHEAD);
-  deckCircle(ops, headX, RULE_Y + 6, 3.5, DECK_BG);
+  deckCircle(ops, headX, RULE_Y + 6, scrub !== null ? 7.5 : 6, INK_PLAYHEAD);
+  deckCircle(ops, headX, RULE_Y + 6, scrub !== null ? 4.5 : 3.5, DECK_BG);
 
   ctxRef.draw(deck.id, ops);
+}
+
+/** The ruler, held (G2.13 — "make the scrubber interactive"). The drag rides
+ * the finger through the whole deck preview; the release is the seek — one
+ * `set player position`, optimistic locally so the playhead never snaps back
+ * while the poll catches up. A drag that starts up among the reels is not a
+ * scrub and is ignored whole. */
+function scrubDeck({ phase, x, y }) {
+  if (!shown || shown.duration <= 0) return;
+  if (phase === "down" && y < RULE_Y - 18) return;
+  if (phase !== "up") {
+    if (scrub === null && phase === "move") return; // began off the ruler
+    scrub = Math.max(0, Math.min(1, (x - RULE_X) / RULE_W));
+    deckPaint();
+    return;
+  }
+  if (scrub === null) return;
+  const seconds = Math.round(scrub * shown.duration);
+  scrub = null;
+  shown = { ...shown, position: seconds };
+  if (now) now = { ...now, position: seconds };
+  deckPaint();
+  publish();
+  void command(`set player position to ${seconds}`);
 }
 
 /** Advance the reels one frame: real tape mechanics, eased transport. */
@@ -616,6 +680,7 @@ export default function NowPlaying({
   track = null,
   onPlayPause = onToggle,
   onSkip = onNext,
+  onScrub = scrubDeck,
 }) {
   // The invitation (design.html §09): one glyph, one line, no button. The glyph
   // is the signature at rest — flat bars are what silence looks like here.
@@ -637,7 +702,9 @@ export default function NowPlaying({
           the machine now. The tape packs are the position — real data drawn
           as a mechanism, not decoration around it. */}
       <stack axis="v" pad={2} fill="black" stroke="hairline" radius={8}>
-        <canvas ref={(node) => { deck = node; }} w={DECK_W} h={DECK_H} />
+        {/* `onDrag` is the scrubber: the machine's own ruler is the one place
+            a finger does anything here (principle 5). */}
+        <canvas ref={(node) => { deck = node; }} w={DECK_W} h={DECK_H} onDrag={onScrub} />
       </stack>
 
       {/* The scrubber inside the deck is the progress now (principle 5): the

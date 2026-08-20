@@ -1,16 +1,20 @@
 /** @jsxImportSource react */
-// Radio — three real stations, actually playing (G2.9).
+// Radio — a car dial over a real directory (G2.13).
 //
-// The fixture era is over: this app fetches the top three stations on Earth
-// from the Radio Browser directory (https://api.radio-browser.info — community
-// run, keyless) and plays the one you pick through AVFoundation. Ledge itself
-// still renders nothing but glass: the audio lives in one spawned `osascript`
-// runloop the worker owns and kills.
+// The stage is an old-school car radio face: FM and AM rulers in cream, the
+// world's most-listened stations set along the band as gold markers, and one
+// red needle you DRAG — let go and it snaps to the nearest station through a
+// burst of static. The dial is the switcher; there is no list. The stations
+// are real: two dozen from the Radio Browser directory
+// (https://api.radio-browser.info — community run, keyless), played through
+// AVFoundation. Ledge itself still renders nothing but glass: the audio lives
+// in one spawned `osascript` runloop the worker owns and kills.
 //
-// Laws it is written against: 1 (no card, no artwork frame), 3 (ink only; the
-// meter is white), 4 (station names are the only words, and they are data),
-// 5 (the station list IS the switcher — three rows of the datum, the current
-// one in primary ink; no segmented control invented around them).
+// Laws it is written against: 1 (no card), 3 (ink plus exactly two working
+// hues — the face's cream/gold and the needle's red, each with one job),
+// 4 (the numerals and the station name are the only words, and they are the
+// instrument's own), 5 (the dial IS the switcher — dragging the needle is the
+// gesture, not a control invented beside it).
 //
 // Surfaces it exercises:
 //   NO SUMMARY   declares neither <summary> nor <mini>: it is its own summary,
@@ -35,8 +39,13 @@ const MIRRORS = [
   "https://fi1.api.radio-browser.info/json",
 ];
 const USER_AGENT = "Ledge-Radio/1.0";
-/** Most-listened-to right now, not most-voted-ever: a radio app is live. */
-const TOP = "stations/topclick/3?hidebroken=true";
+/** Most-listened-to right now, not most-voted-ever: a radio app is live. The
+ * over-fetch feeds the dedupe below — the directory lists the same network
+ * under several relays, and a dial with "Radio Paradise" at three spots is a
+ * bug, not a band plan. */
+const TOP = "stations/topclick/40?hidebroken=true";
+/** How many stations fit on the band before the markers stop being targets. */
+const DIAL_SIZE = 24;
 /** Yesterday's dial, for a cold or offline launch (same pattern as weather). */
 const CACHE = new URL("./stations.json", import.meta.url);
 
@@ -53,12 +62,21 @@ async function fetchTop() {
       const rows = await res.json();
       if (!Array.isArray(rows) || rows.length === 0) continue;
       mirror = base;
-      return rows.map((row) => ({
-        uuid: row.stationuuid,
-        name: String(row.name ?? "").trim() || "unnamed",
-        url: row.url_resolved || row.url,
-        country: String(row.countrycode ?? "").trim(),
-      }));
+      const seen = new Set();
+      const list = [];
+      for (const row of rows) {
+        const name = String(row.name ?? "").trim() || "unnamed";
+        if (seen.has(name.toLowerCase())) continue;
+        seen.add(name.toLowerCase());
+        list.push({
+          uuid: row.stationuuid,
+          name,
+          url: row.url_resolved || row.url,
+          country: String(row.countrycode ?? "").trim(),
+        });
+        if (list.length === DIAL_SIZE) break;
+      }
+      return list;
     } catch {
       // The next mirror is the retry.
     }
@@ -180,10 +198,11 @@ function toggle() {
   }
   commit();
   paint();
+  stagePaint();
 }
 
-/** Click a station row: that station plays. Radio has no "selected but
- * silent" — turning the dial is the whole gesture. */
+/** Land the needle on a station: that station plays. Radio has no "selected
+ * but silent" — turning the dial is the whole gesture. */
 function tune(index) {
   if (!stations?.[index]) return;
   if (index === current && playing) return;
@@ -191,11 +210,10 @@ function tune(index) {
   stopAudio();
   playing = true;
   tunedAt = Date.now(); // the static sweep: the dial audibly *travels*
-  needle = 0; // the needle slams home and climbs back with the lock
-  needleVel = 0;
   startAudio(stations[current]);
   commit();
   paint();
+  stagePaint();
 }
 
 // ---------------------------------------------------------------- publishing
@@ -254,35 +272,45 @@ function paint() {
   ctxRef.draw(meter.id, ops);
 }
 
-// ---------------------------------------------------------------- the VU
+// ---------------------------------------------------------------- the dial
 //
-// The stage instrument (G2.11 — "show the fun front and centre"): a big VU
-// meter drawn as a flat-ink machine face, weatherglass style. We have no
-// honest signal — tapping the stream is private-API territory — so the honest
-// theatre is the INSTRUMENT: a needle with mass and damping chasing a
-// programme-shaped level, that slams home when you retune and climbs back as
-// the dial locks through a burst of static.
+// The stage instrument (G2.13 — "the old-school car FM/AM radio interface"):
+// a horizontal band with an FM ruler above and an AM ruler below, both in
+// cream numerals, the stations set between them as gold markers, and one red
+// needle spanning the face. The needle is the whole interface: DRAG it — it
+// follows the finger dead (no spring against a hand) — and on release it
+// snaps to the nearest marker and that station plays, through the static
+// burst of the dial travelling. Weatherglass discipline: the numerals are
+// theatre (the directory has no frequencies), the markers and the name below
+// are data.
 
 const STAGE_W = 380;
 const STAGE_H = 150;
-const PIVOT_X = STAGE_W / 2;
-const PIVOT_Y = STAGE_H - 18;
-const NEEDLE_LEN = 108;
-const SWEEP = (50 * Math.PI) / 180; // half-sweep, radians
+const BAND_X = 30; // where the scale starts
+const BAND_W = STAGE_W - BAND_X * 2;
+const FM_Y = 52; // the FM ruler's line
+const AM_Y = 106; // the AM ruler's line
+const MARK_Y = (FM_Y + AM_Y) / 2; // the stations, on the band between them
+const NEEDLE_TOP = 28;
+const NEEDLE_BOT = 130;
 const STATIC_MS = 550; // how long a retune crackles before the lock
 
-let stage = null; // the stage canvas node, from a ref
-let needle = 0; // the needle's position, 0…1 — it has mass
-let needleVel = 0;
-let tunedAt = 0; // when the dial last turned; drives the static sweep
+// The face's palette: weather's deco creams and golds as the machine, and the
+// needle in the one red — a car dial's needle has been red since Bakelite.
+const INK_SCALE = "#E8E2D0B8"; // cream numerals
+const INK_RULE = "#FFFFFF2E";
+const INK_TICK = "#FFFFFF55";
+const INK_MARK = "#C9A86ACC"; // gold station markers
+const INK_NEEDLE = "#E8402AE6";
 
-/** The programme level the needle chases: two detuned sines and a flutter —
- * music-shaped, deliberately not music. */
-function programme(t) {
-  const slow = Math.sin(t / 620) * Math.sin(t / 1310);
-  const flutter = Math.sin(t / 97) * 0.12;
-  return 0.55 + 0.28 * slow + flutter;
-}
+const FM_NUMBERS = [88, 92, 96, 100, 104, 108];
+const AM_NUMBERS = [55, 70, 90, 110, 140, 160];
+
+let stage = null; // the stage canvas node, from a ref
+let dial = 0; // the needle, 0…1 across the band — it has mass
+let dialVel = 0;
+let dragPos = null; // the finger's own position while it holds the needle
+let tunedAt = 0; // when the dial last landed; drives the static sweep
 
 /** Deterministic speckle for the static sweep — pure in (frame, i). */
 function crackle(seed) {
@@ -290,10 +318,45 @@ function crackle(seed) {
   return x - Math.floor(x);
 }
 
-/** A point on the dial: `k` 0…1 across the sweep, at radius `r`. */
-function dialPoint(k, r) {
-  const angle = -Math.PI / 2 + (k * 2 - 1) * SWEEP;
-  return [PIVOT_X + Math.cos(angle) * r, PIVOT_Y + Math.sin(angle) * r];
+/** Where station `i` sits on the band, 0…1 — evenly set, ends included. */
+function stationK(i) {
+  const n = stations?.length ?? 0;
+  return n > 1 ? i / (n - 1) : 0.5;
+}
+
+/** Advance the needle toward where it belongs; true while it is still moving.
+ * A held needle does not move itself — the finger owns it. */
+function dialStep() {
+  if (dragPos !== null) return true;
+  const wanted = stationK(current);
+  if (ctxRef?.reduceMotion) {
+    const moved = Math.abs(dial - wanted) > 0.0005;
+    dial = wanted;
+    dialVel = 0;
+    return moved;
+  }
+  dialVel += (wanted - dial) * 0.16;
+  dialVel *= 0.7;
+  dial += dialVel;
+  return Math.abs(wanted - dial) > 0.0005 || Math.abs(dialVel) > 0.0005;
+}
+
+/** The needle, dragged (§4.1 `drag`). Down and move: the needle rides the
+ * finger. Up: snap to the nearest station and tune it — releasing the knob IS
+ * the click. A drag that lets go where it started just re-seats the needle. */
+function turnDial({ phase, x }) {
+  if (!stations || stations.length === 0) return;
+  const k = Math.max(0, Math.min(1, (x - BAND_X) / BAND_W));
+  if (phase !== "up") {
+    dragPos = k;
+    dial = k;
+    dialVel = 0;
+    stagePaint();
+    return;
+  }
+  dragPos = null;
+  tune(Math.round(k * (stations.length - 1)));
+  stagePaint(); // a same-station release still needs the highlight back
 }
 
 function stagePaint() {
@@ -301,54 +364,68 @@ function stagePaint() {
   const still = Boolean(ctxRef.reduceMotion);
   const now = Date.now();
   const inStatic = playing && !still && now - tunedAt < STATIC_MS;
+  const lit = playing || dragPos !== null; // a held dial wakes the face
   const ops = [
     { op: "clear" },
     { op: "rect", x: 0, y: 0, w: STAGE_W, h: STAGE_H, fill: "#0B0B0Ecc", radius: 6 },
   ];
 
-  // The dial arc, as a fine polyline — the instrument's horizon.
-  const arc = [];
-  for (let i = 0; i <= 24; i += 1) arc.push(dialPoint(i / 24, NEEDLE_LEN + 6));
-  ops.push({ op: "line", points: arc, stroke: "#FFFFFF26", width: 1 });
+  // Stepped deco columns at either end — the band's pediments.
+  for (const capX of [11, STAGE_W - 11]) {
+    ops.push({ op: "rect", x: capX - 1.5, y: 40, w: 3, h: 74, radius: 1.5, fill: "#FFFFFF24" });
+    ops.push({ op: "rect", x: capX + (capX < STAGE_W / 2 ? 5 : -7), y: 50, w: 2, h: 54, radius: 1, fill: "#FFFFFF14" });
+  }
 
-  // Eleven ticks; the last three are the hot end, heavier and brighter —
-  // the red zone spoken in ink.
-  for (let i = 0; i <= 10; i += 1) {
-    const hot = i >= 8;
-    const [x1, y1] = dialPoint(i / 10, NEEDLE_LEN + 6);
-    const [x2, y2] = dialPoint(i / 10, NEEDLE_LEN + 6 - (hot ? 12 : 8));
+  // The rulers: FM reads above its line, AM below, ticks reaching into the
+  // band from both — the classic two-row face.
+  ops.push({ op: "text", content: "FM", x: 9, y: FM_Y - 6, size: 9, color: lit ? INK_SCALE : "#FFFFFF3D" });
+  ops.push({ op: "text", content: "AM", x: 9, y: AM_Y - 6, size: 9, color: lit ? INK_SCALE : "#FFFFFF3D" });
+  ops.push({ op: "line", points: [[BAND_X, FM_Y], [BAND_X + BAND_W, FM_Y]], stroke: INK_RULE, width: 1 });
+  ops.push({ op: "line", points: [[BAND_X, AM_Y], [BAND_X + BAND_W, AM_Y]], stroke: INK_RULE, width: 1 });
+  for (let i = 0; i <= 20; i += 1) {
+    const x = BAND_X + (i / 20) * BAND_W;
+    const major = i % 4 === 0;
+    ops.push({ op: "line", points: [[x, FM_Y], [x, FM_Y + (major ? 8 : 4)]], stroke: major ? INK_TICK : INK_RULE, width: 1 });
+    ops.push({ op: "line", points: [[x, AM_Y], [x, AM_Y - (major ? 8 : 4)]], stroke: major ? INK_TICK : INK_RULE, width: 1 });
+  }
+  FM_NUMBERS.forEach((n, j) => {
+    const label = String(n);
     ops.push({
-      op: "line",
-      points: [[x1, y1], [x2, y2]],
-      stroke: playing ? (hot ? "#FFFFFFE6" : "#FFFFFF73") : "#FFFFFF30",
-      width: hot ? 2.5 : 1.5,
+      op: "text", content: label,
+      x: BAND_X + (j / (FM_NUMBERS.length - 1)) * BAND_W - label.length * 2.7,
+      y: FM_Y - 17, size: 9,
+      color: lit ? INK_SCALE : "#FFFFFF3D",
     });
-  }
-
-  // Ballistics: the needle is a body. It kicks on transients and rings a
-  // little on the way down — VU behaviour, at panel scale.
-  const level = !playing ? 0 : still ? 0.62 : inStatic ? 0.15 + crackle(frame) * 0.5 : programme(now);
-  if (still) {
-    needle = level;
-    needleVel = 0;
-  } else {
-    needleVel += (level - needle) * 0.35;
-    needleVel *= 0.72;
-    needle = Math.max(0, Math.min(1, needle + needleVel));
-  }
-  const [tipX, tipY] = dialPoint(needle, NEEDLE_LEN);
-  const [tailX, tailY] = dialPoint(needle, -16); // the counterweight, past the pivot
-  ops.push({
-    op: "line",
-    points: [[tailX, tailY], [tipX, tipY]],
-    stroke: playing ? "#FFFFFFE6" : "#FFFFFF40",
-    width: 2,
+  });
+  AM_NUMBERS.forEach((n, j) => {
+    const label = String(n);
+    ops.push({
+      op: "text", content: label,
+      x: BAND_X + (j / (AM_NUMBERS.length - 1)) * BAND_W - label.length * 2.7,
+      y: AM_Y + 7, size: 9,
+      color: lit ? INK_SCALE : "#FFFFFF3D",
+    });
   });
 
-  // The pivot: a stepped art-deco base and a dome.
-  ops.push({ op: "rect", x: PIVOT_X - 26, y: PIVOT_Y + 8, w: 52, h: 5, radius: 2.5, fill: "#FFFFFF24" });
-  ops.push({ op: "rect", x: PIVOT_X - 16, y: PIVOT_Y + 3, w: 32, h: 5, radius: 2.5, fill: "#FFFFFF33" });
-  ops.push({ op: "rect", x: PIVOT_X - 6, y: PIVOT_Y - 6, w: 12, h: 12, radius: 6, fill: "#FFFFFFB8" });
+  // The stations, as gold markers between the rulers. The tuned one — or,
+  // under a finger, the one the needle would land on — wears a halo.
+  const landing = dragPos !== null ? Math.round(dragPos * (stations.length - 1)) : current;
+  stations?.forEach((_, i) => {
+    const x = BAND_X + stationK(i) * BAND_W;
+    if (i === landing) {
+      ops.push({ op: "rect", x: x - 5, y: MARK_Y - 5, w: 10, h: 10, radius: 5, fill: "#C9A86A3D" });
+      ops.push({ op: "rect", x: x - 2, y: MARK_Y - 2, w: 4, h: 4, radius: 2, fill: "#E8E2D0E6" });
+    } else {
+      ops.push({ op: "rect", x: x - 1.5, y: MARK_Y - 1.5, w: 3, h: 3, radius: 1.5, fill: lit ? INK_MARK : "#C9A86A66" });
+    }
+  });
+
+  // The red needle, spanning the whole face, with a bead at each end — the
+  // one hot accent, and the one thing on the face you can hold.
+  const needleX = BAND_X + dial * BAND_W;
+  ops.push({ op: "line", points: [[needleX, NEEDLE_TOP], [needleX, NEEDLE_BOT]], stroke: INK_NEEDLE, width: 2.5 });
+  ops.push({ op: "rect", x: needleX - 4, y: NEEDLE_TOP - 5, w: 8, h: 6, radius: 3, fill: "#E8402AB8" });
+  ops.push({ op: "rect", x: needleX - 4, y: NEEDLE_BOT - 1, w: 8, h: 6, radius: 3, fill: "#E8402AB8" });
 
   // The static sweep: the dial travelling between stations, as speckle.
   if (inStatic) {
@@ -367,18 +444,19 @@ function stagePaint() {
 }
 
 function tick() {
-  // Stopped, the needle still has to *land*: it eases to rest with a little
-  // ring (a VU is a body), and only then do the frames stop.
-  const settling = !playing && (needle > 0.01 || Math.abs(needleVel) > 0.005);
-  if (!playing && !settling) return;
+  // Stopped, the needle still has to *land*: it glides to the tuned marker
+  // and only then do the frames stop.
+  const moving = dialStep();
+  if (!playing && !moving) return;
   if (ctxRef?.reduceMotion) {
     commit(); // the heartbeat must outlive the animation (spec §4.2)
+    stagePaint();
     return;
   }
   frame += 1;
   commit();
   paint();
-  stagePaint();
+  if (moving || dragPos !== null || (playing && Date.now() - tunedAt < STATIC_MS + 200)) stagePaint();
 }
 
 let expanded = false;
@@ -415,7 +493,7 @@ export default function Radio({
   current: tuned = 0,
   playing: live = false,
   onToggle = toggle,
-  onTune = tune,
+  onDial = turnDial,
 }) {
   if (!list) {
     // §09's empty state: one line, never an apology. The dial is loading or
@@ -429,11 +507,12 @@ export default function Radio({
 
   return (
     // Tetris's alignment recipe: the outer column centres, the inner one has
-    // no align — its children stretch to the widest of them (the VU's slab),
-    // so the station rows line up with the instrument's edges exactly.
+    // no align — its children stretch to the widest of them (the dial's slab),
+    // so the rows below line up with the instrument's edges exactly.
     <stack axis="v" pad={16} align="center">
       <stack axis="v" gap={8}>
-        {/* The VU, front and centre (G2.11) — the one framed region (§09). */}
+        {/* The dial, front and centre — the one framed region (§09). `onDrag`
+            and nothing else: the needle is the switcher (principle 5). */}
         <stack axis="v" pad={2} fill="black" stroke="hairline" radius={8}>
           <canvas
             ref={(node) => {
@@ -441,27 +520,23 @@ export default function Radio({
             }}
             w={STAGE_W}
             h={STAGE_H}
+            onDrag={onDial}
           />
         </stack>
 
-        {/* The list is the switcher (principle 5): three rows of the datum,
-            the tuned one in primary ink. A row is a button in the child form —
-            the whole line is the target. */}
-        {list.map((station, index) => (
-          <button key={index} onClick={() => onTune?.(index)}>
-            <stack axis="h" gap={10} pad={6} align="center">
-              <text
-                content={station.name}
-                size="m"
-                weight={index === tuned ? "medium" : "regular"}
-                color={index === tuned ? "primary" : "tertiary"}
-                truncate
-              />
-              <spacer />
-              <text content={station.country} size="xs" color="tertiary" caps />
-            </stack>
-          </button>
-        ))}
+        {/* Below the face: what the needle is on. The name is the datum — the
+            dial's numerals are only the machine. */}
+        <stack axis="h" gap={10} pad={6} align="center">
+          <text
+            content={list[tuned]?.name ?? ""}
+            size="l"
+            weight="medium"
+            color={live ? "primary" : "secondary"}
+            truncate
+          />
+          <spacer />
+          <text content={list[tuned]?.country ?? ""} size="xs" color="tertiary" caps />
+        </stack>
 
         {/* The wing's own strip, sitting in the panel: the shell mirrors this
             node's frames into the notch — the same pixels, two places. */}
