@@ -109,68 +109,83 @@ afterEach(async () => {
 });
 
 describe("radio, pressed the way the shell presses it", () => {
-  test("play / next / play drives props, the meter and the wing", async () => {
+  test("tune / retune / stop drives props, the meter and the wing", async () => {
+    // The seams: a fixture dial (no public internet in a suite) and no audio
+    // process (a test run must be silent). Everything else is the real app.
+    process.env.LEDGE_RADIO_STATIONS = JSON.stringify([
+      { uuid: "u1", name: "Dial One", url: "http://example.test/1", country: "DE" },
+      { uuid: "u2", name: "Dial Two", url: "http://example.test/2", country: "US" },
+      { uuid: "u3", name: "Dial Three", url: "http://example.test/3", country: "FR" },
+    ]);
+    process.env.LEDGE_RADIO_MUTE = "1";
+
     const root = await appsRootWith("radio");
     const session = new RecordingSession();
     const router = new Router({ appsRoot: root, settingsPath: join(root, "settings.json"), watch: false });
     openRouter = router;
     await router.bindSession(session);
-    await waitFor(() => session.envelopesFor("radio", "commit").length >= 1);
 
-    // The mount batch is also the list of what the user could have pressed
-    // (`onClick: true` is how a handler crosses the wire, spec §5).
-    const mount = session.envelopesFor("radio", "commit")[0]!.payload.mutations as Mutation[];
-    const buttons = mount.filter(
-      (m): m is Extract<Mutation, { op: "create" }> => m.op === "create" && m.kind === "button",
-    );
-    expect(buttons).toHaveLength(2);
-    const [play, next] = buttons;
-    expect(play!.props.onClick).toBe(true);
-    expect(play!.props.variant).toBe("ghost");
+    // The stations arrive from the monitor, so the rows land in a later commit
+    // than the mount: wait for the four buttons — three station rows (child
+    // form, no icon) and the one ghost transport.
+    const creates = () =>
+      session
+        .envelopesFor("radio", "commit")
+        .flatMap((e) => e.payload.mutations as Mutation[])
+        .filter((m): m is Extract<Mutation, { op: "create" }> => m.op === "create");
+    await waitFor(() => creates().filter((m) => m.kind === "button").length >= 4);
+
+    const buttons = creates().filter((m) => m.kind === "button");
+    const rows = buttons.filter((m) => !m.props.icon);
+    const transport = buttons.find((m) => m.props.icon)!;
+    expect(rows).toHaveLength(3);
+    expect(transport.props.variant).toBe("ghost");
+    expect(transport.props.onClick).toBe(true);
+    for (const row of rows) expect(row.props.onClick).toBe(true);
 
     // The shell sends explicit lifecycle alongside a visit; the app paints on it.
     router.onEnvelope(session, envelope("radio", "lifecycle", { phase: "expanded", reduceMotion: false }));
     await waitFor(() => session.envelopesFor("radio", "draw").length >= 1);
 
     // At rest: stopped, and the notch is bare — this app is quiet by default.
-    expect(session.propsOf("radio", play!.id).icon).toBe("sf:play");
+    expect(session.propsOf("radio", transport.id).icon).toBe("sf:play");
     expect(session.wings("radio")).toHaveLength(0);
     const restingDraws = session.envelopesFor("radio", "draw").length;
 
     // ---------------------------------------------------------------- play
-    router.onEnvelope(session, envelope("radio", "event", { id: play!.id, name: "click", data: {} }));
+    router.onEnvelope(session, envelope("radio", "event", { id: transport.id, name: "click", data: {} }));
 
-    await waitFor(() => session.propsOf("radio", play!.id).icon === "sf:pause");
+    await waitFor(() => session.propsOf("radio", transport.id).icon === "sf:pause");
     await waitFor(() => session.wings("radio").length >= 1);
     const claim = session.wings("radio")[0]!;
     expect(claim).not.toBeNull();
+    expect(claim.text).toBe("Dial One");
     // The wing mirrors the app's own panel canvas — one `ctx.draw`, two places.
-    const canvas = mount.find((m) => m.op === "create" && m.kind === "canvas");
-    expect((claim.canvas as { id: number }).id).toBe((canvas as { id: number }).id);
-    const firstTitle = claim.text as string;
-    expect(firstTitle.length).toBeGreaterThan(0);
+    const canvas = creates().find((m) => m.kind === "canvas")!;
+    expect((claim.canvas as { id: number }).id).toBe(canvas.id);
 
     // The meter is breathing: a stopped radio draws one still frame, a playing
     // one draws at ~8 fps.
     await waitFor(() => session.envelopesFor("radio", "draw").length > restingDraws + 3);
 
-    // ---------------------------------------------------------------- next
-    router.onEnvelope(session, envelope("radio", "event", { id: next!.id, name: "click", data: {} }));
+    // ---------------------------------------------------------------- retune
+    // Click the second station's row: the dial turns, the wing's ticker turns
+    // with it **in place** — no release, no re-claim, no blink.
+    router.onEnvelope(session, envelope("radio", "event", { id: rows[1]!.id, name: "click", data: {} }));
     await waitFor(() => session.wings("radio").length >= 2);
-    const rotated = session.wings("radio")[1]!;
-    expect(rotated).not.toBeNull();
-    expect(rotated.text).not.toBe(firstTitle);
-    // In place. A track change is not a release — the notch must not blink.
+    const retuned = session.wings("radio").at(-1)!;
+    expect(retuned).not.toBeNull();
+    expect(retuned.text).toBe("Dial Two");
     expect(session.wings("radio").some((wing) => wing === null)).toBe(false);
-    // …and the panel's title moved with it.
-    const title = mount.find(
-      (m) => m.op === "create" && m.kind === "text" && m.props.size === "l",
-    ) as Extract<Mutation, { op: "create" }>;
-    expect(session.propsOf("radio", title.id).content).toBe(rotated.text);
+    // …and the tuned row moved with it: the second row's name is primary now.
+    const names = creates().filter((m) => m.kind === "text" && m.props.size === "m");
+    expect(names).toHaveLength(3);
+    expect(session.propsOf("radio", names[1]!.id).color).toBe("primary");
+    expect(session.propsOf("radio", names[0]!.id).color).toBe("tertiary");
 
     // ---------------------------------------------------------------- stop
-    router.onEnvelope(session, envelope("radio", "event", { id: play!.id, name: "click", data: {} }));
-    await waitFor(() => session.propsOf("radio", play!.id).icon === "sf:play");
+    router.onEnvelope(session, envelope("radio", "event", { id: transport.id, name: "click", data: {} }));
+    await waitFor(() => session.propsOf("radio", transport.id).icon === "sf:play");
     await waitFor(() => session.wings("radio").at(-1) === null);
   }, 40000);
 });

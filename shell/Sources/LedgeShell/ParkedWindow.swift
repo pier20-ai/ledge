@@ -91,6 +91,9 @@ final class ParkedSurfaceView: FlippedView {
         // A window cannot tear off of itself, and dragging its glass is how it
         // moves — so no tear bead and no drag hand-off in here.
         wingBar.showsTear = false
+        // …and the islands hug the window's own edges (G2.9): the cutout is
+        // the notch's anchor, not this body's.
+        wingBar.hugsEdges = true
         var press: (() -> Void)!
         home = LedgeButton(
             "",

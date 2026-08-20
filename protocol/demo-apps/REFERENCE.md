@@ -14,17 +14,17 @@ machine, and searching for it finds nothing, slowly.
 
 ## The apps in this folder
 
-Eight, and each one is here to be *felt* on the notch — every surface in this
-document is exercised by at least one of them. `nowplaying`, `weather` and
-`focus` are **default apps** (they ship); `timer`, `radio`, `beacon`, `chess`
-and `tetris` are exercise apps.
+Seven, and each one is here to be *felt* on the notch — every surface in this
+document is exercised by at least one of them. `nowplaying` and `weather` are
+**default apps** (they ship); `timer`, `radio`, `beacon`, `chess` and `tetris`
+are exercise apps. (`focus` retired to the archive at G2.9 — "not useful"; a
+pranayama app takes its launch slot once its proposal is ratified.)
 Read them as syntax; read `docs/design/principles.md` before you copy their
 taste.
 
 | app | what it exercises |
 |---|---|
 | `nowplaying` | the resting pill's owner: a **live-activity wing** (ticker + animated canvas) held while music plays and released when it stops · `ctx.apple` transport against Music.app and Spotify **without ever launching them** · `ctx.platform.observe("distributedNotification", …)` as a latency fix over a slow poll · `progress` with `rate` · a file-path `<image>` well · **no `<mini>`** — and an empty state that is one glyph and one line |
-| `focus` | design.html §01's Stage panel, running: `meta.panel.width` asked down to the specimen's 336 pt · the `display` numeral **as its own control** (press it to cycle the preset) beside two ghosts on one row · a shell-drawn `<progress rate>` instead of a hand-drawn bar, with `rate: 0` + ten steps under `ctx.reduceMotion` · one **alert-class** `ctx.peek` reused by two different events, each with its own `<mini>` row · `ctx.notify` as the *gentle* half of an alarm (no `attention`, no actions) · app-owned JSON persistence (temp file + `rename`) |
 | `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
 | `timer` | a wing **meter** (`meter: { value }` — the shell draws the bar) · an **alert-class** `ctx.peek` that holds until acted on, with one action in `<mini>` · `display` numerals, `caps` eyebrow, ghost icon buttons · a `setInterval` clock with a parked monitor |
 | `radio` | a wing **canvas** animating at ~8 fps off `ctx.draw`, the same node drawn in the panel · a wing held as live activity and released when it stops |

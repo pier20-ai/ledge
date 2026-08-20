@@ -65,7 +65,7 @@ OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 # those frames to the shell. To see a *particular* state rather than the opening
 # one (a mid-game position, a live score), pass `--props` to dump-commits
 # directly and read the panel.
-APPS=(nowplaying weather focus timer radio beacon chess tetris)
+APPS=(nowplaying weather timer radio beacon chess tetris)
 
 COMMITS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ledge-commits.XXXXXX")"
 

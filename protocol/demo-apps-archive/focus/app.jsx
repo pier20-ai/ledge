@@ -1,13 +1,14 @@
 /** @jsxImportSource react */
-// Focus — timers and gentle alarms; calm by construction.
+// Focus — a primary focus timer plus short break timers and gentle alarms.
 //
 // SIGNATURE: the display numeral + the swell. design.html §01's Stage panel is
 // literally this app, so the panel IS that specimen and nothing more — eyebrow,
 // numeral with its ghosts at the end of the same row, one thin meter beneath.
 // 336 pt because that is the width the specimen is drawn at.
 //
-// Laws: 1 (ghosts and hairlines; nothing filled but a glyph) · 2 (two controls
-// on the numeral row, one row under the meter) · 3 (ink at rest, with the one
+// Laws: 1 (ghosts and hairlines; nothing filled but a glyph) · 2 (the primary
+// controls sit on the numeral row, with compact companion timers under the
+// meter) · 3 (ink at rest, with the one
 // exception §01 itself draws: the session meter is `color="accent"`, because
 // the working moment is what this panel is about; the ring is red's only job)
 // · 4 (one eyebrow word, a two-word alert) · 5 (press the
@@ -33,6 +34,10 @@ import { readFileSync, renameSync, writeFileSync } from "node:fs";
 export const meta = { name: "Focus", icon: "sf:timer", panel: { width: 336 } };
 
 const PRESETS = [5, 15, 25, 45]; // minutes, cycled by pressing the numeral
+const EXTRA_TIMERS = [
+  { id: "break", label: "Break", minutes: 5, icon: "sf:cup.and.saucer" },
+  { id: "stretch", label: "Stretch", minutes: 2, icon: "sf:figure.stand" },
+];
 const ALARMS = [390, 420, 450, 480, 510, 540]; // 6:30 … 9:00, in minutes
 const OFF = ALARMS.length; // one past the end of the cycle — the quiet position
 const TICK_MS = 250; // a clock that only sometimes lands on the second stutters
@@ -45,7 +50,9 @@ let alarmAt = OFF; // index into ALARMS, or OFF
 let firedOn = ""; // the day the alarm last rang, so it rings once
 let endsAt = null; // epoch ms while running; null while paused, idle or ringing
 let leftMs = PRESETS[preset] * 60_000;
-let ring = null; // null | "done" | "alarm"
+let extras = EXTRA_TIMERS.map((timer) => ({ ...timer, endsAt: null, leftMs: timer.minutes * 60_000 }));
+let ring = null; // null | { id, label, kind }
+let ringQueue = [];
 
 const totalMs = () => PRESETS[preset] * 60_000;
 const clock = (ms) => {
@@ -92,12 +99,36 @@ function toggle() {
   commit();
 }
 
+function toggleExtra(id) {
+  const timer = extras.find((item) => item.id === id);
+  if (!timer || ring?.id === id) return;
+  if (timer.endsAt === null) {
+    if (timer.leftMs <= 0) timer.leftMs = timer.minutes * 60_000;
+    timer.endsAt = Date.now() + Math.max(timer.leftMs, 1000);
+  } else {
+    timer.leftMs = timer.endsAt - Date.now();
+    timer.endsAt = null;
+  }
+  commit();
+}
+
 /** ✕ — the one way back to rest, and the alert's single action. */
 function stop() {
+  const active = ring;
   ring = null;
-  endsAt = null;
-  leftMs = totalMs();
+  if (active?.id === "focus" || active?.kind === "alarm") {
+    endsAt = null;
+    leftMs = totalMs();
+  } else if (active) {
+    const timer = extras.find((item) => item.id === active.id);
+    if (timer) {
+      timer.endsAt = null;
+      timer.leftMs = timer.minutes * 60_000;
+    }
+  }
   commit();
+  const next = ringQueue.shift();
+  if (next) activateRing(next);
 }
 
 /** Idle only: the numeral is the control (law 5). */
@@ -123,7 +154,8 @@ let lastProps = "";
 let lastWing = "";
 
 function phase() {
-  if (ring) return ring;
+  if (ring?.id === "focus") return "done";
+  if (ring?.kind === "alarm") return "alarm";
   if (endsAt !== null) return "running";
   return leftMs >= totalMs() ? "idle" : "paused";
 }
@@ -147,6 +179,15 @@ function commit() {
       state === "alarm" ? 0 : still ? Math.floor(done * 10) / 10 : Math.round(done * BAR_PX) / BAR_PX,
     rate: state === "running" && !still ? 1000 / totalMs() : 0,
     alarm: alarmLabel(),
+    extras: extras.map(({ id, label, icon, minutes, endsAt: running, leftMs: remaining }) => ({
+      id,
+      label,
+      icon,
+      time: clock(remaining),
+      done: Math.max(0, Math.min(1, 1 - remaining / (minutes * 60_000))),
+      running: running !== null,
+      ringing: ring?.id === id,
+    })),
   };
   const signature = JSON.stringify(props);
   if (signature === lastProps) return;
@@ -156,21 +197,29 @@ function commit() {
   // Held while it runs or rings, released when it doesn't, so the notch goes
   // back to being a notch. `meter` is a wire form: one number, no draw loop, and
   // every app's pill meter is then the same object.
-  const held = state === "running" || state === "done";
-  const next = held ? `${props.time}|${Math.round(done * 64)}` : "";
+  const extraRunning = extras.some((timer) => timer.endsAt !== null);
+  const held = state === "running" || state === "done" || extraRunning || ring !== null;
+  const runningExtra = props.extras.find((timer) => timer.running);
+  const wingTime = state === "running" || state === "done" ? props.time : runningExtra?.time ?? ring?.label;
+  const wingMeter = state === "running" || state === "done" ? done : runningExtra?.done ?? 0;
+  const next = held ? `${wingTime}|${Math.round(done * 64)}` : "";
   if (next === lastWing) return;
   lastWing = next;
-  ctxRef.wing(held ? { text: props.time, meter: { value: done } } : null);
+  ctxRef.wing(held ? { text: wingTime, meter: { value: wingMeter } } : null);
 }
 
 /** Zero, and the alarm: the same interruption, twice. */
-function fire(kind) {
-  ring = kind;
-  endsAt = null;
+function activateRing(next) {
+  ring = next;
   commit(); // the <mini> must read the right row before the swell is asked for
   ctxRef.peek(6000, { class: "alert" }); // alert → the dwell is ignored; it holds
-  ctxRef.notify(kind === "alarm" ? "Alarm" : "Focus done", { title: "Focus" });
-  console.log(`rang: ${kind}`);
+  ctxRef.notify(next.label, { title: "Focus" });
+  console.log(`rang: ${next.id}`);
+}
+
+function fire(next) {
+  if (ring) return ringQueue.push(next);
+  activateRing(next);
 }
 
 function tick() {
@@ -180,14 +229,27 @@ function tick() {
     if (firedOn !== day && now.getHours() * 60 + now.getMinutes() === ALARMS[alarmAt]) {
       firedOn = day;
       save();
-      return fire("alarm");
+      return fire({ id: "alarm", label: "Alarm", kind: "alarm" });
     }
   }
-  if (endsAt === null) return;
-  leftMs = endsAt - Date.now();
-  if (leftMs > 0) return commit();
-  leftMs = 0;
-  fire("done");
+  if (endsAt !== null) {
+    leftMs = endsAt - Date.now();
+    if (leftMs <= 0) {
+      leftMs = 0;
+      endsAt = null;
+      fire({ id: "focus", label: "Focus done", kind: "done" });
+    }
+  }
+  for (const timer of extras) {
+    if (timer.endsAt === null) continue;
+    timer.leftMs = timer.endsAt - Date.now();
+    if (timer.leftMs <= 0) {
+      timer.leftMs = 0;
+      timer.endsAt = null;
+      fire({ id: timer.id, label: `${timer.label} done`, kind: "done" });
+    }
+  }
+  commit();
 }
 
 /** Reduce Motion rides the lifecycle envelope (spec §4.2), so a flip lands here.
@@ -218,10 +280,12 @@ export default function Focus({
   done = 0,
   rate = 0,
   alarm = null,
+  extras = [],
   onToggle = toggle,
   onStop = stop,
   onCycle = cycle,
   onAlarm = cycleAlarm,
+  onToggleExtra = toggleExtra,
 }) {
   const ringing = state === "done" || state === "alarm";
   const live = ringing || state === "running" || state === "paused";
@@ -237,8 +301,8 @@ export default function Focus({
       {/* The interruption. One glyph, one line, one action (flow.md). */}
       <mini>
         <stack axis="h" gap={10} align="center">
-          <image src={state === "alarm" ? "sf:bell.fill" : "sf:timer"} w={18} h={18} />
-          <text content={state === "alarm" ? time : "Focus done"} size="s" weight="semibold"
+          <image src={ring?.kind === "alarm" ? "sf:bell.fill" : "sf:timer"} w={18} h={18} />
+          <text content={ring?.label ?? (state === "alarm" ? time : "Focus done")} size="s" weight="semibold"
                 color="red" />
           <spacer />
           <button label={state === "alarm" ? "Stop" : "Done"} variant="plain" size="s"
@@ -267,8 +331,23 @@ export default function Focus({
           and it is the only coloured thing on the panel. */}
       <progress value={done} rate={rate} color="accent" />
 
-      {/* The gentle half of the job, and only at rest: while a session runs the
-          panel is §01's specimen and nothing else. */}
+      {/* Quick timers remain usable beside the focus session, so a break or
+          stretch can run independently instead of replacing the main timer. */}
+      <stack axis="v" gap={2}>
+        {extras.map((timer) => (
+          <stack axis="h" gap={8} align="center" pad={4} key={timer.id}>
+            <image src={timer.icon} w={13} h={13} />
+            <text content={timer.label} size="s" color="secondary" />
+            <spacer />
+            <text content={timer.time} size="s" mono color={timer.ringing ? "red" : "secondary"} />
+            <button icon={timer.running ? "sf:pause.fill" : "sf:play.fill"} variant="ghost"
+                    size="s" onClick={() => onToggleExtra?.(timer.id)} />
+          </stack>
+        ))}
+      </stack>
+
+      {/* The gentle half of the job stays at rest; the short timers above remain
+          available while Focus runs. */}
       {live ? null : (
         <button variant="plain" onClick={() => onAlarm?.()}>
           <stack axis="h" gap={6} align="center" pad={4}>

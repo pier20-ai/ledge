@@ -1,81 +1,186 @@
 /** @jsxImportSource react */
-// Radio — the no-summary case, and the wing canvas.
+// Radio — three real stations, actually playing (G2.9).
 //
-// Laws it is written against: 1 (no card, no artwork frame — just the two
-// lines), 3 (ink only; the level meter is white, never a hue), 4 (station and
-// track are the only words, and both are data), 5 (no "Now playing:" label).
+// The fixture era is over: this app fetches the top three stations on Earth
+// from the Radio Browser directory (https://api.radio-browser.info — community
+// run, keyless) and plays the one you pick through AVFoundation. Ledge itself
+// still renders nothing but glass: the audio lives in one spawned `osascript`
+// runloop the worker owns and kills.
+//
+// Laws it is written against: 1 (no card, no artwork frame), 3 (ink only; the
+// meter is white), 4 (station names are the only words, and they are data),
+// 5 (the station list IS the switcher — three rows of the datum, the current
+// one in primary ink; no segmented control invented around them).
 //
 // Surfaces it exercises:
-//   NO SUMMARY   this app declares neither <summary> nor <mini>. It is its own
-//                summary, so a rested pointer must open the VISIT directly —
-//                the test case for principle 8's second half. If a hover ever
-//                swells a line here instead, the law is broken.
-//   WING CANVAS  a live-activity strip in the right wing: five bars breathing
-//                at ~8 fps, drawn imperatively so React never commits for a
-//                frame. The same node sits in the panel — one ctx.draw, two
-//                places.
-//   REDUCE MOTION principle 10, via `ctx.reduceMotion` (spec §4.2): the bars
-//                stop breathing and stand at a fixed profile. The station still
-//                rotates — that is data, not motion.
+//   NO SUMMARY   declares neither <summary> nor <mini>: it is its own summary,
+//                so a rested pointer opens the visit directly (principle 8).
+//   WING CANVAS  a live-activity strip in the right wing while playing, drawn
+//                imperatively at ~8 fps; the same node sits in the panel.
+//   REDUCE MOTION the bars stand at a fixed profile (spec §4.2).
 //
-// Nothing here plays audio. The station is a fixture; the "track" rotates on a
-// timer, which is all the app has to be to exercise the surfaces.
+// Test seams (host/test/radio.test.ts drives the real worker):
+//   LEDGE_RADIO_STATIONS  JSON station list — skips the network.
+//   LEDGE_RADIO_MUTE=1    skips the audio process — state still flows.
 
 export const meta = { name: "Radio", icon: "sf:dot.radiowaves.left.and.right" };
 
-const STATION = "NTS 2";
-const TRACKS = [
-  "Aphex Twin — Rhubarb",
-  "Alice Coltrane — Turiya",
-  "Burial — Archangel",
-  "Grouper — Heavy Water",
-  "Steve Reich — Electric Counterpoint",
+// ---------------------------------------------------------------- the dial
+
+/** Radio Browser mirrors, tried in order. The project asks clients to spread
+ * load across mirrors and name themselves; both requests are cheap to honour. */
+const MIRRORS = [
+  "https://de1.api.radio-browser.info/json",
+  "https://de2.api.radio-browser.info/json",
+  "https://fi1.api.radio-browser.info/json",
 ];
+const USER_AGENT = "Ledge-Radio/1.0";
+/** Most-listened-to right now, not most-voted-ever: a radio app is live. */
+const TOP = "stations/topclick/3?hidebroken=true";
+/** Yesterday's dial, for a cold or offline launch (same pattern as weather). */
+const CACHE = new URL("./stations.json", import.meta.url);
 
-const TRACK_MS = 30_000;
-const FRAME_MS = 120; // ~8 fps: enough for a breathing meter, cheap enough to leave on
+let mirror = MIRRORS[0];
 
-/** Re-declare the wing at least this often while it is held.
- *
- * The shell takes an idle wing back after Ta (flow.md, "Ambient | holder idle >
- * Ta, or released | Resting"), and every request from the holder re-arms that
- * timer. This app's ticker is the track title, which only changes every
- * `TRACK_MS` — so with nothing but change-detection behind it the notch went
- * bare in the middle of a track and, because the app believed it had already
- * asked for exactly this wing, it never came back. Same shape as being
- * preempted by another app's wing: the app has to keep saying it is alive. */
-const WING_HEARTBEAT_MS = 45_000;
+async function fetchTop() {
+  for (const base of MIRRORS) {
+    try {
+      const res = await fetch(`${base}/${TOP}`, {
+        headers: { "User-Agent": USER_AGENT },
+        signal: AbortSignal.timeout(6000),
+      });
+      if (!res.ok) continue;
+      const rows = await res.json();
+      if (!Array.isArray(rows) || rows.length === 0) continue;
+      mirror = base;
+      return rows.map((row) => ({
+        uuid: row.stationuuid,
+        name: String(row.name ?? "").trim() || "unnamed",
+        url: row.url_resolved || row.url,
+        country: String(row.countrycode ?? "").trim(),
+      }));
+    } catch {
+      // The next mirror is the retry.
+    }
+  }
+  return null;
+}
+
+async function loadStations() {
+  // The test seam first: a suite must not depend on the public internet.
+  const fixture = process.env.LEDGE_RADIO_STATIONS;
+  if (fixture) return JSON.parse(fixture);
+  const fresh = await fetchTop();
+  if (fresh) {
+    Bun.write(CACHE, JSON.stringify(fresh)).catch(() => {});
+    return fresh;
+  }
+  try {
+    const cached = await Bun.file(CACHE).json();
+    if (Array.isArray(cached) && cached.length > 0) return cached;
+  } catch {
+    // No cache is the honest first launch.
+  }
+  return null;
+}
+
+/** Radio Browser etiquette: tell the directory a station was tuned. Fire and
+ * forget — a click count is not worth a spinner, or an error. */
+function registerClick(station) {
+  if (!station.uuid || process.env.LEDGE_RADIO_STATIONS) return;
+  fetch(`${mirror}/url/${station.uuid}`, {
+    headers: { "User-Agent": USER_AGENT },
+    signal: AbortSignal.timeout(6000),
+  }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- the sound
+
+/** One AVPlayer in one osascript runloop: no install, no dock icon, dies with
+ * a kill. AVFoundation handles what stations actually stream — icecast mp3,
+ * aac, HLS. Volume is set below full so a first play never blasts. */
+const playerScript = (url) => `
+ObjC.import("AVFoundation");
+ObjC.import("Foundation");
+const player = $.AVPlayer.playerWithURL($.NSURL.URLWithString(${JSON.stringify(url)}));
+player.volume = 0.8;
+player.play;
+$.NSRunLoop.currentRunLoop.run;
+`;
+
+let proc = null;
+
+function startAudio(station) {
+  if (process.env.LEDGE_RADIO_MUTE === "1" || !station.url) return;
+  registerClick(station);
+  proc = Bun.spawn(["osascript", "-l", "JavaScript", "-e", playerScript(station.url)], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  const mine = proc;
+  mine.exited.then(() => {
+    // Superseded by a stop or a retune: nothing to report.
+    if (proc !== mine) return;
+    proc = null;
+    // The stream died under us. The truthful state is stopped.
+    if (playing) {
+      playing = false;
+      commit();
+      paint();
+    }
+  });
+}
+
+function stopAudio() {
+  const running = proc;
+  proc = null; // first, so the exit handler knows it was asked for
+  running?.kill();
+}
+
+// ---------------------------------------------------------------- state
+
+const FRAME_MS = 120; // ~8 fps: enough for a breathing meter
+const WING_HEARTBEAT_MS = 45_000; // re-claim before the shell's Ta reclaim
 
 const BARS = 5;
 const BAR_W = 4;
 const BAR_GAP = 4;
 const WING_W = BARS * BAR_W + (BARS - 1) * BAR_GAP;
-const WING_H = 34; // the notch's own height — the wing canvas' coordinate space
+const WING_H = 34;
 
 let ctxRef = null;
-let meter = null; // the canvas node, from a ref
-// Starts stopped: the resting notch is bare, and the wing is something you
-// hand it (principle 13's "quiet default state"). It also keeps two demo apps
-// from fighting over one wing on a fresh launch — the shell's arbitration is
-// "latest asker wins", which is correct and confusing to feel-test by accident.
+let meter = null;
+let stations = null; // null until the dial loads; then exactly three
+let current = 0;
 let playing = false;
-let track = 0;
-let startedAt = Date.now();
 let frame = 0;
 
 // ---------------------------------------------------------------- actions
 
 function toggle() {
-  playing = !playing;
-  if (playing) startedAt = Date.now();
+  if (playing) {
+    playing = false;
+    stopAudio();
+  } else {
+    if (!stations?.[current]) return;
+    playing = true;
+    startAudio(stations[current]);
+  }
   commit();
-  paint(); // the one frame the loop will not draw: bars going flat
+  paint();
 }
 
-function next() {
-  track = (track + 1) % TRACKS.length;
-  startedAt = Date.now();
+/** Click a station row: that station plays. Radio has no "selected but
+ * silent" — turning the dial is the whole gesture. */
+function tune(index) {
+  if (!stations?.[index]) return;
+  if (index === current && playing) return;
+  current = index;
+  stopAudio();
+  playing = true;
+  startAudio(stations[current]);
   commit();
+  paint();
 }
 
 // ---------------------------------------------------------------- publishing
@@ -86,39 +191,33 @@ let wingSentAt = 0;
 
 function commit() {
   if (!ctxRef) return;
-  const props = { station: STATION, track: TRACKS[track], playing };
+  const props = {
+    stations: stations?.map((s) => ({ name: s.name, country: s.country })) ?? null,
+    current,
+    playing,
+  };
   const signature = JSON.stringify(props);
   if (signature !== lastProps) {
     lastProps = signature;
     ctxRef.update(props);
   }
 
-  // Live activity: the wing is held while it plays and released when it stops.
-  // The wing FIRST, before any re-render: dropping `playing` unmounts nothing
-  // here, but the ordering is the one that survives an app growing an empty
-  // state (see nowplaying), and it costs nothing to be right about.
-  const held = playing && meter !== null;
-  const wanted = held ? `${TRACKS[track]}|${meter.id}` : "";
-  // …and re-declared on a heartbeat even when nothing about it changed, so a
-  // wing the shell reclaimed for idleness comes back. A change-detection gate
-  // on its own is a claim the app can only ever make once.
+  // Live activity: the wing is held while it plays, released when it stops —
+  // and re-declared on a heartbeat, or an idle reclaim keeps it forever.
+  const held = playing && meter !== null && stations !== null;
+  const wanted = held ? `${stations[current].name}|${meter.id}` : "";
   const stale = held && Date.now() - wingSentAt > WING_HEARTBEAT_MS;
   if (wanted === lastWing && !stale) return;
   lastWing = wanted;
   wingSentAt = Date.now();
-  ctxRef.wing(held ? { text: TRACKS[track], canvas: { id: meter.id, w: WING_W } } : null);
+  ctxRef.wing(
+    held ? { text: stations[current].name, canvas: { id: meter.id, w: WING_W } } : null,
+  );
 }
 
-/** The profile the bars stand at when the user has asked for less motion: the
- * average of the standing wave, so it reads as the same meter held still. */
+/** The bars' standing profile under Reduce Motion: the same meter, held. */
 const STILL = [0.35, 0.6, 0.8, 0.6, 0.35];
 
-/** One frame of the level meter. Bars are a cheap standing wave, not real
- * audio — the point is the surface, not the signal.
- *
- * Reduce Motion (spec §4.2) is read here rather than only in `tick`, because
- * `toggle` paints directly: wherever the pixels are decided, the flag has to be
- * in scope. */
 function paint() {
   if (!ctxRef || !meter) return;
   const still = Boolean(ctxRef.reduceMotion);
@@ -142,59 +241,93 @@ function paint() {
 
 function tick() {
   if (!playing) return; // stopped is a still frame, not a slower one
-  if (Date.now() - startedAt >= TRACK_MS) next();
-  // Principle 10 (spec §4.2): the track keeps rotating above — a station that
-  // stopped changing tracks would be broken, not accessible — but the meter
-  // stops here. Still, not slower.
-  if (ctxRef?.reduceMotion) return;
+  if (ctxRef?.reduceMotion) {
+    commit(); // the heartbeat must outlive the animation (spec §4.2)
+    return;
+  }
   frame += 1;
   commit();
   paint();
 }
 
-/** The push half of `ctx.reduceMotion`: the flag rides the lifecycle envelope
- * (spec §4.2), so this is where a freshly-flipped switch gets its one frame. */
 export function onLifecycle(phase, ctx) {
   ctxRef = ctxRef ?? ctx;
   paint();
 }
 
+let timer = null;
+
 export async function monitor(ctx) {
   ctxRef = ctx;
   commit();
-  paint(); // the resting frame: five flat bars, which `tick` will not draw
-  // A setInterval, not a monitor pass: the monitor loop has a 1 s spin floor
-  // (spec §6 rule 1) and a level meter at 1 fps is a bar chart. Park here and
-  // let the interval own the clock — the aviary pattern.
-  setInterval(tick, FRAME_MS);
-  await new Promise(() => {});
+  paint();
+  if (!timer) timer = setInterval(tick, FRAME_MS);
+  if (!stations) {
+    stations = await loadStations();
+    if (stations && current >= stations.length) current = 0;
+    commit();
+  }
+  // The dial refreshes hourly; an empty one retries on the next minute. The
+  // meter's clock is the interval above — the monitor only owns the fetch.
+  await Bun.sleep(stations ? 3_600_000 : 60_000);
 }
 
 // ---------------------------------------------------------------- the panel
 
 export default function Radio({
-  station = STATION,
-  track: title = TRACKS[0],
+  stations: list = null,
+  current: tuned = 0,
   playing: live = false,
   onToggle = toggle,
-  onNext = next,
+  onTune = tune,
 }) {
+  if (!list) {
+    // §09's empty state: one line, never an apology. The dial is loading or
+    // the network is gone; either way the next monitor pass retries.
+    return (
+      <stack axis="v" pad={20} gap={8} align="center">
+        <text content="tuning the dial…" size="s" color="tertiary" />
+      </stack>
+    );
+  }
+
   return (
-    <stack axis="v" pad={16} gap={8} align="center">
-      {/* `align="center"` on the column centres these: a placed child is sized
-          to its own words and capped at the column, so a long track title
-          truncates in the middle of the panel instead of running off it. */}
-      <text content={station} size="xs" weight="medium" color="tertiary" caps />
-      <text content={title} size="l" weight="light" truncate />
+    <stack axis="v" pad={16} gap={2}>
+      {/* The list is the switcher (principle 5): three rows of the datum, the
+          tuned one in primary ink. A row is a button in the child form — the
+          whole line is the target. */}
+      {list.map((station, index) => (
+        <button key={index} onClick={() => onTune?.(index)}>
+          <stack axis="h" gap={10} pad={8} align="center">
+            <text
+              content={station.name}
+              size="m"
+              weight={index === tuned ? "medium" : "regular"}
+              color={index === tuned ? "primary" : "tertiary"}
+              truncate
+            />
+            <spacer />
+            <text content={station.country} size="xs" color="tertiary" caps />
+          </stack>
+        </button>
+      ))}
 
       {/* The wing's own strip, sitting in the panel: the shell mirrors this
-          node's frames into the notch, so they are literally the same pixels. */}
-      <canvas ref={(node) => { meter = node; }} w={WING_W} h={WING_H} />
-
-      <stack axis="h" gap={16}>
-        {/* Ghosts (design.html §06): app controls are bare pure-white glyphs. */}
-        <button icon={live ? "sf:pause" : "sf:play"} variant="ghost" onClick={() => onToggle?.()} />
-        <button icon="sf:forward.end" variant="ghost" onClick={() => onNext?.()} />
+          node's frames into the notch — the same pixels, two places. */}
+      <stack axis="h" gap={12} pad={8} align="center">
+        <canvas
+          ref={(node) => {
+            meter = node;
+          }}
+          w={WING_W}
+          h={WING_H}
+        />
+        <spacer />
+        <button
+          icon={live ? "sf:pause" : "sf:play"}
+          variant="ghost"
+          onClick={() => onToggle?.()}
+        />
       </stack>
     </stack>
   );

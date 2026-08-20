@@ -21,7 +21,10 @@ the folder.
 | **Tetris** | carried over | frame-rate draw + keyboard proof · score is a bare number | DRAW |
 | **Now Playing** | what's playing; skip/pause without switching apps · owns the resting pill | the live waveform in the wing | APPLE, WING |
 | **Weather** | the sky, glanceable; drag the ruler to time-travel | the pane: drops that refract the scene, fog that wipes clear, light that swings with the real sun | DRAW, canvas drag (0001-A1), Open-Meteo |
-| **Focus** | timers and gentle alarms; calm by construction | the display numeral + the mini swell — the design doc's own specimen | WING, MINI, notify |
+| **Breath** | mindfulness: pranayama the way Weather does the sky — a *simulated substance* the breath moves, not a timer with a circle | one pane, one medium (proposal pending Manu's ratification, G2.9) | DRAW, WING (width), MINI |
+
+*(Focus retired at G2.9 — "not useful". Its slot goes to Breath, promoted
+from the live-built tier; the timer/alarm jobs survive in the archive.)*
 
 Weather pane notes (the "how it feels real"): simulate the glass, not the
 weather. Droplets are lenses — sharp, inverted, squeezed copy of the blurred
@@ -35,7 +38,6 @@ flash. Scene is a pure function of `(t, weather(t))`; scrub eases back to now.
 
 | app | job / hook | signature | needs |
 |---|---|---|---|
-| **Breath** | mindfulness: Box, 4-7-8, Nadi Shodhana; gentle break pings on your cadence | the notch is the pacer — pill swells at breath pace; Nadi Shodhana tints the mini's left/right half for the held nostril | WING (width), MINI |
 | **Overhead** | real aircraft above you cross the wings at true heading/speed; click for callsign | "wait, it's *real*?" — bare triangles + trails | DRAW, WING · adsb.lol / airplanes.live (keyless), OpenSky fallback |
 | **Screen-time coach** | frontmost app + idle time → quiet nudges | the wing ticker everyone feels attacked by: "Slack · 47m" | WING · `Bun.$` osascript/ioreg |
 | **Departures** | your day as a split-flap board — theatre is the job in this tier | staggered per-character flips, type only, amber data · Reduce Motion swaps flips for fades | DRAW or text, APPLE (calendar read) |

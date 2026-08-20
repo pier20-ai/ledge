@@ -64,30 +64,29 @@
 export const meta = {
   name: "Tetris",
   icon: "sf:square.grid.3x3.fill",
-  // The well wants 272 (240 pt of canvas + the slab's 2 pt inset each side +
-  // the root's 14 pt padding) and the shell's floor is 320 — `ShellSurfaceView`
-  // clamps anything narrower, so asking for 272 and quietly getting 320 would
-  // put 26 pt of stretched slab either side of the playfield. Ask for the floor
-  // and centre the column inside it instead. The archive asked for the default
-  // 440 because it had a column of boxes to park; there is no column now.
-  panel: { width: 320, maxHeight: 640 },
+  // The well wants 368: 336 pt of canvas (14 columns since G2.9 — Manu asked
+  // for two more each side of the guideline ten; the panel was reading narrow
+  // on device) + the slab's 2 pt inset each side + the root's 14 pt padding.
+  panel: { width: 368, maxHeight: 640 },
 };
 
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
 
-const COLS = 10;
+// 14, not the guideline's 10: G2.9 widened the playfield by two columns each
+// side. Everything else — spawns, preview, centring — derives from this.
+const COLS = 14;
 const ROWS = 20;
 const CELL = 24;
-const WELL_W = COLS * CELL; // 240
+const WELL_W = COLS * CELL; // 336
 const WELL_H = ROWS * CELL; // 480
 const TICK_MS = 120;
 
 /** The in-well preview: half a cell, half alpha, hugging the top-right corner.
- * Pieces spawn in columns 3–6, so it never sits under a falling piece; the only
- * thing it can ever overlap is a stack that has already reached row 0, at which
- * point the game is over anyway. */
+ * Pieces spawn centred (columns 5–8 on the 14-wide well), so it never sits
+ * under a falling piece; the only thing it can ever overlap is a stack that
+ * has already reached row 0, at which point the game is over anyway. */
 const PREVIEW_CELL = CELL / 2;
 const PREVIEW_INSET = 8;
 const PREVIEW_ALPHA = "8C"; // ~55%

@@ -357,6 +357,18 @@ final class PanelWingBarView: FlippedView {
         }
     }
 
+    /// **Parked, the islands hug the window's edges** (G2.9): [⌂|✦] at the far
+    /// left, ‹|› at the far right, flex space between. On the notch they hug
+    /// the cutout because the cutout is *there*; in a window the anchor is the
+    /// window itself, and controls pinned to phantom camera geometry read as
+    /// furniture that forgot where it was.
+    var hugsEdges = false {
+        didSet {
+            guard hugsEdges != oldValue else { return }
+            needsLayout = true
+        }
+    }
+
     /// The hardware cutout's width and the row's height, pushed in by the
     /// surface before every layout. They are measurements of the display, not
     /// preferences (see `NotchMetrics`).
@@ -475,22 +487,23 @@ final class PanelWingBarView: FlippedView {
         // beside the physical notch as floating islands; the bar band is gone
         // and the silhouette is one uniform width). Inner-anchored: the
         // split's trailing edge against the dead zone, the walker's leading
-        // edge against its other side.
+        // edge against its other side. Parked, the anchors flip outward
+        // (`hugsEdges`, G2.9): far left and far right, flex space between.
         let toggle = split.intrinsicContentSize
         let toggleWidth = min(ceil(toggle.width), left.width)
         split.frame = CGRect(
-            x: max(0, left.width - toggleWidth),
+            x: hugsEdges ? 0 : max(0, left.width - toggleWidth),
             y: (left.height - toggle.height) / 2,
             width: toggleWidth,
             height: toggle.height
         )
 
-        // ‹ Back takes the split's exact anchorage: trailing edge against the
-        // dead zone, so swapping between them never moves the island.
+        // ‹ Back takes the split's exact anchorage, so swapping between them
+        // never moves the island.
         let backSize = back.intrinsicContentSize
         let backWidth = min(ceil(backSize.width), left.width)
         back.frame = CGRect(
-            x: max(0, left.width - backWidth),
+            x: hugsEdges ? 0 : max(0, left.width - backWidth),
             y: (left.height - backSize.height) / 2,
             width: backWidth,
             height: backSize.height
@@ -498,17 +511,21 @@ final class PanelWingBarView: FlippedView {
 
         let walkerSize = walker.intrinsicContentSize
         let walkerWidth = min(walkerSize.width, right.width)
+        // The walker's run: itself, plus the tear bead one gap out when shown.
+        let tearSize = tear.intrinsicContentSize
+        let run = walkerWidth
+            + (showsTear ? LedgeMetrics.panelWingGap + tearSize.width : 0)
+        let runX = hugsEdges ? max(0, right.width - run) : 0
         walker.frame = CGRect(
-            x: 0,
+            x: runX,
             y: (right.height - walkerSize.height) / 2,
             width: walkerWidth,
             height: walkerSize.height
         )
 
         // The tear-off bead, after ‹|› (G2.7): its own island, one gap out.
-        let tearSize = tear.intrinsicContentSize
         tear.frame = CGRect(
-            x: walkerWidth + LedgeMetrics.panelWingGap,
+            x: runX + walkerWidth + LedgeMetrics.panelWingGap,
             y: (right.height - tearSize.height) / 2,
             width: tearSize.width,
             height: tearSize.height

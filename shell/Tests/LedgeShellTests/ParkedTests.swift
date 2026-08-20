@@ -59,11 +59,12 @@ struct ParkedTests {
         #expect(window.isMovableByWindowBackground, "fixed size, any position")
     }
 
-    /// G2.8: the window keeps the notch's floored glass — the same islands
-    /// with the same notch-sized gap between them — so the torn-off surface is
-    /// recognisably the same body somewhere else, never a crowded miniature.
-    @Test("The window carries the islands' floor and the notch-sized gap")
-    func theWindowKeepsTheNotchGap() throws {
+    /// G2.8/G2.9: the window keeps the notch's floored glass, and its islands
+    /// hug the window's own edges — [⌂|✦] at the far left, ‹|› at the far
+    /// right, flex space between (Manu: "let the controls hug… that makes the
+    /// app look good. But only in torn-off state").
+    @Test("The window carries the floor, and its islands hug its edges")
+    func theWindowHugsItsEdges() throws {
         let (_, controller, _) = try parked()
         let window = try #require(controller.parkedWindowForTesting)
         let view = try #require(controller.parkedSurfaceForTesting)
@@ -71,13 +72,18 @@ struct ParkedTests {
         #expect(window.frame.width >= surface.visitBarWidth)
         view.layoutSubtreeIfNeeded()
         let bar = view.wingBarView
-        #expect(view.cutoutWidth == surface.metrics.closedWidth)
-        #expect(
-            bar.deadZoneRect.width
-                == surface.metrics.closedWidth + LedgeMetrics.panelWingCutoutMargin * 2,
-            "the empty space where the camera would be, kept on purpose"
-        )
+        #expect(bar.hugsEdges)
         #expect(bar.tearView.isHidden, "a window cannot tear off of itself")
+
+        // The split's leading edge at the bar's leading edge; the walker's
+        // trailing edge at the bar's trailing end (no tear bead in here).
+        let split = bar.convert(bar.splitView.bounds, from: bar.splitView)
+        let walker = bar.convert(bar.walkerView.bounds, from: bar.walkerView)
+        #expect(abs(split.minX - LedgeMetrics.panelWingPad) < 0.01)
+        #expect(abs(walker.maxX - (bar.bounds.width - LedgeMetrics.panelWingPad)) < 0.01)
+
+        // …and the notch's own bar is untouched: inner-anchored, as it was.
+        #expect(!surface.panelWingBarView.hugsEdges)
     }
 
     /// G2.8 bug 3's regression: park, fly home, park again — the whole cycle,
