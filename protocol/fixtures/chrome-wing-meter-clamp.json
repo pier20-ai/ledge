@@ -1,0 +1,3 @@
+{ "v": 1, "app": "timer", "seq": 15, "type": "chrome", "payload": { "request": "wing", "wing": {
+  "meter": { "value": 1.8 }
+} } }

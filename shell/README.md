@@ -2,8 +2,8 @@
 
 The Swift half of the platform (`docs/design/spec.md`): the notch surface, the
 protocol client, and the AppKit renderer. There is no scripted demo mode left —
-**every panel above the app strip is a host-rendered tree**, or one of the
-shell's own built-in cards.
+**every panel below the cutout exclusion row is a host-rendered tree**, or one
+of the shell's own built-in cards.
 
 ## Run
 
@@ -17,17 +17,64 @@ Plain launch binds `~/.ledge/ledge.sock` and listens; the Bun host connects
 will fight (and on exit unlink) the socket of whatever Ledge you already have
 running.
 
-With no host connected, the shell is fully usable: the collapsed pill, hover
-open/close, the strip, and a quiet **"Waiting for host…"** card in place of an
-app's tree.
+With no host connected, the shell is fully usable: the collapsed pill, the
+promissory swell, click-to-open, `‹|›`, and a quiet **"Waiting for host…"** card
+in place of an app's tree.
 
 ## What the shell draws, and what apps draw
 
-- **Shell chrome:** the notch shape and its fillets, the 42 pt app strip (spec
-  §8), the **cutout exclusion row** and its two panel-wing zones, the chat
-  surface, the **[+]** surface, the crash card (§7), and the waiting-for-host
+- **Shell chrome:** the notch shape and its fillets, the **cutout exclusion row**
+  and the two controls in it (the glass toggle and `‹|›`), the chat pane's
+  glass, the **[+]** surface, the crash card (§7), and the waiting-for-host
   card. Chrome surfaces always draw at the shell's own default width, even when
   the app behind them asked for another one.
+
+### Chat mode (§8, flow.md "Visit modes")
+
+`.chat(app:)` is the transcript pane **over the session's live stage**, not
+another page. Three layers, and each one is where it is for a reason:
+
+- **The stage stays mounted.** `ChatSurfaceView` keeps the app's own composite —
+  the same view stage mode shows — in a well at the top of the pane, dimmed to
+  .92 and scaled to .96, still rendering and still hot-reloading.
+- **The pane arrests every event.** The stage is inert, period: collapsing the
+  transcript (⌄) only clears the view to *watch*; Done is the way back to
+  touching it. The transcript's web view covers the whole pane, and the well
+  refuses hit tests on its own account, so the arrest survives a layout change.
+- **The glass is the panel body.** Chat runs opaque under the notch to nearly
+  clear at the pill (`ShellSurfaceView.BodyMaterial.chatGlass`, the values in
+  `LedgeGlass.chat`), painted into the silhouette the surface already owns so
+  the fillets and the bottom radius fade with it. The shadow gets an inverse
+  mask in that mode — a shadow visible *through* the body would make the clear
+  end read as dirty.
+- The transcript covers the whole pane rather than a box below the stage, and
+  is told how much room the stage takes (`{ event: "stage", inset }`). That is
+  what lets history slide *under* the stage's bottom edge as it scrolls away.
+
+- The page is built from `editor/` at the repo root by `scripts/build-editor.sh`
+  into `Sources/LedgeShell/Resources/editor/` and loaded with `loadFileURL` +
+  a read-access directory. Strict CSP, no network at runtime.
+- **One web view, reused across sessions.** There is one panel, so there is one
+  conversation; switching sessions is a `thread` message on the bridge.
+- The bridge (`EditorBridge.swift`) is a separate type from the view because
+  everything worth asserting about it — normalisation, queueing, app filtering —
+  cannot be tested through a live `WKWebView` in `swift test`. See
+  `Tests/LedgeShellTests/EditorBridgeTests.swift` and `editor/README.md`.
+- **Chat is the second place the shell takes key focus** (the first is a
+  focusable canvas), and in chat the keyboard is *always* in the pill — a
+  focusable canvas behind the pane is never given first responder. The panel is
+  a non-activating `NSPanel`, so taking key steals the user's insertion point;
+  `NotchPanelController` gives it back on close, deliberately and reversibly.
+- **Esc is one step**: it closes the visit, exactly as flow.md's Transitions
+  table says, because chat is a mode of the visit and not a sheet over it. The
+  page forwards it explicitly (`{type:"escape"}`) rather than trusting WebKit's
+  responder chain, and keeps one exception — while a turn is running, Esc
+  interrupts the turn and never reaches the shell.
+- The `chat` and `newApp` snapshots show the **native** half only (the glass and
+  the reduced stage): a web view has nothing to draw until its content process
+  has painted, which never happens in a synchronous headless render. Use
+  `scripts/snapshot-editor.swift --stage N --size WxH` for the transcript layer.
+
 - **App content:** everything else. The mockups' headers are app-specific
   (`Now Playing` / `Spotify`, `Deal Watch` / `3 tracked`) and nothing on the wire
   carries them, so they are part of the app's tree — but they no longer live at
@@ -42,16 +89,15 @@ app's tree.
   `<wing side="left">` node (spec §5 — see protocol/README.md, "panel wings",
   and keep it separate from the §3.3 collapsed wings, which are a different
   surface with a different owner).
-- **The ✦ chat toggle** lives in that right zone now, as *Edit*. It is also
-  still a gesture: **clicking the presented app's icon in the strip toggles its
-  chat**, and the icon stays lit while the chat is open (§8).
-- **The app strip scrolls.** Ten demo apps already overrun a 440 pt panel, and
-  the first two controls an overflowing row pushes off the end are exactly the
-  two you want when a strip has overflowed — **[+]** (how you add app eleven) and
-  Settings (how you turn app ten off). So the icons live in an overlay-scroller
-  `NSScrollView` and those two are its siblings, with a fixed safe gap between
-  them. The scroll area only takes the width it needs, so a strip that fits is
-  laid out point-for-point as it was before the scroller existed.
+- **The ✦ chat toggle** lives in that right zone now, as a real toggle: *Edit*
+  (wand) is transparent while the app's tree is on screen, and *Preview* (eye)
+  now the **glass toggle** — a `bead` in the cutout row's left zone reading
+  **Apps** while the stage is up and **Done** while the editor is. A genuine
+  build outcome pulses the panel once in green or red without turning a
+  permanent control into a status light.
+- **There is no bottom app strip.** flow.md has no bar in it, so `AppBarView`
+  is gone and the two entry points its death orphaned have new homes: **[+]** is
+  the strip's blank slot, and Settings is a right-click on any Ledge glass.
 
 ## Presentation state (`LedgeShellCore/ShellState.swift`)
 
@@ -60,36 +106,98 @@ enum ShellPresentation {
     case collapsed              // the idle pill over the hardware notch
     case expanded(app: String?) // an app's tree; nil → the built-in placeholder
     case chat(app: String)      // that app's chat surface (§8) — shell chrome
-    case newApp                 // the [+] surface (§8)     — shell chrome
+    case newApp                 // the strip's blank slot   — shell chrome
+    case mini(app: String)      // the notification swell (wire name; §5 `mini`)
+    case summary(app: String)   // the hover's summary swell (§5 `summary`)
+    case permissions            // the first-run permission card
+    case overview               // the ledge: the strip as slabs on a shelf
 }
 ```
 
-`ShellState` adds exactly one piece of memory: `lastPresentedApp`, so hovering
+`ShellState` adds exactly one piece of memory: `lastPresentedApp`, so clicking
 the collapsed pill reopens the app you were last using. App ids are runtime
-strings (a directory name, spec §2) — the shell has no built-in app list, and
-the strip is built from the host's `catalog` snapshot and nothing else (§3.6):
-`enabled` filters, `order` sorts, `sf:` prefixes are stripped off icons, and the
-app id `settings` is pinned to the far right rather than shown among the others.
+strings (a directory name, spec §2) — the shell has no built-in app list, and the
+**session strip** (`LedgeShellCore/SessionStrip.swift`) is built from the host's
+`catalog` snapshot and nothing else (§3.6): `enabled` filters, `order` sorts, and
+one blank slot sits at the end of the ring so walking past either end lands on
+the same one. Settings is no longer pinned; it is a session like any other.
 
 ## Interaction
 
-- **Hover** the notch for 0.20 s (or click it) to open the last app; the
-  collapsed pill grows slightly and ticks the trackpad on hover so it reads as
-  alive before it opens.
-- **Move away** from the open panel and it closes after a 0.40 s debounce, so
-  overshooting the edge doesn't cost you the panel; Esc closes immediately.
-  Clicks outside the black shape pass through to whatever is beneath.
-- **The strip** switches apps — the panel morphs between heights *and widths* in
-  one gesture — and re-clicking the current app opens its chat.
-- The menu-bar item has exactly two commands: toggle expansion, and quit.
+The whole model is flow.md's six-state Transitions table, implemented as a pure
+value type in `Sources/LedgeShell/InteractionMachine.swift`. The panel controller
+owns the timers and turns the machine's effects into presentations; nothing else
+decides what a gesture means.
+
+- **Hover below Th** (0.35 s) swells the notch a few points and ticks the
+  trackpad — a promise, not a surface.
+- **Hover past Th** shows the session's `<summary>` if it declared one, and opens
+  the visit directly if it did not (principle 8: a heavy visit owes a summary; a
+  light one is its own summary).
+- **Click** — the pill, a wing, a summary, or a notification anywhere but its
+  action — opens the visit. Hover never opens the panel.
+- **Close** on a click outside, Esc, or 2.5 s of the pointer fully away. That
+  timer **never runs** while anything holds the keyboard, while a drag is in
+  flight, or while the editor is up (`ExitInhibitor`).
+- **The `|` between `‹` and `›` opens the ledge** — the strip zoomed out, one
+  glass slab per session standing on a shelf hairline, the blank slot as a
+  dashed slab (`OverviewSurfaceView`, design.html §04). Slabs rise toward the
+  cursor on the mockup's own gaussian falloff; hovering one reveals the **only
+  ✕ in the product**, which stops that session (an `appControl` envelope, spec
+  §4.3, landing on the host's existing disable path — the app stays installed).
+  The left wing reads **Back** while it is up, and Esc means Back before it
+  means close. It is a *mode of the visit*, not a seventh state.
+- **Dragging Ledge's own glass downward past 40 pt parks the surface**: the
+  whole body tears off the notch into a borderless `ParkedWindow` under the
+  pointer, the notch goes back to a bare pill, and wings pause. Everything keeps
+  working inside the window — walking the strip, chat, the ledge — and
+  notifications swell from *its* top edge instead of the notch's. The ⌃ at its
+  top-right, or a click on the bare notch, flies it home on `LedgeMotion.travel`
+  (a fade under Reduce Motion). Nothing passive takes it away: no walk-away
+  timeout, no click-outside, no Esc.
+- **`‹|›`, or a horizontal swipe across the visit**, walks the session strip.
+  Same code path; the panel morphs between heights *and widths* in one gesture,
+  and the two controls never move, because they are anchored to the cutout.
+- **Right-click any Ledge glass** (not an app's content well) for Settings… and
+  Quit Ledge; ⌘, does the same during a visit, when the panel holds key.
+- **There is no menu-bar item.** Toggling expansion is what the notch itself is
+  for, and quitting is a row at the bottom of Settings (`ctx.platform.quit()`,
+  answered by this process). `LSUIElement` means no Dock icon either, so that
+  row is the only quit there is — it arms on the first press and quits on the
+  second.
 - **Keyboard** goes to a `canvas` that asked to be `focusable` (spec §5): when
   the presented app has one, the shell hands it first responder so §4.1 `key`
   events flow the moment the panel opens. That is the *only* case where the notch
   takes key focus — a panel with no game never steals the user's insertion point.
+- **Swipe** horizontally across a *collapsed* surface: on the pill it becomes an
+  id-0 `swipe` event for the app that owns the wing (skip a track, dismiss a
+  timer — the app decides), on a mini it puts the peek away, and an idle pill
+  has no addressee so nothing happens. The expanded panel is untouched: it
+  scrolls, and a shell that read those flicks as swipes would give every list a
+  second meaning. Policy is in `SwipeRecognizer` (28 pt of travel, 1.5× more
+  horizontal than vertical, once per gesture, momentum ignored); who a swipe is
+  *for* is `NotchPanelController.handleSwipe`, because that is presentation.
 
-Feel tunables live at the top of `Sources/LedgeShell/ShellSurfaceView.swift`:
-`HoverPolicy` (open/close delays, hover slop) and `Spring` (open/close/morph
-response + damping). The window itself never animates — it is a fixed transparent
+## Displays without a notch
+
+The surface is anchored to a cutout rect — so on an external monitor or a
+pre-notch Mac, the shell **synthesizes** one rather than special-casing the
+screen: 210 pt (a real notch's width, clamped on a narrow display) by the menu
+bar's height, floored at 32 pt so a wing's content still fits, centred in the
+menu bar. `NotchMetrics.isSynthesized` says which kind you have and the startup
+log line names it; everything downstream — wing clamps, the mini's floor, the
+panel's exclusion row — already took an arbitrary rect and needs no branch.
+
+Which display gets the surface is `NotchScreen`: **a notched screen wins**, and
+with none, the **primary** screen (index 0, the one that owns the menu bar).
+Deliberately not `NSScreen.main`, which follows the key window — the window
+frame only moves on screen-configuration changes, so a policy that depended on
+where the user last clicked would relocate the whole shell for reasons they
+could not see.
+
+Feel tunables live in `Sources/LedgeShell/Theme.swift`: `LedgeInteraction`
+(Th / Ti / Ta / Texit, and the promissory swell's few points) beside
+`LedgeMotion` (the two spring characters and the four roles). The window itself never animates — it is a fixed transparent
 panel and the black shape morphs inside it on springs, which is what keeps
 open/close smooth. Its size is no longer the old fixed 520 × 440: it is computed
 per screen from `PanelLimits` to hold the biggest shape the surface can morph
@@ -112,8 +220,9 @@ rides in the catalog (§3.6) and lands here as a **request**:
 
 `PanelLimits` (next to `NotchMetrics`, both measurements of the display rather
 than preferences) owns all of it: the clamps, and the window size derived from
-them. Panel *height* is still measured, never declared — the tree's fitting
-height plus the 42 pt strip, clamped to the app's `maxHeight`.
+them. Panel *height* is still measured, never declared — **content fit**: the
+tree's fitting height plus the cutout exclusion row and nothing else, clamped to
+the app's `maxHeight`.
 
 ## Wings (spec §3.3 extension, §8)
 
@@ -121,8 +230,10 @@ The collapsed pill is a surface an app can own. A `chrome` request with a `wing`
 puts a label in the left wing, a canvas strip in the right one, or simply asks
 for a total width (see `protocol/README.md` for the wire shape). Geometry lives
 in `ShellSurfaceView.wingExtents`; it is the same shape morphing on the same
-`.morph` spring the panel uses, and the hover bump stays additive on top, so a
-pacer updating width at 10 Hz and a cursor arriving at the notch never fight.
+`.morph` spring the panel uses, and the promissory swell stays additive on top,
+so a pacer updating width at 10 Hz and a cursor arriving at the notch never
+fight. In a *visit* the wings are Ledge's own controls instead (flow.md), and an
+app has no say in either zone.
 
 Three things worth knowing before editing wings:
 
@@ -229,7 +340,9 @@ aim at, so it is not a drop zone.
 ## Snapshots
 
 `scripts/snapshot-demos.sh` renders every demo app plus the chrome surfaces —
-including the winged pill, whose strip is painted by real §3.4 draw ops (`wings`
+including `overview` (the ledge, with the cursor planted on the second slab so
+the rise is in the picture), `parked` (the torn-off window, with a real app's
+tree inside it) and the winged pill, whose strip is painted by real §3.4 draw ops (`wings`
 carries a label, a canvas strip and a spritesheet cell; `wings-text` is the
 label-only shape) — to PNGs, end to end:
 
@@ -257,9 +370,9 @@ swift build && swift test
 Worth knowing before editing — each is a real bug that was hunted down:
 
 - **Tracking areas go stale.** Enter/exit pairs lie when a view moves under a
-  stationary cursor (which the panel does constantly, as it morphs), so hover is
-  always resolved against the live `NSEvent.mouseLocation`, never against the
-  event that woke us (`syncHover`, `evaluateHover`).
+  stationary cursor (which the panel does constantly, as it morphs), so the
+  pointer is always resolved against the live `NSEvent.mouseLocation`, never
+  against the event that woke us (`evaluatePointer`).
 - **Implicit layer animations.** Anything touching a layer outside an intended
   animation runs inside `CATransaction.setDisableActions(true)` — otherwise a
   slider knob eases toward the pointer instead of tracking it, and every commit

@@ -3,6 +3,31 @@ import QuartzCore
 
 class FlippedView: NSView {
     override var isFlipped: Bool { true }
+
+    /// Ledge is an accessory app whose panels are non-activating: **every**
+    /// click on it is a first mouse, forever. The islands learned this one at
+    /// a time (G2.4, the parked window's multi-click buttons; G2.8, the park
+    /// drag silently dropped on the bar's own background) — so it is the base
+    /// class's law now, not a per-view discovery.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+extension NSView {
+    /// The end-of-strip flinch (G2.7: "Show some indication that this is the
+    /// end!"): the whole body nudges a few points in the attempted direction
+    /// and settles — the rubber edge, spoken in silhouette. Motion only, so
+    /// Reduce Motion drops it entirely; the refusal itself is the answer.
+    func runEndBounce(toward steps: Int) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        let nudge = CAKeyframeAnimation(keyPath: "transform.translation.x")
+        // Walking forward (`›`, a leftward swipe) pulls the content left, so
+        // the flinch goes the way the strip refused to.
+        nudge.values = [0, steps > 0 ? -10 : 10, 0]
+        nudge.keyTimes = [0, 0.35, 1]
+        nudge.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        nudge.duration = 0.28
+        layer?.add(nudge, forKey: "endBounce")
+    }
 }
 
 extension CALayer {
@@ -268,57 +293,6 @@ final class HoverIconButton: NSButton {
         contentTintColor = active || hovering ? LedgeTheme.primary : LedgeTheme.secondary
         layer?.backgroundColor = baseBackground.cgColor
         dotLayer.opacity = active ? 1 : 0
-    }
-
-    @objc private func activate() {
-        handler()
-    }
-}
-
-final class AccentIconButton: NSButton {
-    private let handler: () -> Void
-    private let discLayer = CALayer()
-
-    init(accessibilityLabel: String, handler: @escaping () -> Void) {
-        self.handler = handler
-        super.init(frame: .zero)
-        isBordered = false
-        image = NSImage(systemSymbolName: "arrow.up", accessibilityDescription: accessibilityLabel)
-        imagePosition = .imageOnly
-        imageScaling = .scaleProportionallyDown
-        contentTintColor = LedgeTheme.glassSolid
-        target = self
-        action = #selector(activate)
-        setAccessibilityLabel(accessibilityLabel)
-        setAccessibilityRole(.button)
-        wantsLayer = true
-
-        discLayer.backgroundColor = LedgeTheme.accent.cgColor
-        // The send disc stays a circle — 24 pt, capsule by the same rule (D4).
-        discLayer.cornerRadius = LedgeMetrics.capsule(LedgeMetrics.sendDisc)
-        layer?.insertSublayer(discLayer, at: 0)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-        let disc = LedgeMetrics.sendDisc
-        discLayer.frame = CGRect(
-            x: bounds.midX - disc / 2,
-            y: bounds.midY - disc / 2,
-            width: disc,
-            height: disc
-        )
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        layer?.setPressScale(LedgeMetrics.pressScaleIcon, duration: LedgeMetrics.pressDurationIn)
-        super.mouseDown(with: event)
-        layer?.setPressScale(1, duration: LedgeMetrics.pressDurationOut)
     }
 
     @objc private func activate() {

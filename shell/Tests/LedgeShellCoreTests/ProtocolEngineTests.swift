@@ -265,6 +265,20 @@ struct ProtocolEngineTests {
         #expect(delegate.chromeRequests[3].wing == nil)
     }
 
+    @Test("A peek carries its dwell; other requests carry none (§3.3 extension)")
+    func peekCarriesDwell() throws {
+        let (engine, delegate, _) = makeEngine()
+        engine.receive(try envelope("chrome-peek.json"))
+        engine.receive(try envelope("chrome-expand.json"))
+
+        #expect(delegate.chromeRequests[0].request == "peek")
+        #expect(delegate.chromeRequests[0].ms == 4000)
+        // `ms` belongs to `peek` alone — each extra field on the chrome payload
+        // is read by the one verb that names it (§3.3).
+        #expect(delegate.chromeRequests[0].wing == nil)
+        #expect(delegate.chromeRequests[1].ms == nil)
+    }
+
     @Test("A wing carrying nothing at all is a release, not an empty wing")
     func emptyWingIsRelease() {
         let (engine, delegate, _) = makeEngine()
@@ -344,6 +358,35 @@ struct ProtocolEngineTests {
         #expect(selections[1].seq == 2)
     }
 
+    @Test("Every lifecycle carries Reduce Motion, and a flip is reported (§4.2)")
+    func lifecycleCarriesReduceMotion() throws {
+        let (engine, _, outbound) = makeEngine()
+
+        // Off by default: an engine that has never been told anything must not
+        // claim the user asked for less motion.
+        engine.sendLifecycle(app: "stocks", phase: "expanded")
+        var payload = try #require(outbound.last(ofType: "lifecycle"))
+            .decodePayload([String: JSONValue].self)
+        #expect(payload["phase"]?.asString == "expanded")
+        #expect(payload["reduceMotion"]?.asBool == false)
+        #expect(engine.reducesMotion == false)
+
+        // The return value is the caller's cue to re-send to every app — a
+        // no-op set must not trigger a broadcast.
+        #expect(engine.updateReduceMotion(true) == true)
+        #expect(engine.updateReduceMotion(true) == false)
+        #expect(engine.reducesMotion)
+
+        engine.sendLifecycle(app: "stocks", phase: "collapsed")
+        payload = try #require(outbound.last(ofType: "lifecycle"))
+            .decodePayload([String: JSONValue].self)
+        #expect(payload["phase"]?.asString == "collapsed")
+        #expect(payload["reduceMotion"]?.asBool == true)
+        // Still the same envelope: the flag rides beside the screen block, it
+        // does not replace it.
+        #expect(payload["screen"]?.asObject?["notchWidth"]?.asDouble == 189)
+    }
+
     @Test("Builder input and cancel serialize correctly (§4.3)")
     func builderInput() throws {
         let (engine, _, outbound) = makeEngine()
@@ -352,5 +395,35 @@ struct ProtocolEngineTests {
         let sends = outbound.all(ofType: "builderInput")
         #expect(try sends[0].decodePayload([String: JSONValue].self)["text"]?.asString == "make it green")
         #expect(try sends[1].decodePayload([String: JSONValue].self)["cancel"]?.asBool == true)
+    }
+
+    /// The framing, asserted against the shared fixture the host reads too.
+    ///
+    /// This exists because both halves of `builderInput` were once tested only
+    /// against themselves, and they disagreed: the shell put the target app in
+    /// the PAYLOAD (a control-plane frame, like `selection` and `resyncRequest`)
+    /// and the host read the ENVELOPE's app. Nothing failed anywhere. Every
+    /// message the user typed simply ran a turn for the app named `""` and
+    /// streamed its answer to an editor that was showing something else.
+    ///
+    /// A shared fixture is the only kind of test that could have caught it, so
+    /// this one names the file the host's suite also asserts against.
+    @Test("Builder input is framed exactly like the shared fixture (§4.3)")
+    func builderInputMatchesTheFixture() throws {
+        let (engine, _, outbound) = makeEngine()
+        engine.sendBuilderInput(app: "stocks", text: "make the price green when it's up")
+        // And the [+] surface's form: an app id that does not exist yet, which
+        // the host reads as "make one" (§8).
+        engine.sendBuilderInput(app: "", text: "a pomodoro timer that dings")
+
+        for (index, name) in ["builder-input.json", "builder-input-new.json"].enumerated() {
+            let fixture = try JSONDecoder().decode(Envelope.self, from: try Fixtures.data(name))
+            let sent = outbound.all(ofType: "builderInput")[index]
+            #expect(sent.app == fixture.app, "\(name): the envelope's app must be the control plane's")
+            let payload = try sent.decodePayload([String: JSONValue].self)
+            let expected = try fixture.decodePayload([String: JSONValue].self)
+            #expect(payload["app"] == expected["app"], "\(name): the TARGET app lives in the payload")
+            #expect(payload["text"] == expected["text"], "\(name)")
+        }
     }
 }

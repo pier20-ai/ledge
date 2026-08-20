@@ -156,6 +156,55 @@ describe("reconnect (spec §1)", () => {
   }, 30000);
 });
 
+// Principle 10 reaching app code: the shell reads the accessibility preference
+// (a worker cannot) and it rides the lifecycle envelope to `ctx.reduceMotion`.
+const MOTION_APP = `/** @jsxImportSource react */
+export function onLifecycle(phase, ctx) {
+  ctx.update({ label: phase + (ctx.reduceMotion ? " still" : " moving") });
+}
+export default function App({ label = "unheard" }) {
+  return <text content={label} />;
+}
+`;
+
+describe("reduce motion (spec §4.2)", () => {
+  test("the lifecycle envelope's reduceMotion reaches the app's ctx", async () => {
+    const root = await makeAppsRoot({ mover: MOTION_APP });
+    const session = new RecordingSession();
+    const router = new Router({ appsRoot: root, watch: false });
+    openRouter = router;
+    await router.bindSession(session);
+    await waitFor(() => session.envelopesFor("mover", "commit").length >= 1);
+
+    const label = () => {
+      const commits = session.envelopesFor("mover", "commit");
+      for (let i = commits.length - 1; i >= 0; i -= 1) {
+        const mutations = commits[i]!.payload.mutations as Mutation[];
+        const update = mutations.find((m) => m.op === "update");
+        if (update) return (update as Extract<Mutation, { op: "update" }>).props.content;
+      }
+      return null;
+    };
+
+    router.onEnvelope(
+      session,
+      envelope("mover", "lifecycle", { phase: "expanded", reduceMotion: true }),
+    );
+    await waitFor(() => label() === "expanded still");
+
+    router.onEnvelope(
+      session,
+      envelope("mover", "lifecycle", { phase: "collapsed", reduceMotion: false }),
+    );
+    await waitFor(() => label() === "collapsed moving");
+
+    // A shell that never mentions the flag leaves it where it was — absent is
+    // "unchanged", not "motion is fine".
+    router.onEnvelope(session, envelope("mover", "lifecycle", { phase: "visible" }));
+    await waitFor(() => label() === "visible moving");
+  }, 30000);
+});
+
 describe("selection tracking (spec §4.3)", () => {
   test("selection envelopes update router.presented, including the null/surface form", async () => {
     const root = await makeAppsRoot({});

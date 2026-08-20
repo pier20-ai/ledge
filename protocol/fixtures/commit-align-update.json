@@ -1,0 +1,4 @@
+{ "v": 1, "app": "timer", "seq": 2, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 1, "props": { "align": "leading" } },
+  { "op": "update", "id": 7, "props": { "align": "trailing" } }
+] } }

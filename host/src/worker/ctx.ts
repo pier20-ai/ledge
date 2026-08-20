@@ -4,6 +4,8 @@
 // import.meta.dir, console) is the platform, used directly. Apps import nothing
 // from Ledge; ctx arrives as the monitor's argument.
 //
+//   ctx.settings                         this app's own declared controls, as
+//                                        the user has them set (§5)
 //   ctx.update(patch)                    monitor → UI bridge (§6)
 //   ctx.notify(text, { attention,        notification (+ action buttons) posted
 //              title, actions })         by the shell; returns its id (§6)
@@ -22,6 +24,8 @@
 //   ctx.platform.spotlight({query})      NSMetadataQuery, capped and bounded
 //   ctx.platform.audio() / .setVolume(v) the default output device
 //   ctx.platform.speak(text, {voice})    AVSpeechSynthesizer, one at a time
+//   ctx.record.status() / .start()       the microphone and system audio, both
+//   ctx.record.stop() / .levels()        owned by the shell (TCC + one engine)
 //
 // The agentic three (`apple` made real, `capture`, `agent`) are the same
 // principle as the rest: `ctx` carries only what the app's own process cannot
@@ -35,8 +39,9 @@
 // from an event handler keeps the reference its monitor was handed — that is the
 // documented pattern for a game loop.
 //
-// Settings (the reference app, §8) additionally gets a privileged `ctx.platform`
-// — typed here but only wired when the host boots the worker `privileged`.
+// A worker booted `privileged` (§8 — the app id `settings`, which no shipped app
+// claims now that Settings is a native window) additionally gets a privileged
+// `ctx.platform`: typed here, wired only for that boot.
 
 import type {
   AgentRequest,
@@ -45,8 +50,14 @@ import type {
   BridgeReply,
   CalendarEvent,
   LocationFix,
+  NotificationClass,
   NotifyAction,
   PlatformObserveSource,
+  RecordLevels,
+  RecordSession,
+  RecordStatus,
+  RecordStopResult,
+  SettingValue,
   SpotlightHit,
   WorkerToHost,
   WorkspaceInfo,
@@ -99,10 +110,14 @@ export interface PlatformBridge {
    *   constrained, interface}`.
    * - `"audio"` — `"changed"`. Payload `{deviceName, volume, muted,
    *   transportType, batteryPercent?, reason}`.
+   * - `"focus"` — `"changed"`. Payload `{active, modeName?}` — Do Not Disturb
+   *   and the named Focus modes, read from the user's Focus database. It is
+   *   **quiet rather than wrong**: no Full Disk Access, or a format change in a
+   *   future macOS, means no events at all rather than a false `active: false`.
    *
-   * `power`, `reachability` and `audio` describe a *state*, so registering also
-   * delivers the current one immediately — an app never has to make a separate
-   * read call for the thing it just subscribed to.
+   * `power`, `reachability`, `audio` and `focus` describe a *state*, so
+   * registering also delivers the current one immediately — an app never has to
+   * make a separate read call for the thing it just subscribed to.
    */
   observe(kind: PlatformObserveSource, name: string): Promise<void>;
   unobserve(kind: PlatformObserveSource, name: string): Promise<void>;
@@ -176,9 +191,113 @@ export interface PrivilegedPlatformBridge extends PlatformBridge {
   disable(app: string): Promise<void>;
   reorder(order: string[]): Promise<void>;
   stats(): Promise<unknown>;
+  /**
+   * End Ledge — the shell, the host it parents, and every worker with it.
+   *
+   * Unlike the rest of this interface it is executed by the **shell**: it is the
+   * only process that can terminate itself, and the host is its child. It
+   * resolves just before the process goes, so an app can `await` it, but only
+   * because the shell answers first and terminates on the next turn — nothing
+   * after the await is guaranteed to run.
+   *
+   * Ledge is `LSUIElement`: no Dock icon, and no menu-bar item since the status
+   * menu was removed. This is the user's only quit.
+   */
+  quit(): Promise<void>;
+}
+
+/**
+ * Recording — the microphone and the system's own output, captured by the
+ * SHELL (spec §6 extension).
+ *
+ * It is on `ctx` for the reason everything here is: the microphone prompt is
+ * TCC, and macOS attributes consent to the process with the UI, so a faceless
+ * worker cannot ask for it. The capture engine is also one per process, which is
+ * why the policy is **one recording at a time across all apps**: the hardware is
+ * global, so the capability is too. Only the app that started a recording may
+ * stop it, and a worker that dies mid-session finalizes it (stops, never
+ * deletes) rather than losing the take.
+ *
+ * Every call except `status` rejects with a sentence when it cannot be done —
+ * "already recording for 'scribe'", "microphone access was denied", "nothing is
+ * recording" — because a start that quietly did not start is the one failure a
+ * recorder must never have. `status` always answers: it is the question an app
+ * asks *before* it knows whether any of this works.
+ *
+ * **Playback is deliberately not here.** A worker plays a finished file by
+ * spawning `afplay` itself, the way radio spawns its own player: nothing about
+ * reading a file off disk and making noise needs the shell's identity, and a
+ * capability that adds nothing but a hop is a capability that should not exist.
+ * The same goes for revealing a session in Finder (`open`) and deleting one.
+ */
+export interface RecordBridge {
+  /** The recorder, in one answer — see `RecordStatus`. Never rejects: an app
+   * with no recording capability at all still gets `{available: false, reason}`
+   * and can say so in its panel. */
+  status(): Promise<RecordStatus>;
+  /**
+   * Begin a session and resolve once the files are actually open.
+   *
+   * `sources` defaults to both (`["mic", "system"]`) and `format` to `"aac"`;
+   * pass `"wav"` when the recording is going somewhere that wants PCM. Both are
+   * omitted from the wire when absent, so the shell — not the worker — owns what
+   * "default" means.
+   *
+   * The first call raises the microphone prompt and **blocks until the user
+   * answers it**, which is why this one call gets the two-minute deadline the
+   * screenshot bridge has. A denial rejects.
+   */
+  start(options?: { sources?: string[]; format?: string }): Promise<RecordSession>;
+  /** End this app's session and resolve with where the files landed. Rejects if
+   * nothing is recording, or if the live session belongs to another app. */
+  stop(): Promise<RecordStopResult>;
+  /** The current levels, 0…1 per source, plus the session's elapsed seconds. A
+   * meter polls this; nothing pushes, because a level is only ever wanted by an
+   * app that is drawing a frame and it knows when that is. */
+  levels(): Promise<RecordLevels>;
 }
 
 export interface Ctx {
+  /**
+   * The system's **Reduce Motion** preference (spec §4.2, principle 10).
+   *
+   * A worker cannot read this for itself — it is an AppKit accessibility
+   * setting, so it belongs on `ctx` for exactly the reason everything else here
+   * does. The shell sends it on every `lifecycle` (including the one an app gets
+   * when it starts) and re-sends one to every running app the moment the user
+   * flips the switch, so this property is always current.
+   *
+   * It is a **property, not a callback**, because the code that has to obey it
+   * is a draw loop: `if (ctx.reduceMotion) …` inside a `setInterval` is the
+   * shape apps actually need. `onLifecycle(phase, ctx)` is still called after
+   * every change, for an app that would rather react than poll.
+   *
+   * The law in one line: *a canvas that animates must go still when this is
+   * true.* Still, not slower, and not blank — the meter keeps reading, it just
+   * stops moving between readings.
+   */
+  readonly reduceMotion: boolean;
+  /**
+   * This app's own settings — the controls it declared in `meta.settings`, as
+   * the user has them set (spec §5).
+   *
+   * Always complete for what the app declares: every declared key is here, with
+   * the stored value or the declared default, so `ctx.settings.format` never
+   * needs a fallback of its own — and complete from the monitor's first line,
+   * because the worker seeds it at boot from its own declaration (see
+   * `WorkerBoot.settings`). An app that declares nothing has `{}`.
+   *
+   * Read it **fresh at the point of use** — `const model = ctx.settings.model`
+   * inside the function that needs it, never copied into a module constant,
+   * which would freeze whatever the value was the first time and keep serving
+   * it after the user changed their mind.
+   *
+   * A property rather than a call for `ctx.reduceMotion`'s reason: the code
+   * that obeys a setting is usually already inside a loop or a handler.
+   * `onEvent("settings", values, ctx)` fires as well, for an app that has to
+   * *react* to a change rather than read one.
+   */
+  readonly settings: Record<string, SettingValue>;
   /** Shallow-merge `patch` into the props object passed to the default export
    * and schedule a render. In-memory only; the sole monitor → UI bridge (§6). */
   update(patch: Record<string, unknown>): void;
@@ -208,14 +327,37 @@ export interface Ctx {
    * keeps only the latest frame per canvas per display tick. */
   draw(id: number, ops: unknown[]): void;
   /** Own the collapsed notch as a live-activity surface, or release it with
-   * `null` (spec §3.3 extension). Latest wing across all apps wins; this app's
-   * wing is released for it on stop, crash, and reload. */
+   * `null` (spec §3.3 extension). `{ text }` is the left wing, `{ canvas }` and
+   * `{ meter: { value } }` the right one — a meter is the shell's stock bar, so
+   * the ordinary "how far along is it" wing costs no draw loop. Latest wing
+   * across all apps wins; this app's wing is released for it on stop, crash,
+   * and reload. */
   wing(spec: WingSpec | null): void;
   /** Ask the shell to present this app (spec §3.3). May be denied silently. */
+  /**
+   * Show this app's `<mini>` subtree below the notch for `ms`, then let it go
+   * (spec §3.3 extension). The middle rung between a wing and the panel: enough
+   * room for "[art] Title — Artist", gone before it becomes clutter.
+   *
+   * What is shown is declarative — whatever `<mini>` currently renders — so a
+   * peek never round-trips to ask the app what to draw, and a hover during one
+   * promotes to the full panel instantly. This call only says *when*.
+   *
+   * Latest asker wins, as with wings. Denied silently if the app has no
+   * `<mini>` in its tree.
+   *
+   * `options.class` is the priority class (flow.md): `"ambient"` (the default)
+   * retracts on its dwell, `"alert"` holds until the user acts on it. Urgency
+   * is ink, never geometry — an alert is the same shape, it just does not leave.
+   */
+  peek(ms?: number, options?: { class?: NotificationClass }): void;
   expand(): void;
   /** Ask the shell to put this app away (spec §3.3). Ignored unless this app is
    * the one currently presented. */
   collapse(): void;
+  /** Raise the shell's permission surface (Settings only — see ChromeRequest).
+   * Nothing comes back: the shell shows it, or silently does not. */
+  permissions(): void;
   /**
    * Take a screenshot, executed by the shell (spec §6 extension). Resolves with
    * the path of a PNG in the shell's temp directory — the app may read, copy or
@@ -242,6 +384,10 @@ export interface Ctx {
    * the seven request/reply calls; only Settings gets the app-management calls,
    * because those change *other* apps. */
   platform: PlatformBridge;
+  /** The recorder — see `RecordBridge`. Its own namespace rather than four more
+   * `ctx.platform` calls, because a recording is a *session* with a lifetime an
+   * app has to hold, not a question with an answer. */
+  record: RecordBridge;
 }
 
 /** Settings' ctx (spec §8): everything above, plus app management. */
@@ -258,6 +404,14 @@ export interface CtxIO {
 
 export interface CtxHandle {
   ctx: Ctx;
+  /** Update `ctx.reduceMotion` in place (spec §4.2). Called by the worker entry
+   * when a `lifecycle` message carries the flag — *before* `onLifecycle`, so an
+   * app that reacts to the callback reads the new value, not the old one. */
+  setReduceMotion(value: boolean): void;
+  /** Replace `ctx.settings` (spec §5). Wholesale, never merged: the host sends
+   * the complete effective map every time, so a merge could only keep a key the
+   * app has stopped declaring alive inside a live worker. */
+  setSettings(values: Record<string, SettingValue>): void;
   /** Resolve/reject a pending apple/platform request from a host reply. Unknown
    * ids are ignored (the request was already settled, or the worker was
    * rebuilt). Called by the worker entry when a `reply` message arrives. */
@@ -296,6 +450,20 @@ function sanitizeActions(actions: NotifyAction[] | undefined): NotifyAction[] {
  * Settings-only `ctx.platform` (spec §8) — omit it for ordinary apps so the
  * surface stays exactly the four documented bridges.
  */
+/** Default dwell for `ctx.peek()` — long enough to read a title and an artist,
+ * short enough that a missed one costs nothing. */
+export const DEFAULT_PEEK_MS = 4_000;
+const MIN_PEEK_MS = 500;
+const MAX_PEEK_MS = 20_000;
+
+/** Clamp a requested peek to something that stays a *glance*. A peek is not a
+ * way to open the panel; `ctx.expand()` is, and it is the one the user can
+ * dismiss. */
+export function clampPeek(ms: number | undefined): number {
+  if (ms === undefined || !Number.isFinite(ms)) return DEFAULT_PEEK_MS;
+  return Math.min(Math.max(Math.round(ms), MIN_PEEK_MS), MAX_PEEK_MS);
+}
+
 export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): CtxHandle {
   // Request ids are per-session and monotonic; they only need to be unique
   // among this worker's in-flight bridge calls (the host keys replies by id).
@@ -376,6 +544,29 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       })) as Promise<void>,
   };
 
+  const record: RecordBridge = {
+    status: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordStatus" } })) as Promise<RecordStatus>,
+    start: (startOptions) =>
+      request((id) => ({
+        type: "platform",
+        id,
+        // Absent, not null — the calendar rule: the shell owns the defaults, and
+        // a null would have to be re-read as "absent" at every layer between.
+        request: {
+          kind: "recordStart",
+          ...(Array.isArray(startOptions?.sources)
+            ? { sources: startOptions.sources.map(String) }
+            : {}),
+          ...(typeof startOptions?.format === "string" ? { format: startOptions.format } : {}),
+        },
+      })) as Promise<RecordSession>,
+    stop: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordStop" } })) as Promise<RecordStopResult>,
+    levels: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "recordLevels" } })) as Promise<RecordLevels>,
+  };
+
   /** The Settings-only half (spec §8), layered over the observe bridge every
    * app has. Split rather than gated inside each method: an ordinary app should
    * not be able to *see* a call it may not make. */
@@ -388,9 +579,27 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     reorder: (order) =>
       request((id) => ({ type: "platform", id, request: { kind: "reorder", order } })) as Promise<void>,
     stats: () => request((id) => ({ type: "platform", id, request: { kind: "stats" } })),
+    quit: () =>
+      request((id) => ({ type: "platform", id, request: { kind: "quit" } })) as Promise<void>,
   };
 
+  // Reduce Motion (spec §4.2). Held in the closure and exposed as a getter so
+  // an app that captured `ctx` in a frame loop months of frames ago still reads
+  // today's value — assigning a plain boolean onto the object would work too,
+  // but a getter makes it unwritable from app code, which it should be.
+  let reduceMotion = false;
+  // The app's settings (spec §5), held the same way and for the same reason:
+  // an app that reads `ctx.settings` from a handler written months of renders
+  // ago must see today's values, and must not be able to write them.
+  let settings: Record<string, SettingValue> = {};
+
   const ctx: Ctx = {
+    get reduceMotion() {
+      return reduceMotion;
+    },
+    get settings() {
+      return settings;
+    },
     update: (patch) => io.update(patch),
     notify: (text, notifyOptions) => {
       // Notifications draw an id from the same counter as bridge requests: it
@@ -436,9 +645,21 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       io.post({ type: "draw", id, ops });
     },
     wing: (spec) => io.post({ type: "wing", wing: sanitizeWing(spec) }),
+    // Clamped here rather than shell-side so an app cannot pin the notch open
+    // with a peek measured in minutes — that is the panel's job, and the app has
+    // ctx.expand() for it.
+    peek: (ms, options) =>
+      io.post({
+        type: "chrome",
+        request: "peek",
+        ms: clampPeek(ms),
+        ...(options?.class ? { cls: options.class } : {}),
+      }),
     expand: () => io.post({ type: "chrome", request: "expand" }),
     collapse: () => io.post({ type: "chrome", request: "collapse" }),
+    permissions: () => io.post({ type: "chrome", request: "permissions" }),
     platform,
+    record,
   };
   if (options.privileged) {
     (ctx as PrivilegedCtx).platform = privilegedPlatform;
@@ -452,5 +673,14 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     else entry.reject(new Error(reply.error));
   };
 
-  return { ctx, settle };
+  return {
+    ctx,
+    setReduceMotion: (value) => {
+      reduceMotion = value;
+    },
+    setSettings: (values) => {
+      settings = values;
+    },
+    settle,
+  };
 }

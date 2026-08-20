@@ -19,4 +19,11 @@ enum Fixtures {
     static func envelope(_ name: String) throws -> Envelope {
         try JSONDecoder().decode(Envelope.self, from: data(name))
     }
+
+    /// The wing spec inside a `chrome` fixture (spec §3.3 extension) — so a wing
+    /// test drives the same bytes the host suite replays rather than a Swift
+    /// literal that agrees with them by hand.
+    static func wing(_ name: String) throws -> WingSpec? {
+        try envelope(name).decodePayload(ChromePayload.self).wing
+    }
 }

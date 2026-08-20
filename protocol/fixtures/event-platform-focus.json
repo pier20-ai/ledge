@@ -1,0 +1,18 @@
+{
+  "v": 1,
+  "app": "focusgarden",
+  "seq": 9,
+  "type": "event",
+  "payload": {
+    "id": 0,
+    "name": "platform",
+    "data": {
+      "kind": "focus",
+      "name": "changed",
+      "userInfo": {
+        "active": true,
+        "modeName": "Work"
+      }
+    }
+  }
+}

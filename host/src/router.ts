@@ -6,12 +6,17 @@
 // injected via `bindSession`/`clearSession` so the router is fully testable
 // against the FakeShell (or a recording session) with no real socket.
 
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { AgentRunner } from "./agent";
+import { Builder } from "./builder";
+import type { BuilderEvent } from "./codex/events";
 import type { ShellSession } from "./connection";
 import type { Envelope } from "./protocol/envelope";
 import type { Mutation } from "./render/mutations";
+import { resolveReactPaths, type ReactPaths } from "./render/runtime";
 import { applyMeta, scanApps, type CatalogApp } from "./registry";
+import { SettingsStore } from "./settings";
+import { coerceSettingValue, effectiveSettings } from "./worker/meta";
 import {
   AppSupervisor,
   realScheduler,
@@ -29,11 +34,13 @@ import type {
   AppleRequest,
   CaptureRequest,
   ChromeRequest,
+  NotificationClass,
   HostToWorker,
   LifecyclePhase,
   NotifyRequest,
   PlatformRequest,
   ScreenInfo,
+  SettingValue,
   WingSpec,
 } from "./worker/messages";
 
@@ -59,9 +66,10 @@ export const CAPTURE_TIMEOUT_MS = 120_000;
  * deadline covers the bounded calls — spotlight caps itself at 5 s and location
  * at 8 s shell-side, so this only ever fires when the shell has gone away. */
 export const PLATFORM_TIMEOUT_MS = 10_000;
-/** The two calls whose first use raises a **TCC prompt**: the thing they are
- * waiting for is a person reading a modal, which is `ctx.capture`'s reasoning
- * verbatim. Once granted they answer in milliseconds. */
+/** The three calls whose first use raises a **TCC prompt** (calendar, location,
+ * and starting a recording): the thing they are waiting for is a person reading
+ * a modal, which is `ctx.capture`'s reasoning verbatim. Once granted they answer
+ * in milliseconds. */
 export const PLATFORM_GRANT_TIMEOUT_MS = 120_000;
 /** `speak` resolves when the utterance *finishes*, and 500 characters at a slow
  * rate is minutes of speech. Timing it out at ten seconds would reject a Promise
@@ -77,12 +85,18 @@ interface PendingBridge {
 }
 export interface RouterOptions {
   appsRoot: string;
+  /** The host's own settings file (src/settings.ts). Defaults to
+   * `SettingsStore.pathFor(appsRoot)` — `~/.ledge/settings.json` for a real
+   * install. Tests point it at a temp path; nothing in production overrides it. */
+  settingsPath?: string;
   factory?: WorkerFactory;
   scheduler?: RestartScheduler;
   transpile?: (modulePath: string) => Promise<TranspileError | null>;
   /** Runs `ctx.agent` turns (spec §8). Injected in tests so no test ever
    * invokes a real agent CLI. */
   agentRunner?: AgentRunner;
+  /** Injected in tests so nothing ever spawns a real Codex (spec §8). */
+  builder?: Builder;
   /** Overrides the capability deadlines above. Tests shorten them; nothing in
    * production does. */
   timeouts?: {
@@ -106,6 +120,7 @@ export class Router implements SupervisorSink {
   private readonly scheduler: RestartScheduler;
   private readonly transpile: (modulePath: string) => Promise<TranspileError | null>;
   private readonly agentRunner: AgentRunner;
+  private readonly builder: Builder;
   private readonly appleTimeoutMs: number;
   private readonly captureTimeoutMs: number;
   private readonly platformTimeoutMs: number;
@@ -114,6 +129,11 @@ export class Router implements SupervisorSink {
   private readonly backoff?: Partial<BackoffPolicy>;
   private readonly watchEnabled: boolean;
   private readonly hostLog: (line: string) => void;
+
+  /** Which apps the user has turned off, and the file that remembers it. The
+   * host is its only writer (spec §8: enable/disable is Settings asking the
+   * host, never an app editing state itself). */
+  private readonly settings: SettingsStore;
 
   private readonly supervisors = new Map<string, AppSupervisor>();
   /** Last `meta` each app's worker posted (spec §6). Replaced wholesale, never
@@ -136,13 +156,35 @@ export class Router implements SupervisorSink {
   private session: ShellSession | null = null;
   private presentedApp: string | null = null;
   private closeWatcher: (() => void) | null = null;
+  private reactPaths: ReactPaths | undefined;
 
   constructor(options: RouterOptions) {
-    this.appsRoot = options.appsRoot;
+    // Absolute from here down. `--apps-root ../protocol/demo-apps` is the
+    // natural way to run the host from the repo, and a relative root leaks into
+    // module resolution as "relative to the process cwd" (see
+    // render/runtime.ts). Normalising once, at the edge, means nothing
+    // downstream — app dirs, crash.log paths, log lines — has to think about it.
+    this.appsRoot = resolve(options.appsRoot);
+    this.settings = new SettingsStore(options.settingsPath ?? SettingsStore.pathFor(this.appsRoot));
     this.factory = options.factory;
     this.scheduler = options.scheduler ?? realScheduler;
     this.transpile = options.transpile ?? transpileCheck;
     this.agentRunner = options.agentRunner ?? new AgentRunner({ log: (line) => this.hostLog(line) });
+    this.builder =
+      options.builder ??
+      new Builder({
+        appsRoot: this.appsRoot,
+        sink: {
+          builder: (app, turn, event) => this.sendBuilder(app, turn, event),
+          log: (line) => this.hostLog(line),
+          // A brand new app should be in the strip by the time its first turn
+          // starts talking, not whenever the watcher's debounce elapses: the
+          // shell switches its editor to the new id the moment it hears
+          // `created`, and an id the catalog has never mentioned would show up
+          // there with no name and no icon.
+          created: () => void this.rescanApps(),
+        },
+      });
     this.appleTimeoutMs = options.timeouts?.apple ?? APPLE_TIMEOUT_MS;
     this.captureTimeoutMs = options.timeouts?.capture ?? CAPTURE_TIMEOUT_MS;
     this.platformTimeoutMs = options.timeouts?.platform ?? PLATFORM_TIMEOUT_MS;
@@ -151,6 +193,27 @@ export class Router implements SupervisorSink {
     this.backoff = options.backoff;
     this.watchEnabled = options.watch ?? true;
     this.hostLog = options.log ?? ((line) => console.log(line));
+  }
+
+  /** `resolveReactPaths` for this apps root, computed at most once.
+   *
+   * A failure is not cached as a failure: seeding may still be in flight on a
+   * first launch, and the next spawn should try again rather than inherit a
+   * verdict from a moment when the folder was half-written. The worker still
+   * resolves for itself if this comes back undefined, which is what keeps a
+   * missing react an app-level crash with a real message (spec §7) instead of a
+   * host that will not start.
+   */
+  private reactPathsOnce(): ReactPaths | undefined {
+    if (!this.reactPaths) {
+      try {
+        this.reactPaths = resolveReactPaths(this.appsRoot);
+      } catch (error) {
+        this.hostLog(`[ledge-host] react not resolvable yet: ${String(error)}`);
+        return undefined;
+      }
+    }
+    return this.reactPaths;
   }
 
   // MARK: - Connection lifecycle
@@ -165,9 +228,18 @@ export class Router implements SupervisorSink {
     const reconnect = this.supervisors.size > 0;
     this.session = session;
 
-    const apps = await scanApps(this.appsRoot);
+    // Read who is turned off before the scan that reports it: an app disabled
+    // in a previous session must never spawn, not even for the instant between
+    // binding and the first rescan.
+    await this.settings.load();
+    const apps = await scanApps(this.appsRoot, this.settings.disabled);
     this.catalogApps = apps;
     this.sendCatalog();
+
+    // Before anything is typed. A user whose first contact with Ledge is a chat
+    // box that swallows a sentence and then says "could not start codex" has
+    // been told the same thing, later and worse.
+    this.sendBuilder("", 0, this.builder.agentStatus());
 
     for (const app of apps) {
       if (!app.enabled) continue;
@@ -225,7 +297,16 @@ export class Router implements SupervisorSink {
       case "lifecycle": {
         const phase = String(envelope.payload.phase ?? "") as LifecyclePhase;
         const screen = envelope.payload.screen as ScreenInfo | undefined;
-        this.supervisors.get(envelope.app)?.post({ type: "lifecycle", phase, screen });
+        // Reduce Motion rides the lifecycle envelope (spec §4.2). Forwarded only
+        // when the shell actually said something: a shell that predates the flag
+        // must not read as "motion is fine" on every phase change.
+        const reduceMotion = envelope.payload.reduceMotion;
+        this.supervisors.get(envelope.app)?.post({
+          type: "lifecycle",
+          phase,
+          screen,
+          ...(typeof reduceMotion === "boolean" ? { reduceMotion } : {}),
+        });
         break;
       }
       case "selection": {
@@ -238,11 +319,57 @@ export class Router implements SupervisorSink {
         this.presentedApp = typeof app === "string" ? app : null;
         break;
       }
+      case "appControl": {
+        // **The ledge's ✕, and Settings' switch** (flow.md, "The strip": "the
+        // only ✕ in the product lives here"; spec §4.3). A CONTROL-PLANE frame
+        // like `selection` and `builderInput`: the envelope's own `app` is `""`
+        // and the target is in the payload, because the shell is speaking
+        // *about* an app rather than for one.
+        //
+        // Both directions ride this one envelope because Settings is a native
+        // macOS window in the shell now (spec §8) rather than an app with a
+        // privileged `ctx.platform`. There is no worker left to call
+        // `enable`/`disable` from, so `start` is how an app that was switched
+        // off comes back, and the two actions have to be symmetric or the ✕
+        // would be a one-way door.
+        //
+        // Both land on `setAppEnabled` — the enable/disable path, not a stop of
+        // its own: the worker goes or comes, the app stays installed either way,
+        // and "is this app running" keeps having one answer in one place (the
+        // settings file).
+        const payload = envelope.payload as {
+          app?: string;
+          action?: string;
+          key?: unknown;
+          value?: unknown;
+        };
+        const app = String(payload.app ?? "");
+        const action = String(payload.action ?? "");
+        if (app === "") break;
+        // The third verb (spec §4): the user moved one of the app's own
+        // declared controls in the Settings window. Same envelope because it is
+        // the same kind of statement — the shell speaking *about* an app — and
+        // the same reason it is a control-plane frame: the app it concerns may
+        // not even be running.
+        if (action === "setting") {
+          this.applySetting(app, payload.key, payload.value);
+          break;
+        }
+        // Anything else is ignored rather than guessed at: a nameless target, or
+        // a verb this host does not know, is a shell speaking a dialect we have
+        // no safe reading of.
+        if (action !== "stop" && action !== "start") break;
+        this.hostLog(`[ledge-host] ${action} '${app}' <- the ledge`);
+        void this.setAppEnabled(app, action === "start").catch((error: unknown) => {
+          this.hostLog(`[ledge-host] ${action} '${app}' failed: ${String(error)}`);
+        });
+        break;
+      }
       case "resyncRequest": {
         const app = String(envelope.payload.app ?? "");
         if (app === "") {
           // Shell-level resync: re-send the catalog (spec §4.3).
-          void scanApps(this.appsRoot).then((apps) => {
+          void scanApps(this.appsRoot, this.settings.disabled).then((apps) => {
             this.catalogApps = apps;
             this.sendCatalog();
           });
@@ -321,10 +448,23 @@ export class Router implements SupervisorSink {
         });
         break;
       }
-      case "builderInput":
-        // No AI/builder integration in this phase (explicit): the chat is inert.
-        this.hostLog(`[ledge-host] builderInput for '${envelope.app}' ignored (chat inert this phase)`);
+      case "builderInput": {
+        // The user typed into an app's chat, or asked to stop (spec §4.3).
+        //
+        // A CONTROL-PLANE frame, like `selection` and `resyncRequest` above: the
+        // envelope's own `app` is `""` and the target is in the PAYLOAD. Reading
+        // `envelope.app` here (as this did) meant every message the user ever
+        // typed was addressed to the app named `""` — Codex was started in the
+        // apps root, and its events came back tagged with an app the editor was
+        // not showing, so the panel sat there doing nothing while a real turn
+        // ran somewhere else entirely. Nothing in the host could see it: both
+        // halves worked, they just disagreed about where the id lived.
+        const payload = envelope.payload as { app?: string; text?: string; cancel?: boolean };
+        // `""` is meaningful here, not missing: it is the [+] surface asking for
+        // an app that does not exist yet (spec §4.3, §8).
+        void this.builder.handleInput(String(payload.app ?? ""), payload);
         break;
+      }
       default:
         this.hostLog(`[ledge-host] unhandled envelope type ${envelope.type}`);
     }
@@ -332,6 +472,9 @@ export class Router implements SupervisorSink {
 
   /** Stop everything (host shutdown / tests): terminate workers, close watcher. */
   shutdown(): void {
+    // The app-server is a child of this process; leaving one behind would hold
+    // the user's Codex session open after Ledge is gone.
+    this.builder.shutdown();
     this.closeWatcher?.();
     this.closeWatcher = null;
     for (const supervisor of this.supervisors.values()) supervisor.stop();
@@ -367,6 +510,12 @@ export class Router implements SupervisorSink {
     this.hostLog(
       `[ledge-host] meta <- ${app} ${JSON.stringify({ name: meta.name, icon: meta.icon, panel: meta.panel })}`,
     );
+    // The worker's first settings delivery (spec §5) hangs off `meta` rather
+    // than off the spawn, because the declaration IS the meta: until this
+    // message arrives the host does not know which keys this app has, so a map
+    // sent any earlier could only be empty. `meta` is posted before the mount
+    // commit, so the values are on their way before the first render lands.
+    this.deliverSettings(app);
     this.sendCatalog();
   }
 
@@ -387,9 +536,50 @@ export class Router implements SupervisorSink {
     this.session?.send(app, "chrome", { request: "wing", wing });
   }
 
-  chrome(app: string, request: ChromeRequest): void {
-    this.hostLog(`[ledge-host] chrome <- ${app} ${request}`);
-    this.session?.send(app, "chrome", { request });
+  /**
+   * One `builder` event to the shell (spec §3.6). `turn` groups events into the
+   * exchange that produced them, so the editor can collapse a finished turn
+   * without the shell having to infer boundaries from the stream.
+   */
+  private sendBuilder(app: string, turn: number, event: BuilderEvent): void {
+    // Text deltas are the bulk of the stream and arrive token by token; logging
+    // each one would bury everything else in the host log.
+    if (event.event !== "text") {
+      this.hostLog(`[ledge-host] builder -> ${app} ${event.event}`);
+    }
+    // A CONTROL PLANE frame: `builder` lives in spec §3.6, whose envelopes carry
+    // `app: ""` and name the app inside the payload. Sending it as a per-app
+    // envelope instead type-checks on both sides and decodes on neither — the
+    // shell's `guard … else { return }` drops it, so the whole stream vanishes
+    // with no error anywhere. Found by decoding a real host frame in a Swift
+    // test rather than by reading either implementation.
+    this.session?.send("", "builder", { app, turn, ...event });
+  }
+
+  chrome(
+    app: string,
+    request: ChromeRequest,
+    ms?: number,
+    cls?: NotificationClass,
+  ): void {
+    // The shell gates this too, and deliberately: two locks on a door that
+    // opens onto a permission dialog. Refused here rather than forwarded so the
+    // reason lands in the host log, where an app author will look for it.
+    if (request === "permissions" && app !== SETTINGS_APP_ID) {
+      this.hostLog(`[ledge-host] chrome <- ${app} permissions REFUSED (Settings-only)`);
+      return;
+    }
+    this.hostLog(
+      `[ledge-host] chrome <- ${app} ${request}` +
+        `${ms === undefined ? "" : ` ${ms}ms`}${cls === undefined ? "" : ` ${cls}`}`,
+    );
+    // `ms` and `class` ride along only for `peek`; the shell reads what its verb
+    // names. `class` on the wire, `cls` in the worker message — see messages.ts.
+    this.session?.send(app, "chrome", {
+      request,
+      ...(ms === undefined ? {} : { ms }),
+      ...(cls === undefined ? {} : { class: cls }),
+    });
   }
 
   /**
@@ -470,7 +660,7 @@ export class Router implements SupervisorSink {
   /**
    * ctx.platform.* (spec §8, §6 extension).
    *
-   * Everything except the app-management four goes to the shell, for one
+   * Everything except the app-management calls goes to the shell, for one
    * reason repeated in six shapes: each of these is either a per-*process*
    * registration (the notification daemon, NSWorkspace, CoreAudio, the network
    * path monitor) or a TCC-gated framework whose consent prompt macOS attributes
@@ -478,11 +668,36 @@ export class Router implements SupervisorSink {
    * the process with the icon. Same reasoning as `ctx.apple`, and it is why the
    * host does not try to answer any of them itself.
    *
-   * The app-management four remain the Settings-only surface and are still
-   * unimplemented in this phase — answered locally rather than sent on, so the
-   * worker learns immediately instead of waiting out a deadline.
+   * The app-management calls go the other way and are answered HERE, by the
+   * host, for the mirror-image reason: enabling an app means starting a worker
+   * and re-publishing the catalog, and disabling one means killing a worker.
+   * Both are the host's own state; the shell has no part in either and could
+   * only forward the answer back. They are also refused for anyone but Settings
+   * — the ctx surface already hides them from ordinary apps (worker/ctx.ts), so
+   * this is the second lock on the same door rather than the only one.
    */
   platform(app: string, id: number, request: PlatformRequest): void {
+    // One gate for the whole Settings-only family, before the routing split:
+    // `quit` is executed by the shell and the other four by the host, but who
+    // may ask is the same question for all of them.
+    if (SETTINGS_ONLY_CALLS.has(request.kind) && app !== SETTINGS_APP_ID) {
+      this.supervisors.get(app)?.post({
+        type: "reply",
+        id,
+        ok: false,
+        error: `ctx.platform.${request.kind} is Settings-only`,
+      });
+      return;
+    }
+    switch (request.kind) {
+      case "enable":
+      case "disable":
+      case "stats":
+        this.appManagement(app, id, request);
+        return;
+      default:
+        break;
+    }
     const payload = platformWirePayload(id, request);
     if (payload) {
       this.sendBridge(app, id, "platform", "platform", payload, this.platformTimeout(request));
@@ -494,6 +709,133 @@ export class Router implements SupervisorSink {
       ok: false,
       error: "ctx.platform bridge is not implemented in this phase",
     });
+  }
+
+  /**
+   * The Settings-only half of `ctx.platform` (spec §8), answered host-side.
+   *
+   * `stats` hands back the same rows `catalog` carries, so the panel the user is
+   * looking at and the strip beneath it are two renderings of one snapshot — not
+   * two lists that agree until they don't.
+   */
+  private appManagement(
+    app: string,
+    id: number,
+    request: Extract<PlatformRequest, { kind: "enable" | "disable" | "stats" }>,
+  ): void {
+    const reply = (result: HostToWorker): void => {
+      // Re-fetch: the enable path awaits a worker spawn, and the app that asked
+      // may have been replaced in the meantime (spec §6 rule 3).
+      this.supervisors.get(app)?.post(result);
+    };
+    if (!this.supervisors.has(app)) return;
+    if (request.kind === "stats") {
+      reply({ type: "reply", id, ok: true, value: { apps: this.catalogSnapshot() } });
+      return;
+    }
+    const enabled = request.kind === "enable";
+    this.hostLog(`[ledge-host] ${request.kind} '${request.app}' <- settings`);
+    void this.setAppEnabled(request.app, enabled).then(
+      () => reply({ type: "reply", id, ok: true, value: undefined }),
+      // The message, not `String(error)`: the worker wraps whatever arrives in
+      // a fresh Error, so passing the stringified one through gives the app an
+      // "Error: Error: …" to print.
+      (error: unknown) =>
+        reply({
+          type: "reply",
+          id,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+    );
+  }
+
+  /**
+   * Turn an app on or off: persist it, then make the running system match.
+   *
+   * Persist FIRST, so a host that dies here comes back to what the user asked
+   * for rather than to what it managed to do. Then the worker, then the catalog:
+   * a disabled app's worker is gone before the shell is told it is gone, so the
+   * shell can never receive a commit for a row it has just dropped.
+   */
+  private async setAppEnabled(appId: string, enabled: boolean): Promise<void> {
+    const entry = this.catalogApps.find((candidate) => candidate.id === appId);
+    if (!entry) throw new Error(`no app named '${appId}' is installed`);
+    await this.settings.setEnabled(appId, enabled);
+    if (entry.enabled === enabled) return;
+    entry.enabled = enabled;
+
+    if (enabled) {
+      if (!this.supervisors.has(appId)) {
+        const supervisor = this.makeSupervisor(appId);
+        this.supervisors.set(appId, supervisor);
+        await supervisor.start();
+      }
+    } else {
+      const supervisor = this.supervisors.get(appId);
+      this.supervisors.delete(appId);
+      // `stop()` reports `stopped` (spec §3.2), which is what tells the shell to
+      // drop this app's shadow tree. The app's own `meta` is deliberately kept:
+      // a disabled row should still show the name and icon the app declared,
+      // and a stopped worker will never declare it again.
+      supervisor?.stop();
+    }
+
+    this.sendCatalog();
+    // The watcher only holds handles for enabled apps, so a re-enabled app has
+    // to be re-armed or it silently stops hot-reloading.
+    this.ensureWatcher(this.catalogApps.filter((candidate) => candidate.enabled).map((c) => c.id));
+  }
+
+  /**
+   * One control moved in the Settings window (spec §4).
+   *
+   * Validated against what the app DECLARES, and refused with a log line rather
+   * than an error frame: the shell renders from the catalog, so a key this host
+   * has never heard of means the two sides disagree about what is installed —
+   * and the fix for that is the snapshot the shell already gets, not a dialog.
+   * A number is clamped instead of refused (see `coerceSettingValue`).
+   *
+   * Store, deliver, then re-publish: the catalog goes last so the control the
+   * user is looking at confirms from what was actually written, not from what
+   * was asked for.
+   */
+  private applySetting(app: string, key: unknown, value: unknown): void {
+    const spec = this.appMeta.get(app)?.settings?.find((candidate) => candidate.key === key);
+    if (!spec) {
+      this.hostLog(`[ledge-host] setting ${JSON.stringify(key)} for '${app}' ignored (not declared)`);
+      return;
+    }
+    const accepted = coerceSettingValue(spec, value);
+    if (accepted === undefined) {
+      this.hostLog(
+        `[ledge-host] setting '${spec.key}' for '${app}' ignored (${JSON.stringify(value)} is not a ${spec.type})`,
+      );
+      return;
+    }
+    this.hostLog(`[ledge-host] setting '${spec.key}' = ${JSON.stringify(accepted)} for '${app}'`);
+    void this.settings.setValue(app, spec.key, accepted).then(
+      () => {
+        this.deliverSettings(app);
+        this.sendCatalog();
+      },
+      (error: unknown) =>
+        this.hostLog(`[ledge-host] setting '${spec.key}' for '${app}' failed: ${String(error)}`),
+    );
+  }
+
+  /** Post one app's effective settings to its worker (spec §5). Harmless for an
+   * app that declares none — the map is empty, and `ctx.settings` was empty
+   * anyway — which keeps this one call good for every app. */
+  private deliverSettings(app: string): void {
+    this.supervisors.get(app)?.post({ type: "settings", values: this.effectiveValues(app) });
+  }
+
+  /** Declared defaults with the stored values over them, for one app. Built
+   * from the declaration every time rather than cached: the declaration changes
+   * on every hot reload, and a cached map would outlive the keys it describes. */
+  private effectiveValues(app: string): Record<string, SettingValue> {
+    return effectiveSettings(this.appMeta.get(app)?.settings, this.settings.valuesFor(app));
   }
 
   lifecycle(app: string, state: AppState, error?: TranspileError): void {
@@ -525,6 +867,9 @@ export class Router implements SupervisorSink {
     switch (request.kind) {
       case "calendar":
       case "location":
+      // The microphone prompt blocks the start call until the user answers it,
+      // so this deadline is a person's reading speed, not the shell's.
+      case "recordStart":
         return this.platformGrantTimeoutMs;
       case "speak":
         return this.platformSpeakTimeoutMs;
@@ -537,6 +882,26 @@ export class Router implements SupervisorSink {
     return new AppSupervisor({
       appId,
       appDir: join(this.appsRoot, appId),
+      // The apps root, not the app folder: node resolution walks up from here to
+      // the shared node_modules, which is exactly the copy the app's own
+      // `import "react"` finds (render/runtime.ts).
+      modulesRoot: this.appsRoot,
+      // Resolved ONCE, on this thread, and handed down: a worker that resolves
+      // `react` itself walks node_modules through a process-global cache, and
+      // several workers doing that at once segfaults Bun (see ReactPaths).
+      // Lazy and cached, because a host with no apps installed should not fail
+      // to start over a react it never needed.
+      reactPaths: this.reactPathsOnce(),
+      // The one special case in the whole host (spec §8): the privileged id
+      // gets the app-management half of ctx.platform. Keyed on the folder name,
+      // which IS the app id (§2, §6) — there is nothing else to key it on. No
+      // shipped app claims it any more (see SETTINGS_APP_ID); this is what an
+      // app installed under that name would be granted.
+      privileged: appId === SETTINGS_APP_ID,
+      // Read at each spawn, not captured: the values a fresh worker boots with
+      // are the ones on disk now (spec §2). Raw — the worker owns the
+      // declaration and lays them over its own defaults.
+      storedSettings: () => this.settings.valuesFor(appId),
       sink: this,
       factory: this.factory,
       scheduler: this.scheduler,
@@ -617,14 +982,26 @@ export class Router implements SupervisorSink {
     this.session?.send(app, "chrome", { request: "wing", wing: null });
   }
 
-  /** Publish the full catalog snapshot (spec §3.6): the registry scan with each
-   * app's declared `meta` merged over it. Enabled apps are (about to be)
-   * running; reflect that in the snapshot. */
+  /** The full catalog snapshot (spec §3.6): the registry scan with each app's
+   * declared `meta` merged over it. Enabled apps are (about to be) running;
+   * reflect that in the snapshot. */
+  private catalogSnapshot(): CatalogApp[] {
+    return this.catalogApps.map((app) => {
+      const entry: CatalogApp = {
+        ...applyMeta(app, this.appMeta.get(app.id)),
+        running: app.enabled,
+      };
+      // `values` rides with `settings` and only with it: the shell has nothing
+      // to draw the values ON without the declaration, and an app that declares
+      // no controls carries neither field (spec §3).
+      if (entry.settings) entry.values = this.effectiveValues(app.id);
+      return entry;
+    });
+  }
+
+  /** Publish it. Full snapshots, no diffs — spec §3.6. */
   private sendCatalog(): void {
-    const catalog = this.catalogApps.map((app) => ({
-      ...applyMeta(app, this.appMeta.get(app.id)),
-      running: app.enabled,
-    }));
+    const catalog = this.catalogSnapshot();
     this.hostLog(`[ledge-host] catalog -> ${catalog.length} apps`);
     this.session?.send("", "catalog", { apps: catalog });
   }
@@ -636,13 +1013,101 @@ export class Router implements SupervisorSink {
       appsRoot: this.appsRoot,
       apps: appIds,
       onReload: (appId) => {
-        this.hostLog(`[ledge-host] app.jsx changed -> reloading '${appId}'`);
+        this.hostLog(`[ledge-host] source changed -> reloading '${appId}'`);
         this.reloadApp(appId);
+      },
+      onAppsChanged: () => {
+        void this.rescanApps();
       },
       onError: (appId, error) => this.hostLog(`[ledge-host] watch '${appId}' failed: ${String(error)}`),
     });
   }
+
+  /**
+   * Re-scan the apps root and reconcile: start workers for apps that appeared,
+   * stop workers for apps that are gone, re-publish the catalog if the set
+   * changed, and re-arm the watcher over the new id list.
+   *
+   * The registry used to be read exactly once, at `bindSession`, which made "the
+   * app you just created is invisible until you restart the host" a permanent
+   * fact of the system. That is survivable when apps are hand-written; it is not
+   * survivable when an agent scaffolds one and then wants to show you.
+   *
+   * Diffing rather than blindly re-publishing matters because the watcher fires
+   * on *any* root-level activity — including writes inside an app's own folder —
+   * so most calls here find nothing changed and must do nothing at all.
+   */
+  private async rescanApps(): Promise<void> {
+    if (!this.session) return;
+
+    let apps: CatalogApp[];
+    try {
+      apps = await scanApps(this.appsRoot, this.settings.disabled);
+    } catch (error) {
+      this.hostLog(`[ledge-host] rescan failed: ${String(error)}`);
+      return;
+    }
+
+    const before = new Set(this.catalogApps.map((app) => app.id));
+    const after = new Set(apps.map((app) => app.id));
+    const added = apps.filter((app) => !before.has(app.id));
+    const removed = [...before].filter((id) => !after.has(id));
+    if (added.length === 0 && removed.length === 0) return;
+
+    // The scan is the fallback identity (dirname + placeholder icon); a started
+    // worker replaces it via `meta`, exactly as at bind time. Merging the
+    // previous catalog's meta forward keeps existing apps from flickering back
+    // to their placeholder name for the moment between rescan and re-publish.
+    const previous = new Map(this.catalogApps.map((app) => [app.id, app]));
+    this.catalogApps = apps.map((app) => previous.get(app.id) ?? app);
+
+    for (const app of removed) {
+      this.hostLog(`[ledge-host] app '${app}' removed`);
+      const supervisor = this.supervisors.get(app);
+      this.supervisors.delete(app);
+      supervisor?.stop();
+    }
+
+    this.sendCatalog();
+
+    for (const app of added) {
+      if (!app.enabled) continue;
+      this.hostLog(`[ledge-host] app '${app.id}' appeared -> starting`);
+      const supervisor = this.makeSupervisor(app.id);
+      this.supervisors.set(app.id, supervisor);
+      await supervisor.start();
+    }
+
+    // Re-arm over the new id set: the previous watcher has no handle on a folder
+    // that did not exist when it was created.
+    this.ensureWatcher(this.catalogApps.filter((app) => app.enabled).map((app) => app.id));
+  }
 }
+
+/**
+ * The one app id the host boots privileged (spec §8), and the only one the
+ * management calls below will answer for.
+ *
+ * Nothing claims it today: Settings is a native macOS window in the shell, and
+ * the app that used to hold this id is kept, unloaded, in
+ * `protocol/demo-apps-archive/settings-app` as the worked example of the
+ * privileged surface. The gate stays anyway, because the alternative to a gate
+ * that currently matches nothing is app management reachable by *any* app, and
+ * an apps root is a folder a user can drop anything into.
+ */
+const SETTINGS_APP_ID = "settings";
+
+/** The calls only the privileged app may make (spec §8). Four are answered by
+ * the host because they are its own state; `quit` goes to the shell because
+ * only the shell can end the process — but "who may ask" is one question, so it
+ * is asked in one place. */
+const SETTINGS_ONLY_CALLS: ReadonlySet<PlatformRequest["kind"]> = new Set([
+  "enable",
+  "disable",
+  "reorder",
+  "stats",
+  "quit",
+]);
 
 /** Capability requests are identified by (app, id): worker request ids restart
  * at 1 in every worker, so two apps routinely have a request 1 in flight. */
@@ -651,8 +1116,10 @@ function bridgeKey(app: string, id: number): string {
 }
 
 /**
- * The `platform` envelope payload for one worker request, or null for the
- * Settings-only calls the shell has no business seeing.
+ * The `platform` envelope payload for one worker request, or null for the calls
+ * the shell has no business seeing — today just `reorder`, which is the last of
+ * the Settings-only four still unimplemented (the other three are answered on
+ * the host thread, above).
  *
  * `call` is the verb and `kind` is the *source* being watched — two axes, which
  * is why the worker's own discriminant (`request.kind`) is not what goes on the
@@ -678,7 +1145,21 @@ function platformWirePayload(
     case "workspace":
     case "location":
     case "audio":
+    // `quit` takes no fields — the verb is the whole request.
+    case "quit":
+    // Nor do three of the four recording calls: which session they mean is the
+    // shell's own state (there is only ever one), not something the app names.
+    case "recordStatus":
+    case "recordStop":
+    case "recordLevels":
       return { id, call: request.kind };
+    case "recordStart":
+      return {
+        id,
+        call: "recordStart",
+        ...(request.sources === undefined ? {} : { sources: request.sources }),
+        ...(request.format === undefined ? {} : { format: request.format }),
+      };
     case "spotlight":
       return {
         id,

@@ -1,5 +1,6 @@
 shell/.build/
 host/node_modules/
+editor/node_modules/
 .DS_Store
 
 # Demo-app runtime artifacts (spec §6): the apps root's installed dependencies
@@ -7,18 +8,51 @@ host/node_modules/
 # tracked), plus host-written crash logs / transpile caches.
 protocol/demo-apps/node_modules
 protocol/demo-apps/*/crash.log
+protocol/demo-apps/*/console.log
 protocol/demo-apps/*/.build/
 # App-owned persistence (spec §6): the live demo apps cache their last-known
 # state next to app.jsx. Data, not source — and the watcher ignores it.
 protocol/demo-apps/*/prices.json
 protocol/demo-apps/*/alarms.json
 protocol/demo-apps/*/*.tmp
-# music: album art pulled from the running player (art-<track hash>.jpg).
+# weather: the last forecast + IP fix, so a cold or offline launch still has a
+# sky. `fixture/open-meteo.json` beside it IS tracked — that one is a recorded
+# response the tests parse.
+protocol/demo-apps/weather/cache.json
+# nowplaying (and the archived music app): album art pulled from the running
+# player, named after the track so the shell re-decodes it (art-<hash>.jpg).
+protocol/demo-apps/nowplaying/art-*.jpg
 protocol/demo-apps/music/art-*.jpg
 # trader: the paper ledger (bun:sqlite, WAL).
 protocol/demo-apps/trader/ledger.sqlite*
 # cimedic: the user's own {owner, repo, workflow} — config.example.json IS tracked.
 protocol/demo-apps/cimedic/config.json
 
+# Ledge's own state, written beside whatever apps root the host was given
+# (`~/.ledge/settings.json` in a real install; here, when a dev runs the host
+# with `--apps-root protocol/demo-apps`). Which apps a developer turned off is
+# their business, not the repo's.
+protocol/settings.json
+protocol/settings.json.tmp
+
 # Default output of scripts/snapshot-demos.sh.
 .snapshots/
+
+# Build output: the compiled host (bun build --compile) and the assembled,
+# signed Ledge.app — both produced by scripts/bundle-app.sh.
+dist/
+host/dist/
+
+# The archive (protocol/demo-apps-archive) is reference, not an apps root — but
+# it still carries the runtime artifacts the apps left behind the last time they
+# ran. Same rules, same reasons.
+protocol/demo-apps-archive/*/crash.log
+protocol/demo-apps-archive/*/console.log
+protocol/demo-apps-archive/*/.build/
+protocol/demo-apps-archive/*/prices.json
+protocol/demo-apps-archive/*/alarms.json
+protocol/demo-apps-archive/*/*.tmp
+protocol/demo-apps-archive/music/art-*.jpg
+protocol/demo-apps-archive/trader/ledger.sqlite*
+protocol/demo-apps/timer/alarms.json
+protocol/demo-apps/scribe/recordings/

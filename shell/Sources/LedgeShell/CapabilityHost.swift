@@ -53,7 +53,14 @@ final class CapabilityHost: NSObject, CapabilityDelegate {
             location: SystemLocation(),
             spotlight: SystemSpotlight(),
             audio: SystemAudioDevice.shared,
-            speech: SystemSpeech()
+            speech: SystemSpeech(),
+            // Wired here rather than in `AppDelegate` because there is nothing
+            // to configure: the shell either can end itself or is a headless
+            // replay with no NSApp, and this file is the one that knows which.
+            quit: SystemQuit(),
+            // Like the others it acquires nothing eagerly: the mic and the
+            // system tap (and their TCC prompts) are touched only by a start.
+            recorder: SystemRecorder()
         )
         super.init()
         notifications.onAction = { [weak self] app, id, action in
@@ -118,8 +125,12 @@ final class CapabilityHost: NSObject, CapabilityDelegate {
     /// executor already runs everything off the main thread that has any reason
     /// to be, and settles on main, so there is nothing to hop here.
     func runPlatformCall(_ call: PlatformCall, app: String, completion: @escaping PlatformCompletion) {
-        platform.run(call, completion: completion)
+        platform.run(call, app: app, completion: completion)
     }
+
+    /// The app whose recording is live, for the global hotkey: ⌃⌥Space while
+    /// the tape rolls should land on the recorder, not on "whatever was last".
+    var recordingOwner: String? { platform.recordingOwner }
 
     /// Test/inspection accessor: which shared OS resources are currently held.
     var platformSourceKinds: Set<String> { observers.liveSourceKinds }

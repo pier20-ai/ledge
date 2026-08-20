@@ -8,10 +8,12 @@ import type { HostToWorker, WorkerToHost } from "../src/worker/messages";
 // the gap where the worker entry silently discarded lifecycle messages.
 
 const entryUrl = new URL("../src/worker/entry.ts", import.meta.url);
+// Workers resolve react from the host package (src/render/runtime.ts).
+const HOST_ROOT = new URL("..", import.meta.url).pathname;
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url).href;
 
 function bootWorker(modulePath: string) {
-  const worker = new Worker(entryUrl, { workerData: { modulePath } });
+  const worker = new Worker(entryUrl, { workerData: { modulePath, modulesRoot: HOST_ROOT } });
   const buffer: WorkerToHost[] = [];
   const waiters: ((msg: WorkerToHost) => void)[] = [];
   worker.on("message", (msg: WorkerToHost) => {
@@ -72,6 +74,54 @@ describe("onLifecycle", () => {
       { type: "crash" }
     >;
     expect(crash.message).toBe("bad phase handler");
+  }, 15000);
+
+  // Reduce Motion (spec §4.2, principle 10): it rides the lifecycle message
+  // rather than getting an envelope of its own, because it is the same kind of
+  // fact `phase` is — an instruction about how hard to work.
+  test("reduceMotion lands on ctx before onLifecycle is called", async () => {
+    const session = bootWorker(fixture("phased.jsx"));
+    open = session;
+    await session.until((m) => m.type === "commit"); // mount: "phase none"
+
+    const content = async (): Promise<unknown> => {
+      const commit = (await session.until((m) => m.type === "commit")) as Extract<
+        WorkerToHost,
+        { type: "commit" }
+      >;
+      return commit.mutations.find(
+        (m): m is Extract<Mutation, { op: "update" }> => m.op === "update",
+      )?.props.content;
+    };
+
+    session.send({ type: "lifecycle", phase: "expanded", reduceMotion: true });
+    // "still" is `ctx.reduceMotion` read *inside* the handler — so the flag was
+    // already applied when the app was told about the change, not after.
+    expect(await content()).toBe("phase expanded still");
+
+    session.send({ type: "lifecycle", phase: "collapsed", reduceMotion: false });
+    expect(await content()).toBe("phase collapsed");
+  }, 15000);
+
+  test("a lifecycle without the flag leaves ctx.reduceMotion alone", async () => {
+    const session = bootWorker(fixture("phased.jsx"));
+    open = session;
+    await session.until((m) => m.type === "commit");
+
+    session.send({ type: "lifecycle", phase: "expanded", reduceMotion: true });
+    await session.until((m) => m.type === "commit");
+    // A shell that predates the flag omits the key. Absent is "unchanged", not
+    // "motion is fine" — otherwise every phase change would silently re-enable
+    // animation for a user who asked for none.
+    session.send({ type: "lifecycle", phase: "visible" });
+    const commit = (await session.until((m) => m.type === "commit")) as Extract<
+      WorkerToHost,
+      { type: "commit" }
+    >;
+    const update = commit.mutations.find(
+      (m): m is Extract<Mutation, { op: "update" }> => m.op === "update",
+    );
+    expect(update?.props.content).toBe("phase visible still");
   }, 15000);
 
   test("apps without the export still ignore lifecycle quietly", async () => {

@@ -70,8 +70,10 @@ struct DesignSystemTests {
         #expect(!labeled.isIconOnly)
         #expect(labeled.labelFrame.width > 0)
         #expect(labeled.iconFrame == nil)                  // no icon on this one
-        // Icon-only glyphs are 14 pt medium; a labeled button's stay 11 semibold
-        // (D8/Q3) — the same symbol at two sizes depending on company.
+        // A chrome-tier icon-only glyph is 14 pt medium; a labeled button's stays
+        // 11 semibold (D8/Q3) — the same symbol at two sizes depending on
+        // company. (The app tier is a third size: see AppControlsTests.)
+        #expect(iconOnly.currentVariant == .accent)
         #expect(iconOnly.iconPointSize == LedgeMetrics.iconOnlyPointSize)
     }
 

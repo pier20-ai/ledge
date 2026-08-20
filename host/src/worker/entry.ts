@@ -15,8 +15,9 @@
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { createAppSession } from "../render/session";
 import type { MutationSink } from "../render/mutations";
+import { loadReactRuntime, type ReactRuntime } from "../render/runtime";
 import { createCtx } from "./ctx";
-import { sanitizeAppMeta } from "./meta";
+import { effectiveSettings, sanitizeAppMeta } from "./meta";
 import { runMonitorLoop, type MonitorClock } from "./monitor";
 import type {
   ConsoleLevel,
@@ -89,6 +90,16 @@ export async function runWorker(
 ): Promise<void> {
   captureConsole(io.post);
 
+  // Before the app module, so a missing/mis-seeded node_modules is reported as
+  // this app's crash rather than surfacing later as a null hooks dispatcher.
+  let runtime: ReactRuntime;
+  try {
+    runtime = await loadReactRuntime(boot.modulesRoot, boot.reactPaths);
+  } catch (error) {
+    io.post(toCrash("render", error));
+    return;
+  }
+
   let module: Record<string, unknown>;
   try {
     module = (await import(boot.modulePath)) as Record<string, unknown>;
@@ -103,7 +114,8 @@ export async function runWorker(
   // an app module). Posted before the mount commit so the catalog carries the
   // app's real name and icon by the time its panel can be shown; sanitized here
   // so a bogus `meta` costs nothing downstream.
-  io.post({ type: "meta", meta: sanitizeAppMeta(module.meta) });
+  const meta = sanitizeAppMeta(module.meta);
+  io.post({ type: "meta", meta });
 
   const App = module.default;
   if (typeof App !== "function") {
@@ -125,14 +137,14 @@ export async function runWorker(
 
   let session;
   try {
-    session = createAppSession(App as Parameters<typeof createAppSession>[0], sink);
+    session = createAppSession(App as Parameters<typeof createAppSession>[0], sink, runtime);
   } catch (error) {
     // Initial render threw — the tree never mounted (spec §7).
     io.post(toCrash("render", error));
     return;
   }
 
-  const { ctx, settle } = createCtx(
+  const { ctx, setReduceMotion, setSettings, settle } = createCtx(
     {
       post: io.post,
       update: (patch) => session.update(patch),
@@ -140,31 +152,62 @@ export async function runWorker(
     { privileged: boot.privileged },
   );
 
+  /** The app-level event door (see HostToWorker): node ids start at 1, so id 0
+   * addresses the app itself. An app without the export ignores these quietly —
+   * the same contract `onLifecycle` has. A handler may setState → synchronous
+   * re-render → commit, so a throw here is a render crash (spec §7). */
+  const dispatchAppEvent = (name: string, data: unknown): void => {
+    if (typeof onEvent !== "function") return;
+    try {
+      (onEvent as (name: string, data: unknown, ctx: unknown) => void)(name, data, ctx);
+    } catch (error) {
+      io.post(toCrash("render", error));
+    }
+  };
+
+  // `ctx.settings` before the app runs a single line of its own (spec §5).
+  // The declaration is only readable here — it is inside the module — and the
+  // stored values only on the host, so the effective map is computed at the one
+  // point that has both, with the same function the host uses for the catalog.
+  // Without this a monitor that reads a setting on its first pass would see an
+  // empty map: the host's `settings` message is a message, and the first pass
+  // runs before the queue is drained.
+  setSettings(effectiveSettings(meta.settings, boot.settings));
+
+  // Settings arrive before the app has ever seen them, so the FIRST delivery is
+  // a seeding of `ctx.settings` and not an event: an app must not be told its
+  // settings "changed" at boot, when nothing changed and it has not yet read
+  // one. Every delivery after that is a real change (spec §5).
+  let settingsSeeded = false;
+
   io.onMessage((msg) => {
     switch (msg.type) {
       case "event":
-        // A handler may setState → synchronous re-render → commit; a throw
-        // there is a render crash (spec §7).
-        try {
-          if (msg.id === 0) {
-            // App-level (see HostToWorker): node ids start at 1, so 0 addresses
-            // the app itself. An app without the export ignores these quietly —
-            // the same contract `onLifecycle` has.
-            if (typeof onEvent === "function") {
-              (onEvent as (name: string, data: unknown, ctx: unknown) => void)(
-                msg.name,
-                msg.data,
-                ctx,
-              );
-            }
-          } else {
+        if (msg.id === 0) {
+          dispatchAppEvent(msg.name, msg.data);
+        } else {
+          try {
             session.dispatchEvent(msg.id, msg.name, msg.data);
+          } catch (error) {
+            io.post(toCrash("render", error));
           }
-        } catch (error) {
-          io.post(toCrash("render", error));
         }
         break;
+      case "settings": {
+        // `ctx.settings` first, then the event — an `onEvent` that reads
+        // `ctx.settings` has to see the values it is being told about, which is
+        // `setReduceMotion`'s rule verbatim.
+        setSettings(msg.values);
+        const seeding = !settingsSeeded;
+        settingsSeeded = true;
+        if (!seeding) dispatchAppEvent("settings", msg.values);
+        break;
+      }
       case "lifecycle":
+        // Reduce Motion first (spec §4.2): it rides the same envelope as the
+        // phase, and an `onLifecycle` that reacts to it has to see the new value
+        // rather than the one it is being told about.
+        if (typeof msg.reduceMotion === "boolean") setReduceMotion(msg.reduceMotion);
         // The monitor runs regardless (spec §4.2); apps that care about panel
         // phase handle it in their optional onLifecycle export.
         if (typeof onLifecycle === "function") {

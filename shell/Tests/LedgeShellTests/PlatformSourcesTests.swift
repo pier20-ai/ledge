@@ -112,6 +112,57 @@ final class StubAudioDevice: AudioControlling {
     func setVolume(_ value: Double) -> Result<Void, CapabilityError> { .success(()) }
 }
 
+@MainActor
+final class FakeFocusReader: FocusReading {
+    /// nil = the database could not be read (no Full Disk Access, or a format
+    /// the shell no longer recognizes).
+    var state: [String: JSONValue]? = ["active": .bool(false)]
+    func snapshot() -> [String: JSONValue]? { state }
+}
+
+@MainActor
+final class FakeFocusWatcher: FocusWatching {
+    private(set) var started = 0
+    private(set) var stopped = 0
+    private var changed: (@MainActor () -> Void)?
+
+    func start(changed: @escaping @MainActor () -> Void) {
+        started += 1
+        self.changed = changed
+    }
+
+    func stop() {
+        stopped += 1
+        changed = nil
+    }
+
+    func fire() { changed?() }
+}
+
+/// A throwaway Focus database on disk — the real reader against real files, in
+/// a directory the test owns rather than the one belonging to whoever is running
+/// the suite (which is TCC-protected and would make this untestable).
+enum FocusDatabase {
+    static func make() throws -> URL {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ledge-focus-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    static func write(_ contents: String, to file: String, in directory: URL) throws {
+        try contents.write(
+            to: directory.appendingPathComponent(file),
+            atomically: true,
+            encoding: .utf8
+        )
+    }
+
+    static func writeAssertions(_ contents: String, in directory: URL) throws {
+        try write(contents, to: "Assertions.json", in: directory)
+    }
+}
+
 // MARK: - Tests
 
 /// The shipping observe sources: the translation each one performs between an OS
@@ -334,6 +385,96 @@ struct PlatformSourcesTests {
         watcher.fire("device")
         #expect(fired == 0)
         #expect(source.snapshot(for: PlatformSignalName.changed) == nil)
+    }
+
+    // MARK: focus
+
+    @Test("Focus fires the current state on observe, and again only when it changes")
+    func focusDedupes() throws {
+        let reader = FakeFocusReader()
+        let watcher = FakeFocusWatcher()
+        let source = FocusSource(reader: reader, watcher: watcher)
+        var fired: [[String: JSONValue]] = []
+
+        // The order the registry uses: start the shared resource, then deliver
+        // the immediate state to the app that just registered.
+        source.start { _, payload in fired.append(payload) }
+        let immediate = try #require(source.snapshot(for: PlatformSignalName.changed))
+        #expect(immediate["active"]?.asBool == false)
+
+        // The database is rewritten for more than mode changes; an identical
+        // state must not wake every observing app — including one identical to
+        // the immediate fire it has already been given.
+        watcher.fire()
+        #expect(fired.isEmpty)
+
+        reader.state = ["active": .bool(true), "modeName": .string("Work")]
+        watcher.fire()
+        watcher.fire()
+        #expect(fired.count == 1)
+        #expect(fired.last?["modeName"]?.asString == "Work")
+
+        source.stop()
+        #expect(watcher.stopped == 1)
+    }
+
+    @Test("A Focus database it cannot read is silent, never a confident `active: false`")
+    func focusUnreadableIsQuiet() {
+        let reader = FakeFocusReader()
+        reader.state = nil                 // no Full Disk Access, or a new format
+        let watcher = FakeFocusWatcher()
+        let source = FocusSource(reader: reader, watcher: watcher)
+        var fired = 0
+        source.start { _, _ in fired += 1 }
+        watcher.fire()
+        #expect(fired == 0)
+        #expect(source.snapshot(for: PlatformSignalName.changed) == nil)
+    }
+
+    @Test("The reader finds the state wherever the undocumented file nests it")
+    func focusReaderParsesTheDatabase() throws {
+        let directory = try FocusDatabase.make()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let reader = SystemFocusReader(directory: directory)
+
+        // No assertions recorded: Focus is off, and we know it.
+        try FocusDatabase.writeAssertions(#"{ "data": [ { "storeAssertionRecords": [] } ] }"#, in: directory)
+        #expect(reader.snapshot()?["active"]?.asBool == false)
+
+        // On, with a mode the configuration file names.
+        try FocusDatabase.writeAssertions(#"""
+        { "data": [ { "storeAssertionRecords": [
+          { "assertionDetails": {
+              "assertionDetailsModeIdentifier": "com.apple.focus.work" } } ] } ] }
+        """#, in: directory)
+        try FocusDatabase.write(#"""
+        { "data": [ { "modeConfigurations": {
+            "com.apple.focus.work": { "mode": { "name": "Deep Work" } } } } ] }
+        """#, to: "ModeConfigurations.json", in: directory)
+        var snapshot = try #require(reader.snapshot())
+        #expect(snapshot["active"]?.asBool == true)
+        #expect(snapshot["modeName"]?.asString == "Deep Work")
+
+        // A mode nothing describes still gets a name: the identifier's last
+        // component, which is at least stable and greppable.
+        try FocusDatabase.write("{}", to: "ModeConfigurations.json", in: directory)
+        snapshot = try #require(reader.snapshot())
+        #expect(snapshot["modeName"]?.asString == "work")
+
+        // The format shifting under a macOS update: still valid JSON, but the
+        // records are gone. Nothing is asserted, and that is what we report —
+        // the *unreadable* case below is the one that has to stay silent.
+        try FocusDatabase.writeAssertions(#"{ "somethingElse": true }"#, in: directory)
+        #expect(reader.snapshot()?["active"]?.asBool == false)
+
+        // Not JSON at all (or a read the system refused): we do not know.
+        try FocusDatabase.writeAssertions("<plist>not json</plist>", in: directory)
+        #expect(reader.snapshot() == nil)
+
+        // No database directory: this Mac has never used Focus, or the read was
+        // refused outright. Either way, saying nothing beats inventing a state.
+        try FileManager.default.removeItem(at: directory)
+        #expect(reader.snapshot() == nil)
     }
 
     // MARK: the probes that really do run headlessly

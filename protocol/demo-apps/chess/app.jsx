@@ -1,28 +1,48 @@
 /** @jsxImportSource react */
-// Chess — the "big panel + background compute" demo (docs/design/app-ideas.md,
-// wave 1). It is the app that motivated `meta.panel` (protocol/README.md): a
-// board plus a move list does not fit in 440 pt, so this app *asks* for 520 and
-// the shell decides.
+// Chess — the board, and nothing else.
 //
-// The board is ONE `canvas` and a §3.4 op list; everything beside it (status,
-// move list, buttons) is ordinary §5 vocabulary. That split is the point: a
-// chessboard is 64 squares, up to 32 pieces and 16 edge labels, which as a
-// component tree is ~200 nodes reconciled on every move, and as a draw frame is
-// ~120 ops the shell blits in one pass. Pieces are `image` ops naming files in
-// this app's own `assets/` folder off `import.meta.dir` (protocol/README.md
-// §3.4); the squares and the selection/legal/last-move tints are `rect` ops, so
-// this file — not the shell — owns the board's palette. That is the one place a
-// Ledge app is allowed raw colours: draw ops are pixels, not components.
+// SIGNATURE: the well. A chessboard is the one thing in this folder worth most
+// of a panel, so the panel *is* the board at 52 pt a square, plus one quiet
+// line and two bare glyphs. §09's law says a big panel is legal for a true
+// well, and this is what that sentence is about.
 //
-// A click on the canvas arrives as canvas-local `{x, y}` in the same y-down
-// space the ops are written in, so a square is two divisions and no conversion.
+// Laws: 1 (ghosts and a hairline slab; nothing filled) · 2 (the shell names the
+// app and owns the chrome — this app has a well, a line and two controls) ·
+// 3 (ink at rest; the board's own palette is *content*, and red/green appear
+// only for check and mate) · 4 (the line is never more than four words) ·
+// 5 (the STATUS card, the MOVES card and the "you (white) vs stockfish"
+// caption are gone — a position is a board, not a box about a board) ·
+// 11 (the sprites are grandfathered: flat-vector content, never chrome) ·
+// 12 (the board is the whole of this app's identity).
 //
-// Legality is chess.js; the opponent is Stockfish when it can be run and a small
-// built-in search when it cannot. Both are ordinary async work in the worker:
-// the click handler makes the human move, publishes, and *kicks off* the engine
-// without awaiting it, so the panel is never blocked on a search.
+// Diet, against protocol/demo-apps-archive/chess:
+//   CUT   the left wing (engine name + a thinking dot) · the STATUS card
+//         (label, status line, opponent caption) · the MOVES card (seven
+//         numbered pairs behind a "MOVES" label) · two labelled glass/plain
+//         buttons · the 640 pt two-column layout that existed to hold them.
+//   KEPT  the board well and its slab, the sprites, the overlay tints,
+//         chess.js legality, the Stockfish subprocess and the built-in
+//         fallback — all verbatim. The engines were never the problem.
+//   NEW   one line under the well ("e4 · your move", s / ink-2) and a
+//         `<summary>`, which is where the *evaluation* now lives: the one
+//         reading a board cannot give you by being a board.
 //
-//   THE STOCKFISH SITUATION (measured, not assumed):
+// Surfaces:
+//   SUMMARY  the position in lingo, plus Stockfish's score — "your move · +0.8",
+//            "mate in 2", "thinking…". Declaring it makes the session heavy: a
+//            rested pointer reads the position instead of opening a game.
+//   WING     none. A game is not a live activity; it is where you go.
+//   MINI     none. Chess never interrupts — it is your move whenever you look.
+//   REDUCE MOTION  nothing to switch off. A position is one full draw frame and
+//            there has never been a piece-slide animation here, so
+//            `ctx.reduceMotion` is deliberately unread. Adding a slide in order
+//            to have something to suppress would be the wrong order of work.
+//   SF SYMBOLS  every `sf:` glyph updates in place — a `<button icon>` through
+//            `button.apply(symbol:)`, and (since G3) an `<image src="sf:…">`
+//            through `LedgeSymbolView.apply(symbol:)`. No React `key` needed
+//            anywhere for a glyph swap. This app renders no `<image>` at all.
+//
+//   THE STOCKFISH SITUATION (measured, not assumed — carried over intact):
 //   the `stockfish` 18.0.8 package is an Emscripten bundle whose environment
 //   sniffing is `typeof self !== "undefined" && self.location.hash…`. Bun
 //   defines `self` but not `self.location`, so `require("stockfish")` throws
@@ -38,18 +58,20 @@
 //   after spawn for a 700 ms search (lite-single build, warm cache), i.e. boot is
 //   ~145 ms, which is cheaper than the orphaned engine a long-lived process
 //   would leave behind on every hot reload. If `node` is missing, or the engine
-//   does not answer, the app falls back to a
-//   built-in 2-ply material/mobility search and says so in the panel — the
-//   status line always names the opponent you are actually playing.
+//   does not answer, the app falls back to a built-in 2-ply material search —
+//   silently, because the panel no longer has room to name an opponent, and
+//   because the fallback's tell is honest enough on its own: no engine means no
+//   score, so the summary simply reads "your move" with nothing after it.
 
 import { Chess } from "chess.js";
 
 export const meta = {
   name: "Chess",
   icon: "sf:crown",
-  // A real board wants ~450 pt, and a move list wants its own column beside it.
-  // `panel` is a *request* — the shell clamps it to the screen (§5 extension).
-  panel: { width: 640, maxHeight: 620 },
+  // The board decides the width: 448 pt of canvas + the slab's 3 pt inset each
+  // side + the root's 14 pt padding. `panel` is a *request* — the shell clamps
+  // it to the screen — and a well this size is exactly what the clamp is for.
+  panel: { width: 482, maxHeight: 600 },
 };
 
 // ---------------------------------------------------------------------------
@@ -59,10 +81,11 @@ export const meta = {
 const FILES = ["a", "b", "c", "d", "e", "f", "g", "h"];
 const RANKS = ["8", "7", "6", "5", "4", "3", "2", "1"];
 
-/** Absolute, because that is what an `image` op takes (protocol/README.md): a
- * relative path would resolve against the shell's working directory. Built once
- * per (colour, type) at import — a draw frame should allocate ops, not strings,
- * and the shell's decode cache is keyed on exactly these twelve paths. */
+/** Absolute, because that is what an `image` op takes (REFERENCE.md, "Canvas
+ * and games"): a relative path would resolve against the shell's working
+ * directory. Built once per (colour, type) at import — a draw frame should
+ * allocate ops, not strings, and the shell's decode cache is keyed on exactly
+ * these twelve paths. */
 const PIECE_SRC = Object.fromEntries(
   ["w", "b"].flatMap((colour) =>
     ["K", "Q", "R", "B", "N", "P"].map((type) => [
@@ -73,11 +96,14 @@ const PIECE_SRC = Object.fromEntries(
 );
 
 const SQ = 52;
-const BOARD_X = 22; // the rank-label gutter
-const BOARD_Y = 6;
 const BOARD = SQ * 8; // 416
-const CANVAS_W = BOARD_X + BOARD + 8; // 446
-const CANVAS_H = BOARD_Y + BOARD + 20; // 442 — the file labels live in the last 20
+// The coordinate gutter is symmetric now that the board is not sharing the
+// panel with a column: an off-centre well reads as a mistake once it is the
+// only thing on the glass.
+const BOARD_X = 16;
+const BOARD_Y = 6;
+const CANVAS_W = BOARD_X + BOARD + BOARD_X; // 448
+const CANVAS_H = BOARD_Y + BOARD + 18; // 440 — the file labels live in the last 18
 
 /** The art is ~410 × 537 with a flat base on the bottom edge, so a piece is
  * drawn bottom-aligned inside its square at the sprites' own aspect ratio —
@@ -90,7 +116,8 @@ const PIECE_W = Math.round(PIECE_H * 0.765);
 // squares only have to avoid the two *fills*: ivory sits at ~#F8E8C8 and
 // charcoal at ~#384048. A mid slate pair clears both by a wide margin in value
 // and sits cool against the warm ivory, while staying well below the panel's
-// own glass in brightness.
+// own glass in brightness. Law 15 does not reach here: draw ops are pixels, and
+// a palette token in an op silently draws white (REFERENCE.md).
 const LIGHT_SQUARE = "#A2A9B4";
 const DARK_SQUARE = "#5E6878";
 
@@ -113,16 +140,21 @@ const THINK_MS = 700;
 // Engine A: Stockfish as a UCI subprocess
 // ---------------------------------------------------------------------------
 
-/** Resolve the engine bundle out of the shared apps-root node_modules (spec §6)
- * without needing the package's postinstall symlink, which Bun's trust policy
- * blocks: `stockfish.js` is never created, but the versioned builds always ship.
- * `lite-single` is the single-threaded build — no SharedArrayBuffer, no nested
- * workers, which is the only shape that survives being someone else's child. */
+/** Resolve the engine bundle out of the shared apps-root node_modules
+ * (REFERENCE.md, "Dependencies") without needing the package's postinstall
+ * symlink, which Bun's trust policy blocks: `stockfish.js` is never created, but
+ * the versioned builds always ship. `lite-single` is the single-threaded build —
+ * no SharedArrayBuffer, no nested workers, which is the only shape that survives
+ * being someone else's child, and the only one scripts/bundle-app.sh keeps. */
 function engineBundlePath() {
   const index = Bun.resolveSync("stockfish", import.meta.dir);
   const dir = index.slice(0, index.lastIndexOf("/"));
   return `${dir}/bin/stockfish-18-lite-single.js`;
 }
+
+/** `info depth 14 … score cp -34 …` / `… score mate 3 …`, from the point of view
+ * of whoever is to move at the search root — which here is always the engine. */
+const SCORE_LINE = /\bscore (cp|mate) (-?\d+)\b/;
 
 const Stockfish = {
   /** null = not probed yet, true/false = whether this machine can run it. */
@@ -138,8 +170,13 @@ const Stockfish = {
    * leave a ~100 MB `node` behind until the whole host exits. Boot costs ~145 ms
    * warm, which is small enough that per-move spawning is simply better: the
    * worst orphan is one in-flight search.
+   *
+   * `onLine` sees every complete line, which is how the evaluation gets out
+   * without a second search. The buffer is drained line by line rather than
+   * re-split per chunk (the archive re-scanned the whole transcript on every
+   * read, and would have handed `onLine` the same `info` line a hundred times).
    */
-  async run(commands, done, timeoutMs) {
+  async run(commands, done, timeoutMs, onLine) {
     const node = Bun.which("node");
     if (!node) return null;
     let bundle;
@@ -160,8 +197,14 @@ const Stockfish = {
       let buffered = "";
       for await (const chunk of proc.stdout) {
         buffered += decoder.decode(chunk);
-        const hit = buffered.split("\n").find((line) => done(line.trim()));
-        if (hit) return hit.trim();
+        let newline = buffered.indexOf("\n");
+        while (newline >= 0) {
+          const line = buffered.slice(0, newline).trim();
+          buffered = buffered.slice(newline + 1);
+          onLine?.(line);
+          if (done(line)) return line;
+          newline = buffered.indexOf("\n");
+        }
         if (Date.now() > deadline) break;
       }
       return null;
@@ -177,8 +220,8 @@ const Stockfish = {
     }
   },
 
-  /** Cheap one-shot handshake, memoized, so the panel can name the opponent
-   * before the first move rather than after it. */
+  /** Cheap one-shot handshake, memoized, so the app knows which opponent
+   * answered before the first move rather than after it. */
   ensure() {
     if (this.available !== null) return Promise.resolve(this.available);
     if (!this.probing) {
@@ -191,9 +234,12 @@ const Stockfish = {
     return this.probing;
   },
 
-  /** UCI long-algebraic best move for `fen`, or null to fall back. */
+  /** `{ uci, score }` for `fen`, or null to fall back. `score` is the deepest
+   * `info` line of the same search — free, and the only thing the summary can
+   * say that the board is not already saying. */
   async bestMove(fen, movetime) {
     if (!(await this.ensure())) return null;
+    let score = null;
     const line = await this.run(
       [
         "uci",
@@ -204,10 +250,14 @@ const Stockfish = {
       ],
       (l) => l.startsWith("bestmove"),
       movetime + 10000,
+      (l) => {
+        const hit = SCORE_LINE.exec(l);
+        if (hit) score = { kind: hit[1], value: Number(hit[2]) };
+      },
     );
     if (!line) return null;
-    const move = line.split(/\s+/)[1];
-    return move && move !== "(none)" ? move : null;
+    const uci = line.split(/\s+/)[1];
+    return uci && uci !== "(none)" ? { uci, score } : null;
   },
 };
 
@@ -279,13 +329,15 @@ let selected = null;
 let targets = [];
 let lastMove = null;
 let thinking = false;
-let opponent = "…"; // until the probe says which engine answered
-/** Panel phase (§4.2). A collapsed panel is not worth a frame; expanding is,
- * because the shell keeps the last buffer and a resync would leave it blank. */
+/** The last search's score, in the engine's own terms; null when unknown —
+ * before the first reply, during a search, and forever with the fallback. */
+let evaluation = null;
+/** Panel phase. A collapsed panel is not worth a frame; expanding is, because
+ * the shell keeps the last buffer and a resync would leave it blank. */
 let expanded = false;
 
 // ---------------------------------------------------------------------------
-// The board, as one draw frame (spec §3.4)
+// The board, as one draw frame
 // ---------------------------------------------------------------------------
 
 /** Which overlay a square wears, if any — the same priority the `fill` tokens
@@ -351,13 +403,14 @@ function drawBoard() {
   }
 
   // Files along the bottom, ranks down the left gutter. `text` draws from its
-  // top-left in the same y-down space as everything else here.
+  // top-left in the same y-down space as everything else here. These are board
+  // coordinates, not labels about the board — the same ink the squares are.
   for (let file = 0; file < 8; file += 1) {
     ops.push({
       op: "text",
       content: FILES[file],
       x: BOARD_X + file * SQ + SQ / 2 - 3,
-      y: BOARD_Y + BOARD + 4,
+      y: BOARD_Y + BOARD + 3,
       size: 10,
       color: LABEL_COLOR,
     });
@@ -366,7 +419,7 @@ function drawBoard() {
     ops.push({
       op: "text",
       content: RANKS[rank],
-      x: 8,
+      x: 5,
       y: BOARD_Y + rank * SQ + SQ / 2 - 7,
       size: 10,
       color: LABEL_COLOR,
@@ -389,56 +442,60 @@ function onBoardClick(data) {
   if (square) onSquare(square);
 }
 
-/** Move list as White/Black pairs, newest last. */
-function movePairs() {
-  const history = game.history();
-  const pairs = [];
-  for (let i = 0; i < history.length; i += 2) {
-    pairs.push({
-      no: i / 2 + 1,
-      white: history[i] ?? "",
-      black: history[i + 1] ?? "",
-    });
+// ---------------------------------------------------------------------------
+// The two strings this app is allowed
+// ---------------------------------------------------------------------------
+
+/** The position in lingo, and the one hue that has a job here. Four words is
+ * the ceiling (law 4); "you (white) vs stockfish" was six and said nothing the
+ * board did not. */
+function positionState() {
+  if (game.isCheckmate()) {
+    return game.turn() === HUMAN
+      ? { text: "checkmate · you lost", color: "red" }
+      : { text: "checkmate · you win", color: "green" };
   }
-  return pairs.slice(-7);
+  if (game.isStalemate()) return { text: "stalemate", color: "secondary" };
+  if (game.isDraw()) return { text: "draw", color: "secondary" };
+  if (thinking) return { text: "thinking…", color: "secondary" };
+  if (game.isCheck()) return { text: "check", color: "red" };
+  return game.turn() === HUMAN
+    ? { text: "your move", color: "secondary" }
+    : { text: "black to move", color: "secondary" };
 }
 
-function statusLine() {
-  if (game.isCheckmate()) {
-    return {
-      text: game.turn() === HUMAN ? "Checkmate — you lost" : "Checkmate — you win",
-      color: game.turn() === HUMAN ? "red" : "green",
-    };
+/** Stockfish's score, said the way a player says it: from White's side, because
+ * White is you. UCI reports from the root side to move, which is always Black
+ * here, so the sign flips. Null with the fallback engine, which has no score
+ * worth publishing. */
+function evaluationText() {
+  if (!evaluation || thinking || game.isGameOver()) return null;
+  if (evaluation.kind === "mate") {
+    const moves = Math.abs(evaluation.value);
+    return moves === 0 ? null : `mate in ${moves}`;
   }
-  if (game.isStalemate()) return { text: "Stalemate — draw", color: "secondary" };
-  if (game.isDraw()) return { text: "Draw", color: "secondary" };
-  if (thinking) return { text: "Thinking…", color: "accent" };
-  if (game.isCheck()) {
-    return game.turn() === HUMAN
-      ? { text: "Check — your move", color: "red" }
-      : { text: "Check", color: "red" };
-  }
-  return game.turn() === HUMAN
-    ? { text: "Your move", color: "primary" }
-    : { text: "Black to move", color: "secondary" };
+  const pawns = -evaluation.value / 100;
+  return `${pawns >= 0 ? "+" : "-"}${Math.abs(pawns).toFixed(1)}`;
 }
 
 function snapshot() {
-  const status = statusLine();
+  const state = positionState();
+  const history = game.history();
+  const played = history[history.length - 1] ?? null;
+  const score = evaluationText();
   return {
-    pairs: movePairs(),
-    status: status.text,
-    statusColor: status.color,
-    thinking,
-    opponent,
-    turn: game.turn(),
-    over: game.isGameOver(),
+    // Under the well: what just happened, and whose move it is.
+    line: played ? `${played} · ${state.text}` : state.text,
+    // On the hover: where you stand, which is the reading the board withholds.
+    glance: score ? `${state.text} · ${score}` : state.text,
+    tone: state.color,
+    canUndo: history.length >= 2 && !thinking,
   };
 }
 
 /**
- * The board is pixels and the column beside it is a tree, so a position change
- * is one draw frame plus one commit. Everything that used to call `publish()`
+ * The board is pixels and the line beside it is a tree, so a position change is
+ * one draw frame plus one commit. Everything that used to call `publish()`
  * calls this instead — there is no state the two halves can disagree about,
  * because both read the same `game`.
  */
@@ -447,9 +504,9 @@ function publish() {
   drawBoard();
 }
 
-/** Panel phase (spec §4.2). Nothing needs painting while collapsed; on the way
- * back the board is repainted once so the panel never opens onto a blank slab
- * after a resync. */
+/** Panel phase. Nothing needs painting while collapsed; on the way back the
+ * board is repainted once so the panel never opens onto a blank slab after a
+ * resync. There is no motion here to reduce, so nothing else rides this. */
 export function onLifecycle(phase) {
   const next = phase === "expanded";
   if (next === expanded) return;
@@ -464,14 +521,16 @@ export function onLifecycle(phase) {
 async function engineTurn() {
   if (game.isGameOver() || game.turn() !== ENGINE_SIDE || thinking) return;
   thinking = true;
+  evaluation = null; // a stale score under "thinking…" is a lie
   publish();
   try {
     const fen = game.fen();
-    let uci = await Stockfish.bestMove(fen, THINK_MS);
-    if (uci) {
-      opponent = "stockfish";
+    const best = await Stockfish.bestMove(fen, THINK_MS);
+    let uci = best?.uci ?? null;
+    if (best) {
+      evaluation = best.score;
     } else {
-      opponent = "built-in";
+      evaluation = null;
       uci = builtInMove(fen);
     }
     if (uci && game.turn() === ENGINE_SIDE) {
@@ -514,22 +573,30 @@ function onSquare(square) {
   publish();
 }
 
+/** ↺ — the first of the two ghosts. */
 function newGame() {
   game.reset();
   selected = null;
   targets = [];
   lastMove = null;
   thinking = false;
+  evaluation = null;
   publish();
 }
 
+/** ↩ — the second. Flip was the other candidate and lost: you are always White
+ * and the board is always drawn White-at-the-bottom, so flipping is a taste
+ * with no job, while taking back a blunder is the recurring thing a casual
+ * game against a club-strength engine actually needs. Two controls, law 2, and
+ * this is the one that earns the slot. */
 function undo() {
-  if (thinking) return;
+  if (thinking || game.history().length < 2) return;
   game.undo(); // the engine's reply
   game.undo(); // and your move
   selected = null;
   targets = [];
   lastMove = null;
+  evaluation = null;
   publish();
 }
 
@@ -540,107 +607,59 @@ function undo() {
 export async function monitor(ctx) {
   bridge = ctx;
   publish();
-  opponent = (await Stockfish.ensure()) ? "stockfish" : "built-in";
-  publish();
+  await Stockfish.ensure();
   // No polling to do: a chess game advances on clicks, and the engine's reply is
-  // kicked off by the click that provoked it.
+  // kicked off by the click that provoked it. Parking keeps the monitor's 1 s
+  // floor (REFERENCE.md) out of a loop that has nothing to poll.
   await new Promise(() => {});
 }
 
 // ---------------------------------------------------------------------------
-// View
+// View — a well, a line, two glyphs
 // ---------------------------------------------------------------------------
 
 const INITIAL = snapshot();
 
 export default function ChessApp({
-  pairs = INITIAL.pairs,
-  status = INITIAL.status,
-  statusColor = INITIAL.statusColor,
-  thinking: busy = false,
-  opponent: engine = "…",
-  over = false,
+  line = INITIAL.line,
+  tone = INITIAL.tone,
+  canUndo = false,
+  onNewGame = newGame,
+  onUndo = undo,
 }) {
   return (
-    <stack axis="v" pad={14} gap={9}>
-      {/* The title row is gone: the shell names the app in the panel's left
-          wing, and this row's engine label used to sit under the camera. The
-          wing replaces the name with something the name could not say — which
-          engine is answering, and whether it is thinking. */}
-      <wing side="left">
-        <text content={busy ? "◍" : "●"} size="xs" color={busy ? "accent" : "green"} />
-        <text content={`Chess · ${engine}`} size="s" weight="semibold" color="secondary" />
-      </wing>
+    <stack axis="v" pad={14} gap={10}>
+      {/* The hover's glance surface; the shell adds the chevron. This is the
+          only place the evaluation appears — a number the board cannot draw,
+          on the surface that exists for exactly that. */}
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
 
-      <stack axis="h" gap={10} align="start">
-        {/* The board sits on its own sunken slab, and the slab is a `stack`
-            rather than another draw op so the mount tree still says "there is a
-            board here" before a single frame lands — which is exactly the state
-            scripts/snapshot-demos.sh renders. */}
-        <stack axis="v" pad={3} fill="black" stroke="hairline" radius={7}>
-          <canvas
-            ref={(node) => {
-              board = node;
-            }}
-            w={CANVAS_W}
-            h={CANVAS_H}
-            onClick={onBoardClick}
-          />
-        </stack>
+      {/* The well: the one framed region for drawn content (§09). The frame is
+          a `stack`, not pixels, so the mount tree says "there is a board here"
+          before a single frame lands — which is the state a snapshot renders. */}
+      <stack axis="v" pad={3} fill="black" stroke="hairline" radius={7}>
+        <canvas
+          ref={(node) => {
+            board = node;
+          }}
+          w={CANVAS_W}
+          h={CANVAS_H}
+          onClick={onBoardClick}
+        />
+      </stack>
 
-        <stack axis="v" gap={7}>
-          <stack axis="v" gap={2} pad={8} fill="raised" stroke="hairline" radius={9}>
-            <stack axis="h" gap={4}>
-              <text content="STATUS" size="xs" weight="bold" color="tertiary" mono />
-              {/* `min` on a spacer is the only way an app asks for a column
-                  width: a v-stack sizes to its widest child, so this row is
-                  what decides how much of the panel the board leaves over. */}
-              <spacer min={128} />
-            </stack>
-            <text content={status} size="s" weight="semibold" color={statusColor} />
-            <text content={`you (white) vs ${engine}`} size="xs" color="tertiary" />
-          </stack>
-
-          <stack axis="v" gap={1} pad={8} fill="raised" stroke="hairline" radius={9}>
-            <text content="MOVES" size="xs" weight="bold" color="tertiary" mono />
-            {pairs.length === 0 ? (
-              <text content="—" size="xs" color="secondary" mono />
-            ) : (
-              pairs.map((pair) => (
-                <stack key={`m${pair.no}`} axis="h" gap={5}>
-                  <text content={`${pair.no}.`} size="xs" color="tertiary" mono />
-                  <text content={pair.white} size="xs" color="primary" mono />
-                  <spacer />
-                  <text content={pair.black} size="xs" color="secondary" mono />
-                </stack>
-              ))
-            )}
-          </stack>
-
-          <spacer />
-
-          {/* size="s" (28, D8 Q4) rather than the default 34: this column has to
-              fit beside a fixed-height board, and every point the two controls
-              give back is a point the move list keeps. */}
-          <button
-            label={over ? "Play again" : "New game"}
-            icon="sf:arrow.counterclockwise"
-            variant={over ? "accent" : "glass"}
-            size="s"
-            onClick={newGame}
-          />
-          <button
-            label="Take back"
-            icon="sf:arrow.uturn.backward"
-            variant="plain"
-            size="s"
-            onClick={undo}
-          />
-        </stack>
-
-        {/* Slack in this row lands here rather than stretching the board: a
-            spacer hugs weaker than anything else in a stack. */}
+      {/* One quiet line, and the two ghosts at the far end of it. No card, no
+          label, no chevron, no second row. */}
+      <stack axis="h" gap={6} align="center">
+        <text content={line} size="s" color={tone} />
         <spacer />
+        <button
+          icon="sf:arrow.uturn.backward"
+          variant="ghost"
+          disabled={!canUndo}
+          onClick={() => onUndo?.()}
+        />
+        <button icon="sf:arrow.counterclockwise" variant="ghost" onClick={() => onNewGame?.()} />
       </stack>
     </stack>
   );

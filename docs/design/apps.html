@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge · Launch apps</title>
+<style>
+  :root {
+    --page:#141417; --panel:#030304; --sunken:rgba(0,0,0,.35);
+    --raised:rgba(255,255,255,.055); --raised-hover:rgba(255,255,255,.085);
+    --selected:rgba(255,255,255,.12); --track:rgba(255,255,255,.14); --ink-fill:rgba(255,255,255,.85);
+    --hairline:rgba(255,255,255,.09); --hairline-hover:rgba(255,255,255,.14);
+    --primary:rgba(255,255,255,.94); --secondary:rgba(255,255,255,.56); --tertiary:rgba(255,255,255,.32);
+    --accent:#FFB454; --green:#30D158; --red:#FF453A; --violet:#8F61FF; --cyan:#2ED1F0; --blue:#3D8AFF;
+    --font:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--page);color:var(--primary);font-family:var(--font);
+       -webkit-font-smoothing:antialiased;padding:56px 24px 140px}
+  .rail{max-width:1000px;margin:0 auto}
+  h1{font-size:21px;font-weight:600;letter-spacing:-.01em}
+  .lede{color:var(--secondary);font-size:13px;margin-top:6px;max-width:70ch;line-height:1.55}
+  .lede b{color:var(--primary)}
+  .sect{margin-top:88px}
+  .note{color:var(--secondary);font-size:12.5px;margin:6px 0 22px;max-width:76ch;line-height:1.6}
+  .note b{color:var(--primary)}
+  .note code{font-family:var(--mono);font-size:11px;color:var(--primary)}
+  .ask{margin-top:10px;padding-left:13px;border-left:2px solid rgba(143,97,255,.45);color:var(--secondary);
+       font-size:12.5px;line-height:1.55;max-width:76ch}
+  .ask b{color:var(--violet);font-weight:600}
+  .tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--tertiary);
+       border:1px solid var(--hairline);border-radius:99px;padding:3px 9px;margin:0 6px 10px 0;text-transform:uppercase}
+  .tag.new{color:var(--green);border-color:rgba(48,209,88,.3)}
+  .tag.rework{color:var(--accent);border-color:rgba(255,180,84,.3)}
+  .tag.keep{color:var(--cyan);border-color:rgba(46,209,240,.3)}
+  .pair{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .eyebrow{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.07em;
+           text-transform:uppercase;color:var(--secondary)}
+  .eyebrow.dim{color:var(--tertiary)}
+  .spec{font-family:var(--mono);font-size:10px;color:var(--tertiary);letter-spacing:.04em;line-height:1.7;margin-top:10px}
+
+  .panel{width:440px;background:var(--panel);border-radius:26px;border:1px solid var(--hairline);
+         overflow:hidden;position:relative;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .wingrow{display:flex;align-items:center;height:34px;padding:0 12px;position:relative;z-index:3}
+  .wingrow .name{font-size:11.5px;font-weight:600;color:var(--secondary)}
+  .editbtn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;
+           border-radius:14px;font-size:11.5px;font-weight:600;color:var(--primary)}
+  .hair{height:1px;background:var(--hairline)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-size:11.5px;
+       font-weight:600;color:var(--primary);border-radius:999px}
+  .btn.s{height:28px;padding:0 10px} .btn.m{height:34px;padding:0 14px}
+  .btn.glass{background:var(--raised);border:1px solid var(--hairline)}
+  .btn.accent{background:var(--accent);color:#000}
+  .lpill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;
+         font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.05em}
+  .t-display{font-size:36px;font-weight:300;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.05}
+  .t-hero{font-size:48px;font-weight:300;letter-spacing:-.015em;font-variant-numeric:tabular-nums;line-height:1}
+
+  .odo{display:inline-flex;overflow:hidden}
+  .odo .digit{display:inline-block;height:1.05em;overflow:hidden}
+  .odo .strip2{display:flex;flex-direction:column;transition:transform .34s cubic-bezier(.3,.9,.25,1)}
+  .odo .strip2 span{height:1.05em;line-height:1.05}
+  .odo .static{display:inline-block}
+
+  .menubar-scene{width:660px;max-width:100%}
+  .menubar{height:26px;background:#1d1d21;border-radius:8px 8px 0 0;position:relative;
+           display:flex;align-items:center;justify-content:space-between;padding:0 14px}
+  .menubar .mi{font-family:var(--mono);font-size:9px;color:var(--tertiary);letter-spacing:.08em}
+  .pill-shape{position:absolute;left:50%;top:0;transform:translateX(-50%);height:26px;background:#000;
+              border-radius:0 0 12px 12px;display:flex;align-items:center}
+  .pill-shape .wing-l{font-size:11px;font-weight:600;color:var(--secondary);padding:0 6px 0 14px;white-space:nowrap}
+  .pill-shape .cutout{width:189px;height:100%;flex:none}
+  .pill-shape .wing-r{display:flex;align-items:flex-end;gap:2.5px;height:12px;padding:0 14px 0 6px}
+  .pill-shape .wing-r i{width:2.5px;height:100%;border-radius:1px;background:#2AB8A6;transform-origin:bottom;
+                        animation:wv 1.15s ease-in-out infinite}
+  .pill-shape .wing-r i:nth-child(1){animation-delay:0s} .pill-shape .wing-r i:nth-child(2){animation-delay:.18s}
+  .pill-shape .wing-r i:nth-child(3){animation-delay:.32s} .pill-shape .wing-r i:nth-child(4){animation-delay:.09s}
+  .pill-shape .wing-r i:nth-child(5){animation-delay:.25s}
+  @keyframes wv{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+  .mini{width:262px;margin:0 auto;background:#000;border-radius:0 0 18px 18px;padding:7px 16px 11px;
+        display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 14px 34px rgba(0,0,0,.55)}
+  .notchblk{position:absolute;left:50%;top:0;transform:translateX(-50%);width:189px;height:26px;background:#000}
+
+  /* now playing */
+  .np-wash{position:absolute;inset:0 0 40%;z-index:0;pointer-events:none;
+           background:linear-gradient(180deg,rgba(42,184,166,.26),rgba(42,184,166,0) 92%);
+           animation:washdrift 14s ease-in-out infinite alternate}
+  @keyframes washdrift{
+    0%{background:linear-gradient(180deg,rgba(42,184,166,.26),rgba(42,184,166,0) 92%)}
+    50%{background:linear-gradient(180deg,rgba(58,140,196,.24),rgba(58,140,196,0) 92%)}
+    100%{background:linear-gradient(180deg,rgba(126,92,180,.24),rgba(126,92,180,0) 92%)}}
+  .np-art{width:96px;height:96px;border-radius:14px;flex:none;
+          background:radial-gradient(120% 120% at 20% 15%,#3BE0C4 0%,#1D8F84 38%,#14343E 78%,#0B1220 100%);
+          box-shadow:0 6px 24px rgba(42,184,166,.25)}
+  .wave{display:inline-flex;align-items:flex-end;gap:2.5px;height:14px}
+  .wave i{width:2.5px;height:100%;border-radius:2px;background:#2AB8A6;transform-origin:bottom;
+          animation:wv 1.15s ease-in-out infinite}
+  .wave i:nth-child(1){animation-delay:0s} .wave i:nth-child(2){animation-delay:.18s}
+  .wave i:nth-child(3){animation-delay:.32s} .wave i:nth-child(4){animation-delay:.09s} .wave i:nth-child(5){animation-delay:.25s}
+  .tbtn{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+        border:1px solid var(--hairline);background:var(--raised)}
+
+  /* world clock */
+  .ruler{position:relative;height:78px;overflow:hidden;
+         background:linear-gradient(180deg,rgba(255,180,84,.07),rgba(255,180,84,0) 85%)}
+  .ticks,.ticks-a{position:absolute;left:0;right:0;bottom:10px;height:26px;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.38) 0 1px,transparent 1px 44px) left bottom/100% 26px no-repeat,
+               repeating-linear-gradient(90deg,rgba(255,255,255,.20) 0 1px,transparent 1px 11px) left bottom/100% 14px no-repeat}
+  .ticks-a{background:repeating-linear-gradient(90deg,#FFB454 0 1px,transparent 1px 44px) left bottom/100% 26px no-repeat,
+                     repeating-linear-gradient(90deg,rgba(255,180,84,.75) 0 1px,transparent 1px 11px) left bottom/100% 14px no-repeat;
+           clip-path:inset(0 24% 0 44%)}
+  .scrub{position:absolute;top:0;bottom:36px;left:44%;right:24%;background:rgba(255,180,84,.14);
+         border-left:2px solid var(--accent);border-right:2px solid rgba(255,180,84,.7)}
+  .city{display:flex;align-items:center;justify-content:space-between;padding:13px 20px}
+  .city .name{font-size:17px;font-weight:500;letter-spacing:-.01em;margin-top:3px}
+  .city .r{text-align:right}
+  .dot-live{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);
+            vertical-align:1px;margin-left:5px}
+
+  /* copilot */
+  .runway{padding:14px 20px 8px}
+  .ribbon{position:relative;height:34px;margin:6px 20px 4px;border-radius:8px;overflow:hidden;
+          background:rgba(255,255,255,.03)}
+  .ribbon .free{position:absolute;top:0;bottom:0;background:rgba(46,209,240,.16);
+                border-top:1px solid rgba(46,209,240,.4);border-bottom:1px solid rgba(46,209,240,.4)}
+  .ribbon .busy{position:absolute;top:0;bottom:0;background:rgba(255,255,255,.10)}
+  .ribbon .busy b{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--mono);
+                  font-size:8.5px;letter-spacing:.05em;color:var(--secondary);font-weight:500}
+  .ribbon .cur{position:absolute;top:-2px;bottom:-2px;width:1.5px;background:var(--accent)}
+  .ribbon-legend{display:flex;justify-content:space-between;padding:0 20px 12px}
+  .agentrow{display:flex;align-items:flex-start;gap:10px;padding:13px 20px}
+  .agentrow .adot{width:6px;height:6px;border-radius:50%;background:var(--violet);flex:none;margin-top:5px}
+  .agentrow .m{flex:1;min-width:0}
+  .agentrow .m .t{font-size:12.5px;line-height:1.5;color:var(--secondary)}
+  .agentrow .m .t b{color:var(--primary);font-weight:600}
+
+  /* drop */
+  .dropstrip{display:flex;align-items:center;gap:10px;margin:12px 20px 4px;border:1.5px dashed rgba(143,97,255,.45);
+             border-radius:12px;padding:11px 14px;background:rgba(143,97,255,.05)}
+  .rulerow{display:flex;align-items:center;gap:12px;padding:12px 20px}
+  .rulerow .rico{width:30px;height:30px;border-radius:8px;background:var(--raised);border:1px solid var(--hairline);
+                 display:grid;place-items:center;font-size:13px;flex:none}
+  .rulerow .m{min-width:0;flex:1}
+  .rulerow .m .t{font-size:12.5px;line-height:1.45}
+  .rulerow .m .s{font-family:var(--mono);font-size:9.5px;color:var(--tertiary);letter-spacing:.05em;margin-top:3px}
+  .askrow{margin:6px 20px 12px;border:1px solid rgba(143,97,255,.3);background:rgba(143,97,255,.07);
+          border-radius:12px;padding:12px 14px}
+
+  /* desk */
+  .candles{display:block;width:100%;height:132px}
+  .segment{display:inline-flex;padding:2px;background:var(--raised);border:1px solid var(--hairline);border-radius:14px}
+  .segment i{height:24px;padding:0 11px;display:grid;place-items:center;font-size:11.5px;font-weight:600;
+             font-style:normal;color:var(--secondary);border-radius:12px}
+  .segment i.sel{color:var(--primary);background:var(--selected)}
+  .study{margin:2px 20px 14px;border:1px solid rgba(143,97,255,.28);background:rgba(143,97,255,.06);
+         border-radius:14px;padding:13px 15px}
+  .wlrow{display:flex;align-items:center;gap:14px;padding:10px 20px}
+  .wlrow .tick b{display:block;font-size:13.5px;font-weight:600}
+  .wlrow .tick span{font-family:var(--mono);font-size:9px;color:var(--tertiary);letter-spacing:.07em}
+  .wlrow svg{flex:1;height:22px;min-width:0}
+  .wlrow .px{text-align:right}
+  .wlrow .px b{display:block;font-size:15px;font-weight:400;font-variant-numeric:tabular-nums}
+  .wlrow .px span{font-family:var(--mono);font-size:9.5px}
+  .up{color:var(--green)} .down{color:var(--red)}
+
+  /* weather */
+  .wx-body{display:flex;padding:6px 0 0}
+  .wx-nums{width:186px;flex:none;padding:8px 0 10px 20px}
+  .wx-metrics{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+  .wx-metric{display:flex;align-items:baseline;gap:8px}
+  .wx-metric .lb{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--tertiary);width:52px}
+  .wx-metric .vl{font-size:12.5px;font-variant-numeric:tabular-nums}
+  .scene{position:relative;width:214px;height:158px;flex:none;overflow:hidden;border-radius:12px;margin-right:20px}
+  .sky{position:absolute;inset:0}
+  .celestial{position:absolute;width:34px;height:34px;border-radius:50%;transform:translate(-50%,-50%)}
+  .sun{background:radial-gradient(circle,#FFF3C4 0%,#FFD24A 55%,rgba(255,180,60,0) 72%);
+       box-shadow:0 0 26px 6px rgba(255,200,80,.35)}
+  .moon{background:radial-gradient(circle at 38% 38%,#EEF2FF 0%,#C7CFE8 60%,rgba(190,200,230,0) 74%);
+        box-shadow:0 0 18px 4px rgba(200,215,255,.22)}
+  #clouds{position:absolute;inset:0;transition:opacity .2s linear}
+  .cloud{position:absolute;transform:translate(-50%,-50%)}
+  .rain{position:absolute;inset:0;overflow:hidden}
+  .rain i{position:absolute;width:1.5px;border-radius:1px;
+          background:linear-gradient(180deg,rgba(200,225,255,0),rgba(200,225,255,.85));
+          animation:fall linear infinite}
+  @keyframes fall{from{transform:translateY(-30px)}to{transform:translateY(190px)}}
+  @keyframes drift{from{transform:translate(-50%,-50%) translateX(-18px)}to{transform:translate(-50%,-50%) translateX(18px)}}
+  .ground{position:absolute;left:0;right:0;bottom:0;height:26px}
+  .char{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);width:74px;height:92px}
+  .char .fadeable{transition:opacity .28s ease}
+  .wxruler{position:relative;height:66px;cursor:ew-resize;user-select:none;touch-action:none}
+  .wxruler canvas{display:block;width:100%;height:100%}
+  .wxhint{display:flex;justify-content:space-between;padding:0 20px 12px;margin-top:-6px}
+
+  /* chess */
+  .cboard{display:grid;grid-template-columns:repeat(8,52px);grid-auto-rows:52px;flex:none}
+  .cboard i{position:relative;display:grid;place-items:end center;padding-bottom:4px}
+  .cboard i.lt{background:#A2A9B4} .cboard i.dk{background:#5E6878}
+  .cboard i.sel{box-shadow:inset 0 0 0 3px rgba(255,180,84,.55)}
+  .cboard i.lm{background-image:linear-gradient(rgba(143,93,255,.23),rgba(143,93,255,.23))}
+  .cboard img{width:35px;height:46px;display:block}
+  .cboard .dotgt{width:11px;height:11px;border-radius:50%;background:rgba(48,209,88,.69);margin-bottom:18px}
+  .ranks{display:flex;flex-direction:column;width:22px;flex:none}
+  .ranks span{height:52px;display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.35)}
+  .files{display:grid;grid-template-columns:repeat(8,52px);margin-left:22px;height:20px}
+  .files span{display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.35)}
+  .evalbar{width:6px;border-radius:3px;background:#3a3f4a;overflow:hidden;display:flex;flex-direction:column-reverse;flex:none}
+  .evalbar i{display:block;background:#E8EAED}
+  .moves{font-family:var(--mono);font-size:11px;color:var(--secondary);line-height:1.95}
+  .moves b{color:var(--primary);font-weight:600}
+
+  /* tetris */
+  .well{display:grid;grid-template-columns:repeat(10,24px);grid-auto-rows:24px;
+        background:rgba(11,11,14,.8);border-radius:6px;flex:none}
+  .well i{display:block;margin:1px;border-radius:3px}
+  .well .e{background:transparent}
+  .cI{background:#22D3EE} .cO{background:#FACC15} .cT{background:#C084FC}
+  .cS{background:#4ADE80} .cZ{background:#F87171} .cJ{background:#60A5FA} .cL{background:#FB923C}
+  .cG{background:rgba(255,255,255,.12)}
+
+  .lineup{border-collapse:collapse;font-size:12.5px;margin-top:8px;width:100%}
+  .lineup th{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;
+             color:var(--tertiary);text-align:left;padding:8px 22px 8px 0;font-weight:500}
+  .lineup td{padding:9px 22px 9px 0;border-top:1px solid var(--hairline);color:var(--secondary);vertical-align:top}
+  .lineup td:first-child{color:var(--primary);font-weight:600;white-space:nowrap}
+
+  kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--hairline);border-radius:5px;
+      padding:1px 5px;color:var(--primary)}
+
+  @media (prefers-reduced-motion:reduce){
+    .wave i,.pill-shape .wing-r i{animation:none;transform:scaleY(.55)}
+    .odo .strip2{transition:none} .np-wash{animation:none} .cloud{animation:none!important}
+  }
+</style>
+</head>
+<body>
+<div class="rail">
+
+  <h1>Ledge · Launch apps</h1>
+  <p class="lede">Eight apps, three claims: <b>state-of-the-art UX</b>, <b>mini-app novelty</b> (things a notch
+  hasn't done), and <b>malleability</b> — every app ends with what you'd ask the builder next, because AI is a
+  resident here, not a feature. Companion: <code>design-system-v2.html</code>. Live values roll; the Weather
+  ruler is a working prototype you can drag.</p>
+
+  <table class="lineup">
+    <tr><th>App</th><th>Status</th><th>Signature</th><th>Claim</th></tr>
+    <tr><td>Now Playing</td><td>rework of music</td><td>waveform on a drifting artwork wash</td><td>out-polish Alcove on its own turf</td></tr>
+    <tr><td>World Clock</td><td>new · absorbs alarm</td><td>the drag-scrub ruler</td><td>typography + bespoke interaction</td></tr>
+    <tr><td>Copilot</td><td>new · <b style="color:var(--accent)">reframed</b></td><td>the runway — not a countdown</td><td>a colleague, not a clock</td></tr>
+    <tr><td>Drop</td><td>new · <b style="color:var(--accent)">reframed</b></td><td>the rules, not the files</td><td>standing orders beat prompts</td></tr>
+    <tr><td>Desk</td><td>rework · absorbs stocks + trader</td><td>the study the agent wrote</td><td>ask for an indicator that doesn't exist yet</td></tr>
+    <tr><td>Weather</td><td>new</td><td>the scrub-able sky</td><td>the interaction nobody else has</td></tr>
+    <tr><td>Chess</td><td>keep · redesign</td><td>the eval bar</td><td>real engine, real depth</td></tr>
+    <tr><td>Tetris</td><td>keep · redesign</td><td>the score roll</td><td>games live here too</td></tr>
+  </table>
+  <p class="note" style="margin-top:14px">Retired: deals, aviary, cimedic, standalone alarm/stocks/trader (absorbed).
+  <b>Settings is no longer an app</b> — it becomes a native macOS window; see the design system.</p>
+
+  <!-- ═══ 1 · NOW PLAYING ═══ -->
+  <div class="sect">
+    <span class="tag rework">Rework · music</span><span class="tag">drifting wash · roll · rate · apple · observe</span>
+    <p class="note"><b>Now Playing.</b> The wash now <b>drifts</b> — two or three colors sampled from the artwork,
+    crossfading on a slow cycle (live above the art). It runs shell-side as a layer animation, so it costs the
+    socket nothing and keeps breathing even when the worker is idle. Transport is optically centered on the
+    play button. Collapsed, it owns the pill: track left, live waveform right.</p>
+    <p class="ask"><b>Ask the builder:</b> “add a lyrics line that follows the track.”</p>
+    <div class="menubar-scene" style="margin-bottom:26px">
+      <div class="menubar"><span class="mi">LEDGE</span>
+        <div class="pill-shape">
+          <span class="wing-l">Miami Horror</span><span class="cutout"></span>
+          <span class="wing-r"><i></i><i></i><i></i><i></i><i></i></span>
+        </div>
+        <span class="mi">SAT 10:18</span></div>
+    </div>
+    <div class="panel">
+      <div class="np-wash"></div>
+      <div class="wingrow"><span class="name">Music</span>
+        <span class="wave" style="margin-left:10px"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="editbtn">✦ Edit</span></div>
+      <div style="display:flex;gap:18px;padding:12px 20px 20px;position:relative;z-index:1;align-items:center">
+        <div class="np-art"></div>
+        <div style="min-width:0;flex:1">
+          <div style="font-size:17px;font-weight:600;letter-spacing:-.01em">Emagination (B-Side)</div>
+          <div style="font-size:13px;color:var(--secondary);margin-top:2px">Miami Horror</div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:14px">
+            <span style="font-size:22px;font-weight:300;font-variant-numeric:tabular-nums" id="np-odo">2:41</span>
+            <span class="eyebrow dim">−1:36 · AirPods Max</span>
+          </div>
+          <div style="height:3px;border-radius:2px;background:var(--track);margin-top:8px;overflow:hidden">
+            <i id="np-fill" style="display:block;height:100%;width:34%;background:var(--ink-fill);border-radius:2px"></i></div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px;padding:0 20px 20px;position:relative;z-index:1">
+        <span class="tbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M7.5 1v10L1 6zM9.5 1h1.6v10H9.5z" fill="#F2F2F4"/></svg></span>
+        <span class="tbtn" style="width:40px;height:40px"><svg width="11" height="12" viewBox="0 0 11 12"><path d="M1 1h2.8v10H1zM7.2 1H10v10H7.2z" fill="#F2F2F4"/></svg></span>
+        <span class="tbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M4.5 1v10L11 6zM.9 1h1.6v10H.9z" fill="#F2F2F4"/></svg></span>
+      </div>
+    </div>
+    <p class="spec">wash = shell-side CAGradientLayer, 2–3 artwork colors, ~14 s cycle · zero wire traffic · transport row align-items:center</p>
+  </div>
+
+  <!-- ═══ 2 · WORLD CLOCK ═══ -->
+  <div class="sect">
+    <span class="tag new">New · absorbs alarm</span><span class="tag">canvas · drag (A1) · display type · notify</span>
+    <p class="note"><b>World Clock.</b> Grab the ruler, scrub, and every row re-derives — offsets, day labels,
+    working states. Alarms live here now (the stepper/segment work from the old alarm app), and a set alarm
+    peeks the mini as it nears.</p>
+    <p class="ask"><b>Ask the builder:</b> “add my team's on-call rotation as a fourth row.”</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Clocks</span><span class="editbtn">✦ Edit</span></div>
+      <div class="ruler">
+        <span class="eyebrow dim" style="position:absolute;top:10px;left:20px">UTC+02:00</span>
+        <span style="position:absolute;top:10px;right:20px;font-family:var(--mono);font-size:11px;letter-spacing:.05em">−2H 59M</span>
+        <div class="scrub"></div><div class="ticks"></div><div class="ticks-a"></div>
+      </div>
+      <div class="hair"></div>
+      <div class="city"><div><span class="eyebrow dim">Your time · Sat 9 Aug</span><div class="name">Warsaw</div></div>
+        <div class="r"><span class="eyebrow">Before work <span style="color:#FFD60A">☀</span></span><div class="t-display">06:47</div></div></div>
+      <div class="hair"></div>
+      <div class="city"><div><span class="eyebrow dim">−9H / PDT · Yesterday</span><div class="name">San Francisco</div></div>
+        <div class="r"><span class="eyebrow">Night <span style="color:var(--secondary)">☾</span></span><div class="t-display">21:47</div></div></div>
+      <div class="hair"></div>
+      <div class="city"><div><span class="eyebrow dim">+3H 30M / IST</span><div class="name">New Delhi</div></div>
+        <div class="r"><span class="eyebrow">Working<span class="dot-live"></span></span><div class="t-display">10:17</div></div></div>
+      <div class="hair"></div>
+      <div style="display:flex;align-items:center;gap:10px;padding:11px 20px">
+        <span style="font-size:13px;font-variant-numeric:tabular-nums;font-weight:500">⏰ 06:45</span>
+        <span class="eyebrow dim">Tomorrow · in 7h 58m</span><span style="flex:1"></span>
+        <span style="width:36px;height:20px;border-radius:10px;background:var(--accent);position:relative;display:inline-block">
+          <span style="position:absolute;top:2px;left:18px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.4)"></span></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 3 · COPILOT ═══ -->
+  <div class="sect">
+    <span class="tag new">New</span><span class="tag rework">Reframed — no countdown</span>
+    <span class="tag">calendar · agent · mini · notify</span>
+    <p class="note"><b>Copilot.</b> The countdown is gone. A ticking clock to your next meeting is a deadline made
+    continuously visible — it creates pressure and offers no agency, which is a working definition of anxiety.
+    So the signature inverts: the number is your <b>runway</b>, the uninterrupted time you own right now.
+    “2h 40m clear” is a fact you can act on; “T−11:52” is a bomb timer.</p>
+    <p class="note">The ribbon inverts too — <b>the free blocks are the figure, the meetings are the ground.</b>
+    And the agent does the two jobs no calendar app does: it <b>briefs you before</b> (who, what you last agreed,
+    what you owe them) and it <b>captures after</b>, which is the most under-served moment in the whole category.
+    The mini appears twice a meeting — once at two minutes to join, once when it ends — and never in between.</p>
+    <p class="ask"><b>Ask the builder:</b> “when a meeting has no agenda, draft one from the invite thread.”</p>
+    <div class="menubar-scene" style="margin-bottom:26px">
+      <div class="menubar"><span class="mi">LEDGE</span>
+        <div class="pill-shape"><span class="wing-l">2h 40m clear</span><span class="cutout"></span>
+          <span class="wing-r" style="padding-right:14px"></span></div>
+        <span class="mi">SAT 10:18</span></div>
+    </div>
+    <div class="pair">
+      <div class="panel">
+        <div class="wingrow"><span class="name">Copilot</span><span class="editbtn">✦ Edit</span></div>
+        <div class="runway">
+          <span class="eyebrow dim">Clear until 14:00</span>
+          <div class="t-hero" style="margin-top:4px">2<span style="font-size:26px;font-weight:400">h</span> 40<span style="font-size:26px;font-weight:400">m</span></div>
+        </div>
+        <div class="ribbon">
+          <div class="free" style="left:0%;width:46%"></div>
+          <div class="busy" style="left:46%;width:16%"><b>DESIGN</b></div>
+          <div class="free" style="left:62%;width:10%"></div>
+          <div class="busy" style="left:72%;width:11%"><b>1:1</b></div>
+          <div class="free" style="left:83%;width:17%"></div>
+          <div class="cur" style="left:8%"></div>
+        </div>
+        <div class="ribbon-legend"><span class="eyebrow dim">Now</span>
+          <span class="eyebrow" style="color:var(--cyan)">3 free blocks · longest 2h 40m</span>
+          <span class="eyebrow dim">18:00</span></div>
+        <div class="hair"></div>
+        <div class="agentrow"><span class="adot"></span><div class="m">
+          <div class="t"><b>14:00 · Design review</b> with Sam and Priya. Last time you agreed to send the
+          pricing doc — it hasn't gone out. Their thread from Tuesday asks about Q3 headcount.</div>
+          <div style="margin-top:10px;display:flex;gap:8px">
+            <span class="btn glass s" style="color:var(--violet);border-color:rgba(143,97,255,.35)">Brief me</span>
+            <span class="btn glass s">Send the doc</span></div>
+        </div></div>
+      </div>
+      <div>
+        <div class="menubar-scene" style="width:400px">
+          <div class="menubar"><span class="mi">LEDGE</span><div class="notchblk"></div><span class="mi">SAT 14:52</span></div>
+          <div class="mini">
+            <div style="display:flex;flex-direction:column;align-items:flex-start">
+              <span class="eyebrow dim">Design review ended</span>
+              <div style="font-size:13px;margin-top:3px">You said you'd send pricing by Friday.</div></div>
+            <span class="btn glass s" style="flex:none;color:var(--violet);border-color:rgba(143,97,255,.35)">Capture</span>
+          </div>
+        </div>
+        <p class="spec" style="margin-left:0;max-width:380px">The <b style="color:var(--primary)">after</b> — the moment
+        no calendar app owns. Fires once on the meeting's end, holds 4 s, gone.</p>
+      </div>
+    </div>
+    <p class="spec">rule this proposes → <b style="color:var(--primary)">no seconds in ambient surfaces.</b>
+    minutes are information; seconds are a pulse. wing/mini never tick faster than a minute.</p>
+  </div>
+
+  <!-- ═══ 4 · DROP ═══ -->
+  <div class="sect">
+    <span class="tag new">New</span><span class="tag rework">Reframed — rules, not files</span>
+    <span class="tag">intake drop · capture · agent · spotlight</span>
+    <p class="note"><b>Drop.</b> The honest question is what this beats about just talking to Claude — and the
+    answer is that <b>it isn't a faster way to ask, it's a way to stop asking.</b> A chat is a conversation you
+    re-open and re-explain every time. Drop is a <b>standing order</b>: you teach it once, in plain English, and
+    it applies forever, silently, while you keep working. It also finishes the job — chat tells you what's in the
+    PDF; Drop renames the file, files it, and closes the loop.</p>
+    <p class="note">So the interface inverts: <b>the files aren't the content, the rules are.</b> Files pass
+    through as events; the durable thing is the little machine you built. The panel is a workshop, not a folder —
+    and the only time it interrupts you is when something arrives that no rule covers, which is exactly the
+    moment to offer to make one.</p>
+    <p class="ask"><b>Ask the builder:</b> “when I drop a CSV, chart it and keep the chart next to the file.”</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Drop</span>
+        <span class="eyebrow dim" style="margin-left:10px">4 rules · 61 handled</span><span class="editbtn">✦ Edit</span></div>
+      <div class="dropstrip">
+        <span style="font-size:15px;color:var(--violet)">⌘</span>
+        <span style="font-size:12.5px;color:var(--secondary)">Drop anything here — or anywhere on the notch.</span>
+      </div>
+      <div class="askrow">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--violet)"></span>
+          <span style="font-size:12.5px;font-weight:600">First spreadsheet I've seen</span>
+          <span class="lpill" style="margin-left:auto;color:var(--violet);background:rgba(143,97,255,.08);border:1px solid rgba(143,97,255,.2)">NEW</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--secondary);line-height:1.5">I charted <code style="font-family:var(--mono);font-size:11px">q3-spend.csv</code> by month and put the PNG beside it. Want that every time?</div>
+        <div style="margin-top:11px;display:flex;gap:8px">
+          <span class="btn accent s">Always do this</span><span class="btn glass s">Just this once</span></div>
+      </div>
+      <div class="hair"></div>
+      <div class="rulerow"><span class="rico">🖼</span><div class="m">
+        <div class="t">Screenshots → <b>rename by what's in them</b>, file to ~/Shots</div>
+        <div class="s">34 THIS MONTH · LAST 12s AGO</div></div>
+        <span class="eyebrow dim">on</span></div>
+      <div class="hair" style="margin:0 20px"></div>
+      <div class="rulerow"><span class="rico">📄</span><div class="m">
+        <div class="t">Contracts → <b>summarize, flag unusual clauses</b>, keep the summary alongside</div>
+        <div class="s">6 THIS MONTH · LAST 2d AGO</div></div>
+        <span class="eyebrow dim">on</span></div>
+      <div class="hair" style="margin:0 20px"></div>
+      <div class="rulerow"><span class="rico">🔗</span><div class="m">
+        <div class="t">Links → <b>read and file a one-paragraph note</b> in Obsidian</div>
+        <div class="s">21 THIS MONTH · LAST 4h AGO</div></div>
+        <span class="eyebrow dim">on</span></div>
+      <div class="hair"></div>
+      <div style="padding:11px 20px 14px"><div style="height:34px;border-radius:17px;background:var(--raised);
+        border:1px solid var(--hairline);display:flex;align-items:center;padding:0 14px;font-size:12.5px;color:var(--tertiary)">
+        Teach a rule — say it how you'd say it to a person…</div></div>
+    </div>
+    <p class="spec">the peek is the everyday surface: drop → mini says what it did → gone. the panel is for teaching and review only.</p>
+  </div>
+
+  <!-- ═══ 5 · DESK ═══ -->
+  <div class="sect">
+    <span class="tag rework">Rework · absorbs stocks + trader</span>
+    <span class="tag">canvas candles · agent writes code · notify · sqlite</span>
+    <p class="note"><b>Desk.</b> No broker, no orders, no paper P&amp;L pretending to be trading — the old app's
+    weakest part was the transaction fiction. What replaces it is better: the agent here doesn't just opine,
+    it <b>writes and runs the analysis</b>. You ask a question in English; it fetches the history, computes,
+    and the answer comes back <b>as a chart in the app</b>.</p>
+    <p class="note">That's the novel claim — <b>no terminal on earth lets you invent a new study by asking for
+    it.</b> A study you like becomes a permanent panel, so you grow your own Bloomberg one question at a time.
+    Candles are cheap for us: a body is a <code>rect</code>, a wick is a <code>line</code> — the two ops we
+    already ship. Slow and qualitative by design: daily candles, end-of-day notes, and unprompted context only
+    when a move is genuinely outside its range.</p>
+    <p class="ask"><b>Ask the builder:</b> “keep this study on the panel, and re-run it every Friday close.”</p>
+    <div class="panel" style="width:520px">
+      <div class="wingrow"><span class="name">Desk</span>
+        <span class="lpill" style="margin-left:10px;color:var(--secondary);background:var(--raised);border:1px solid var(--hairline)">NVDA</span>
+        <span class="editbtn">✦ Edit</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;padding:8px 20px 4px">
+        <div><span class="eyebrow dim">NVDA · Nasdaq · 4:00 PM ET</span>
+          <div style="font-size:30px;font-weight:400;font-variant-numeric:tabular-nums;margin-top:2px">181.40
+            <span style="font-size:14px;color:var(--red);font-weight:500;margin-left:6px">−1.2%</span></div></div>
+        <span class="segment"><i>1D</i><i>1W</i><i class="sel">3M</i><i>1Y</i></span>
+      </div>
+      <svg class="candles" id="candles" viewBox="0 0 480 132" preserveAspectRatio="none"></svg>
+      <div class="hair" style="margin:8px 0 0"></div>
+      <div class="study">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--violet)"></span>
+          <span style="font-size:12.5px;font-weight:600">“Does NVDA dip in the two weeks before earnings?”</span>
+        </div>
+        <div style="font-size:12.5px;color:var(--secondary);line-height:1.55;margin:9px 0 11px">
+          Ran it over the last 12 quarters. <b style="color:var(--primary)">Yes, weakly</b> — median −2.1% over
+          the T−14 window, but 4 of 12 went the other way, and the two biggest drops were both macro days.
+          Not a signal I'd trade on its own.</div>
+        <svg width="100%" height="46" viewBox="0 0 440 46" preserveAspectRatio="none" id="studychart"></svg>
+        <div style="display:flex;gap:8px;margin-top:11px;align-items:center">
+          <span class="btn glass s" style="color:var(--violet);border-color:rgba(143,97,255,.35)">Keep this study</span>
+          <span class="btn glass s">Show the code</span>
+          <span class="eyebrow dim" style="margin-left:auto">ran 8.4s · 12 quarters</span></div>
+      </div>
+      <div class="hair"></div>
+      <div class="wlrow"><div class="tick" style="width:62px"><b>AAPL</b><span>229.11</span></div>
+        <svg viewBox="0 0 100 22" preserveAspectRatio="none"><polyline points="0,15 20,13 40,16 60,9 80,11 100,5" fill="none" stroke="#30D158" stroke-width="1.5"/></svg>
+        <div class="px"><b>229.11</b><span class="up">+0.8%</span></div></div>
+      <div class="hair" style="margin:0 20px"></div>
+      <div class="wlrow"><div class="tick" style="width:62px"><b>MSFT</b><span>512.60</span></div>
+        <svg viewBox="0 0 100 22" preserveAspectRatio="none"><polyline points="0,18 20,15 40,16 60,11 80,13 100,4" fill="none" stroke="#30D158" stroke-width="1.5"/></svg>
+        <div class="px"><b>512.60</b><span class="up">+1.1%</span></div></div>
+    </div>
+    <p class="spec">candle = rect body + line wick (both shipped ops) · drag to pan, scroll to zoom (A1 + A8) · the agent never says buy or sell</p>
+  </div>
+
+  <!-- ═══ 6 · WEATHER ═══ -->
+  <div class="sect">
+    <span class="tag new">New</span><span class="tag">canvas drag (A1) + scroll-zoom (A8) · sprites · gradient op</span>
+    <p class="note"><b>Weather — and this one is a working prototype, not a picture.</b>
+    <b style="color:var(--accent)">Drag the ruler</b> to move time; <kbd>scroll</kbd> over it to switch hours ↔ days.
+    The bottom bar is the clock's scrubber idiom again — rulers are becoming a Ledge signature — and the scene
+    at the right re-derives continuously as you drag.</p>
+    <p class="note">The thing that makes this feasible is a single decision: <b>the scene is a pure function of
+    (solar elevation, cloud cover, precipitation, temperature)</b>, and all four are continuous. So scrubbing
+    doesn't cross-fade between canned illustrations — the sun genuinely slides down its arc, clouds thicken,
+    rain ramps up, the sky re-tints. Only two things are discrete (the umbrella and the sunglasses) and those
+    are the only things that fade. Layers composite per frame: sky gradient → sun/moon on its solar arc →
+    drifting clouds → rain → character → ground.</p>
+    <p class="ask"><b>Ask the builder:</b> “peek me ten minutes before sunset on clear days.”</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Weather</span><span class="editbtn">✦ Edit</span></div>
+      <div class="wx-body">
+        <div class="wx-nums">
+          <span class="eyebrow dim" id="wx-when">Now · Warsaw</span>
+          <div class="t-hero" style="margin-top:3px" id="wx-temp">17°</div>
+          <div style="font-size:13px;color:var(--secondary);margin-top:2px" id="wx-cond">Light rain</div>
+          <div class="wx-metrics">
+            <div class="wx-metric"><span class="lb">RAIN</span><span class="vl" id="wx-rain">0.4 mm/h</span></div>
+            <div class="wx-metric"><span class="lb">WIND</span><span class="vl" id="wx-wind">11 km/h</span></div>
+            <div class="wx-metric"><span class="lb">FEELS</span><span class="vl" id="wx-feel">15°</span></div>
+          </div>
+        </div>
+        <div class="scene" id="scene">
+          <div class="sky" id="sky"></div>
+          <div class="celestial sun" id="sun"></div>
+          <div class="celestial moon" id="moon"></div>
+          <div id="clouds"></div>
+          <div class="rain" id="rainlayer"></div>
+          <div class="ground" id="ground"></div>
+          <svg class="char" viewBox="0 0 74 92">
+            <g id="umb" class="fadeable">
+              <path d="M8 30 A29 26 0 0 1 66 30 Z" fill="#E8564A" stroke="#0E1116" stroke-width="2.2" stroke-linejoin="round"/>
+              <path d="M8 30 q7 7 14.5 0 q7 7 14.5 0 q7 7 14.5 0 q7 7 14.5 0" fill="none" stroke="#0E1116" stroke-width="2"/>
+              <path d="M37 30 V64" stroke="#0E1116" stroke-width="2.4" stroke-linecap="round"/>
+            </g>
+            <g>
+              <path d="M30 88 V70" stroke="#2C3A52" stroke-width="6" stroke-linecap="round"/>
+              <path d="M45 88 V70" stroke="#2C3A52" stroke-width="6" stroke-linecap="round"/>
+              <rect x="26" y="42" width="23" height="31" rx="9" fill="#4C7FD4" stroke="#0E1116" stroke-width="2.2"/>
+              <path id="armR" d="M48 50 L58 62" stroke="#4C7FD4" stroke-width="5.5" stroke-linecap="round"/>
+              <path d="M27 50 L18 62" stroke="#4C7FD4" stroke-width="5.5" stroke-linecap="round"/>
+              <circle cx="37.5" cy="31" r="12" fill="#F5E0C0" stroke="#0E1116" stroke-width="2.2"/>
+              <path d="M26 27 a12 12 0 0 1 23 0 q-11 -6 -23 0" fill="#3A2A22"/>
+              <circle cx="33" cy="32" r="1.5" fill="#0E1116"/><circle cx="42" cy="32" r="1.5" fill="#0E1116"/>
+              <g id="shades" class="fadeable"><rect x="28" y="29" width="19" height="6" rx="3" fill="#0E1116"/></g>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="hair"></div>
+      <div class="wxruler" id="wxruler"><canvas id="rc"></canvas></div>
+      <div class="wxhint">
+        <span class="eyebrow dim">Now</span>
+        <span class="eyebrow dim" id="wx-zoom">Hours · drag to scrub · scroll to zoom</span>
+        <span class="eyebrow dim" id="wx-hi">+48h</span>
+      </div>
+    </div>
+    <p class="spec">forecast horizon caps the zoom honestly: minutes → hours → 14 days. months would be climate normals, a different source.
+    character art is the taste risk — it gates the app's identity, so it goes first.</p>
+  </div>
+
+  <!-- ═══ 7 · CHESS ═══ -->
+  <div class="sect">
+    <span class="tag keep">Keep · redesign</span><span class="tag">640 pt panel · 446×442 board · real sprites</span>
+    <p class="note"><b>Chess.</b> Size unchanged — 640 pt panel, 52 pt squares, the real piece set below.
+    What changes is the sidebar: the STATUS and MOVES cards become rows (L11), the moves read as notation
+    instead of a labelled box, and the <b>eval bar</b> arrives beside the board as the signature — a quiet,
+    continuously-moving proof that a real engine is thinking. Depth goes in the eyebrow.</p>
+    <p class="ask"><b>Ask the builder:</b> “add a daily puzzle from Lichess, and let me play it in the mini.”</p>
+    <div class="panel" style="width:640px">
+      <div class="wingrow"><span class="name">Chess</span>
+        <span class="eyebrow dim" style="margin-left:10px">Stockfish · depth 18 · +1.2</span>
+        <span class="editbtn">✦ Edit</span></div>
+      <div style="display:flex;gap:10px;padding:6px 14px 14px;align-items:flex-start">
+        <div class="evalbar" style="height:442px"><i style="height:58%"></i></div>
+        <div>
+          <div style="display:flex">
+            <div class="ranks">
+              <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+            </div>
+            <div class="cboard" id="cboard"></div>
+          </div>
+          <div class="files"><span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span></div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;height:442px">
+          <span class="eyebrow dim">Your move</span>
+          <div style="font-size:13px;margin:6px 0 12px">you (white) vs Stockfish</div>
+          <div class="hair"></div>
+          <div class="moves" style="padding:8px 0">
+            <b>12. Nd4</b> Nxd4<br>11. Re1 O-O<br>10. h3 Bb7<br>9. d4 exd4<br>8. c3 d6<br>7. Bb3 O-O
+          </div>
+          <div style="flex:1"></div>
+          <span class="btn glass s" style="align-self:stretch;margin-bottom:8px">↺ New game</span>
+          <span class="btn glass s" style="align-self:stretch">↩ Take back</span>
+        </div>
+      </div>
+    </div>
+    <p class="spec">squares #A2A9B4 / #5E6878 · pieces 35×46, bottom-aligned, 4 pt off the square floor · labels 10 pt @ 35% · no tick loop — it advances on clicks</p>
+  </div>
+
+  <!-- ═══ 8 · TETRIS ═══ -->
+  <div class="sect">
+    <span class="tag keep">Keep · redesign</span><span class="tag">440 pt panel · 240×480 well · 120 ms tick</span>
+    <p class="note"><b>Tetris.</b> Size unchanged — 440 pt panel, 24 pt cells, the real piece palette.
+    The stat tiles become rows, the score gets display weight and finally <b>rolls</b> when it changes
+    (live below), and B2B speaks as a pill. Start keeps the app's one filled-accent allowance. It already
+    pauses itself on collapse, which is exactly the rule the design system now states out loud.</p>
+    <p class="ask"><b>Ask the builder:</b> “make a hard drop shake the well one pixel, once.”</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Tetris</span>
+        <span class="eyebrow dim" style="margin-left:10px">Level 4</span><span class="editbtn">✦ Edit</span></div>
+      <div style="display:flex;gap:12px;padding:6px 8px 8px;align-items:stretch">
+        <div class="well" id="well"></div>
+        <div style="flex:1;display:flex;flex-direction:column;padding-right:6px">
+          <span class="eyebrow dim">Score</span>
+          <div style="font-size:30px;font-weight:300;font-variant-numeric:tabular-nums;margin:2px 0 10px">
+            <span id="tt-odo">84,210</span></div>
+          <div class="hair"></div>
+          <div style="display:flex;justify-content:space-between;padding:9px 0">
+            <span class="eyebrow dim">Lines</span><span style="font-size:13px;font-variant-numeric:tabular-nums">31</span></div>
+          <div class="hair"></div>
+          <div style="display:flex;justify-content:space-between;padding:9px 0;align-items:center">
+            <span class="eyebrow dim">Next</span>
+            <svg width="34" height="20" viewBox="0 0 34 20"><rect x="0" y="10" width="9" height="9" rx="2.5" fill="#C084FC"/><rect x="10" y="10" width="9" height="9" rx="2.5" fill="#C084FC"/><rect x="20" y="10" width="9" height="9" rx="2.5" fill="#C084FC"/><rect x="10" y="0" width="9" height="9" rx="2.5" fill="#C084FC"/></svg></div>
+          <div class="hair"></div>
+          <div style="padding:10px 0"><span class="lpill" style="color:var(--accent);background:rgba(255,180,84,.10);border:1px solid rgba(255,180,84,.25)">B2B ×3</span></div>
+          <div style="flex:1"></div>
+          <span class="btn accent s" style="align-self:stretch">▶ Resume</span>
+        </div>
+      </div>
+      <div style="padding:0 20px 12px"><span class="eyebrow dim">↑ rotate · space drop · p pause</span></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+/* ── odometer (D4 roll) ─────────────────────────────────────────────────── */
+function makeOdo(el){
+  const value=el.textContent.trim(); el.classList.add('odo'); el.textContent='';
+  const digits=[];
+  for(const ch of value){
+    if(ch>='0'&&ch<='9'){
+      const d=document.createElement('span'); d.className='digit';
+      const s=document.createElement('span'); s.className='strip2';
+      for(let i=0;i<=9;i++){const n=document.createElement('span');n.textContent=i;s.appendChild(n);}
+      d.appendChild(s); el.appendChild(d); digits.push(s);
+    } else {const c=document.createElement('span');c.className='static';c.textContent=ch;el.appendChild(c);digits.push(null);}
+  }
+  return {set(str){let di=0;for(const ch of str){const strip=digits[di++];
+    if(strip&&ch>='0'&&ch<='9') strip.style.transform=`translateY(-${(+ch)*1.05}em)`;}}};
+}
+const fmt=t=>`${Math.floor(t/60)}:${String(t%60).padStart(2,'0')}`;
+const thou=n=>n.toLocaleString('en-US');
+const np=makeOdo(document.getElementById('np-odo'));
+const tt=makeOdo(document.getElementById('tt-odo'));
+const npFill=document.getElementById('np-fill');
+let elapsed=161,total=257,score=84210;
+setInterval(()=>{elapsed=(elapsed+1)%total;np.set(fmt(elapsed));npFill.style.width=`${elapsed/total*100}%`;},1000);
+setInterval(()=>{score+=[40,100,300,1200][Math.floor(Date.now()/2600)%4];
+  if(score>999999)score=84210; tt.set(thou(score));},2600);
+
+/* ── chess board (real sprites, real geometry) ──────────────────────────── */
+(function(){
+  const START=[
+    "rnbqkbnr","pppppppp","........","........","...N....","........","PPPPPPPP","RNBQKB.R"
+  ];
+  const NAME={p:'P',n:'N',b:'B',r:'R',q:'Q',k:'K'};
+  const board=document.getElementById('cboard');
+  for(let r=0;r<8;r++) for(let f=0;f<8;f++){
+    const cell=document.createElement('i');
+    cell.className=((r+f)%2===0)?'lt':'dk';
+    const ch=START[r][f];
+    if(r===4&&f===3) cell.classList.add('sel');
+    if(r===6&&f===3) cell.classList.add('lm');
+    if(ch!=='.'){
+      const white=ch===ch.toUpperCase();
+      const img=document.createElement('img');
+      img.src=`../../protocol/demo-apps/chess/assets/${white?'w':'b'}${NAME[ch.toLowerCase()]}.png`;
+      img.alt=''; cell.appendChild(img);
+    } else if((r===2&&f===3)||(r===5&&f===4)){
+      const d=document.createElement('span'); d.className='dotgt'; cell.appendChild(d);
+    }
+    board.appendChild(cell);
+  }
+})();
+
+/* ── tetris well (real palette, real geometry) ──────────────────────────── */
+(function(){
+  const W=10,H=20, well=document.getElementById('well');
+  const grid=Array.from({length:H},()=>Array(W).fill(''));
+  const stack=[
+    [17,0,'cJ'],[18,0,'cJ'],[18,1,'cJ'],[18,2,'cJ'],
+    [16,3,'cZ'],[17,3,'cZ'],[17,4,'cZ'],[18,3,'cZ'],[18,4,'cZ'],
+    [18,5,'cT'],[18,6,'cT'],[17,6,'cT'],
+    [16,7,'cL'],[17,7,'cL'],[18,7,'cL'],[18,8,'cL'],
+    [18,9,'cO'],[17,9,'cO'],
+    [15,3,'cS'],[15,4,'cS'],[16,4,'cS'],[16,5,'cS']
+  ];
+  stack.forEach(([r,c,k])=>grid[r][c]=k);
+  [[3,4],[4,4],[4,5],[3,5]].forEach(([r,c])=>grid[r][c]='cO');   // live piece
+  [[17,4],[18,4]].forEach(()=>{});                                 // (ghost drawn below)
+  for(let r=0;r<H;r++) for(let c=0;c<W;c++){
+    const i=document.createElement('i');
+    i.className=grid[r][c]||'e';
+    well.appendChild(i);
+  }
+})();
+
+/* ── desk: candles + study chart ────────────────────────────────────────── */
+(function(){
+  const svg=document.getElementById('candles'), W=480,H=132,N=34;
+  let px=96, pts=[];
+  for(let i=0;i<N;i++){
+    // trend is gentle; the per-bar move is what you actually see, so bodies
+    // have to dominate their wicks or candles read as asterisks
+    const trend=Math.sin(i/9)*1.1+(i>24?-1.5:0.5);
+    const bar=Math.sin(i*2.7)*2.6+Math.cos(i*1.3)*1.7;
+    const o=px, c=px+trend+bar*0.55;
+    const hi=Math.max(o,c)+Math.abs(Math.sin(i*1.9))*0.9,
+          lo=Math.min(o,c)-Math.abs(Math.cos(i*2.1))*0.9;
+    pts.push({o,c,hi,lo}); px=c;
+  }
+  const all=pts.flatMap(p=>[p.hi,p.lo]), max=Math.max(...all), min=Math.min(...all);
+  const y=v=>8+(1-(v-min)/(max-min))*(H-26);
+  const cw=W/N;
+  let out='';
+  pts.forEach((p,i)=>{
+    const x=i*cw+cw/2, up=p.c>=p.o, col=up?'#30D158':'#FF453A';
+    out+=`<line x1="${x}" y1="${y(p.hi)}" x2="${x}" y2="${y(p.lo)}" stroke="${col}" stroke-width="1" opacity=".8"/>`;
+    const top=y(Math.max(p.o,p.c)), h=Math.max(2,Math.abs(y(p.o)-y(p.c)));
+    out+=`<rect x="${x-cw*0.34}" y="${top}" width="${cw*0.68}" height="${h}" fill="${col}" opacity=".92" rx="1"/>`;
+  });
+  out+=`<line x1="0" y1="${H-10}" x2="${W}" y2="${H-10}" stroke="rgba(255,255,255,.09)" stroke-width="1"/>`;
+  svg.innerHTML=out;
+
+  const s=document.getElementById('studychart');
+  let o2='';
+  for(let i=0;i<12;i++){
+    const v=[-3.2,-1.4,1.1,-4.8,-2.2,-0.6,2.3,-3.9,-1.1,-2.8,0.8,-5.1][i];
+    const x=8+i*36, h=Math.abs(v)*3.4, mid=23;
+    o2+=`<rect x="${x}" y="${v<0?mid:mid-h}" width="22" height="${h}" rx="2" fill="${v<0?'rgba(255,69,58,.75)':'rgba(48,209,88,.75)'}"/>`;
+  }
+  o2+=`<line x1="0" y1="23" x2="440" y2="23" stroke="rgba(255,255,255,.16)" stroke-width="1"/>`;
+  s.innerHTML=o2;
+})();
+
+/* ── weather: the working scrubber ──────────────────────────────────────── */
+const HOURS=24*14, START=10.3, SUNRISE=5.2, SUNSET=20.4;
+const fc=[];
+for(let h=0;h<HOURS;h++){
+  const tod=(h+START)%24, day=Math.floor((h+START)/24);
+  const base=16+4.5*Math.sin((day/3.1)+1.2);
+  const temp=base+5.2*Math.sin((tod-9)/24*Math.PI*2)+1.4*Math.sin(h/7);
+  const front=Math.sin(h/19)*0.55+Math.sin(h/6.3)*0.3+Math.sin(day*1.7)*0.35;
+  const cloud=Math.min(1,Math.max(0,0.45+front));
+  const precip=Math.max(0,(cloud-0.72))*3.4*(0.6+0.4*Math.sin(h/3.7));
+  const wind=6+9*Math.max(0,front)+3*Math.sin(h/5);
+  fc.push({temp,cloud,precip,wind});
+}
+const sample=t=>{
+  const i=Math.max(0,Math.min(HOURS-1.001,t));
+  const a=fc[Math.floor(i)],b=fc[Math.min(HOURS-1,Math.floor(i)+1)],f=i-Math.floor(i);
+  return{temp:a.temp+(b.temp-a.temp)*f,cloud:a.cloud+(b.cloud-a.cloud)*f,
+         precip:a.precip+(b.precip-a.precip)*f,wind:a.wind+(b.wind-a.wind)*f};
+};
+function solar(tod){
+  const d=(tod-SUNRISE)/(SUNSET-SUNRISE);
+  return{elev:Math.sin(Math.max(-0.35,Math.min(1.35,d))*Math.PI),x:Math.max(-0.1,Math.min(1.1,d))};
+}
+const hex=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+const rgbs=c=>`rgb(${c.map(v=>Math.round(v)).join(',')})`;
+const lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
+function ramp(stops,t){
+  for(let i=0;i<stops.length-1;i++){
+    const[p0,c0]=stops[i],[p1,c1]=stops[i+1];
+    if(t<=p1||i===stops.length-2){
+      const f=Math.max(0,Math.min(1,(t-p0)/(p1-p0)));
+      return lerp(hex(c0),hex(c1),f);
+    }
+  }
+}
+const SKY_TOP=[[-0.4,"#070B1C"],[-0.05,"#141B3A"],[0.06,"#3A3160"],[0.18,"#5A6FA8"],[0.45,"#3E86CE"],[1,"#2F79C8"]];
+const SKY_BOT=[[-0.4,"#0B1230"],[-0.05,"#2B2545"],[0.06,"#C9663C"],[0.18,"#E9A063"],[0.45,"#A8D3EE"],[1,"#BFE2F5"]];
+
+const cloudsEl=document.getElementById('clouds');
+[{x:52,y:64,s:1.0,d:34},{x:132,y:42,s:1.35,d:22},{x:192,y:76,s:.8,d:44}].forEach(c=>{
+  const el=document.createElement('div'); el.className='cloud';
+  el.style.left=c.x+'px'; el.style.top=c.y+'px';
+  el.innerHTML=`<svg width="${72*c.s}" height="${34*c.s}" viewBox="0 0 72 34">
+    <path d="M14 30 q-12 0 -12-9 t11-9 q2-11 14-11 t15 10 q11-1 13 8 t-11 11 Z" fill="#fff" opacity=".92"/></svg>`;
+  el.style.animation=`drift ${c.d}s linear infinite alternate`;
+  cloudsEl.appendChild(el);
+});
+const rainEl=document.getElementById('rainlayer'), DROPS=34;
+for(let i=0;i<DROPS;i++){
+  const d=document.createElement('i');
+  d.style.left=(i*3.05+(i%5)*1.4)+'%';
+  d.style.height=(9+(i%4)*3)+'px';
+  d.style.animationDuration=(0.42+(i%6)*0.06)+'s';
+  d.style.animationDelay=(-(i%9)*0.11)+'s';
+  rainEl.appendChild(d);
+}
+
+let wt=0, zoom=0;
+const SPANS=[48,24*14];
+const rc=document.getElementById('rc'), rctx=rc.getContext('2d');
+
+function wxRender(){
+  const s=sample(wt), tod=(((wt+START)%24)+24)%24, sol=solar(tod);
+  const rain=Math.min(1,s.precip/2.2), cover=s.cloud;
+  let top=ramp(SKY_TOP,sol.elev), bot=ramp(SKY_BOT,sol.elev);
+  const grey=[86,92,104];
+  top=lerp(top,grey,cover*0.55); bot=lerp(bot,lerp(grey,[150,158,170],.5),cover*0.5);
+  document.getElementById('sky').style.background=`linear-gradient(180deg, ${rgbs(top)}, ${rgbs(bot)})`;
+
+  const sun=document.getElementById('sun'), moon=document.getElementById('moon');
+  sun.style.left=(8+sol.x*84)+'%'; sun.style.top=(78-Math.max(0,sol.elev)*58)+'%';
+  sun.style.opacity=Math.max(0,Math.min(1,(sol.elev+0.08)*6))*(1-cover*0.75);
+  moon.style.left=(8+((sol.x+0.5)%1)*84)+'%'; moon.style.top=(62-Math.max(0,-sol.elev)*34)+'%';
+  moon.style.opacity=Math.max(0,Math.min(1,(-sol.elev-0.02)*7))*(1-cover*0.8);
+
+  cloudsEl.style.opacity=Math.min(1,cover*1.15);
+  cloudsEl.style.filter=`brightness(${1-cover*0.35})`;
+  rainEl.style.opacity=rain;
+  [...rainEl.children].forEach((d,i)=>{d.style.display=(i/DROPS)<rain?'block':'none';});
+  document.getElementById('ground').style.background=
+    `linear-gradient(180deg, ${rgbs(lerp(bot,[26,34,28],.62))}, ${rgbs(lerp(bot,[14,20,18],.82))})`;
+
+  document.getElementById('umb').style.opacity=rain>0.16?1:0;
+  document.getElementById('armR').setAttribute('d',rain>0.16?'M48 50 L52 42':'M48 50 L58 62');
+  document.getElementById('shades').style.opacity=(sol.elev>0.55&&cover<0.35)?1:0;
+
+  const cond=rain>0.5?'Rain':rain>0.14?'Light rain':cover>0.72?'Overcast':
+             cover>0.38?'Partly cloudy':sol.elev>0?'Clear':'Clear night';
+  document.getElementById('wx-temp').textContent=Math.round(s.temp)+'°';
+  document.getElementById('wx-cond').textContent=cond;
+  document.getElementById('wx-rain').textContent=s.precip<0.05?'—':s.precip.toFixed(1)+' mm/h';
+  document.getElementById('wx-wind').textContent=Math.round(s.wind)+' km/h';
+  document.getElementById('wx-feel').textContent=Math.round(s.temp-s.wind*0.14)+'°';
+  const names=['Sat','Sun','Mon','Tue','Wed','Thu','Fri'];
+  const dOff=Math.floor((wt+START)/24), hh=Math.floor(tod);
+  document.getElementById('wx-when').textContent=
+    (Math.abs(wt)<0.35?'Now':(dOff===0?'Today':dOff===1?'Tomorrow':names[(dOff+6)%7])
+      +' '+String(hh).padStart(2,'0')+':00')+' · Warsaw';
+  drawWxRuler();
+}
+function drawWxRuler(){
+  const dpr=devicePixelRatio||1, W=rc.clientWidth, H=rc.clientHeight;
+  if(!W) return;
+  rc.width=W*dpr; rc.height=H*dpr; rctx.setTransform(dpr,0,0,dpr,0,0);
+  rctx.clearRect(0,0,W,H);
+  const span=SPANS[zoom], pad=20, w=W-pad*2;
+  rctx.beginPath(); rctx.moveTo(pad,H-12);
+  for(let i=0;i<=w;i+=2){
+    const hr=(i/w)*span, v=Math.min(1,sample(hr).precip/2.4);
+    rctx.lineTo(pad+i,H-12-v*30);
+  }
+  rctx.lineTo(pad+w,H-12); rctx.closePath();
+  const g=rctx.createLinearGradient(0,H-42,0,H-12);
+  g.addColorStop(0,'rgba(61,138,255,.55)'); g.addColorStop(1,'rgba(61,138,255,.05)');
+  rctx.fillStyle=g; rctx.fill();
+  const majEvery=zoom===0?6:24;
+  for(let hr=0;hr<=span;hr+=zoom===0?1:6){
+    const x=pad+(hr/span)*w, maj=Math.round(hr+START)%majEvery===0;
+    const tod=(((hr+START)%24)+24)%24, night=tod<SUNRISE||tod>SUNSET;
+    rctx.fillStyle=maj?'rgba(255,255,255,.40)':(night?'rgba(255,255,255,.10)':'rgba(255,255,255,.20)');
+    rctx.fillRect(x,H-12-(maj?13:7),1,maj?13:7);
+    if(maj&&hr<span){
+      rctx.fillStyle='rgba(255,255,255,.32)';
+      rctx.font='9px ui-monospace, SF Mono, Menlo, monospace';
+      const lbl=zoom===0?String(Math.round(tod)).padStart(2,'0')
+                        :['Sa','Su','Mo','Tu','We','Th','Fr'][(Math.floor((hr+START)/24)+6)%7];
+      rctx.fillText(lbl,x+3,H-30);
+    }
+  }
+  rctx.fillStyle='rgba(255,255,255,.09)'; rctx.fillRect(pad,H-12,w,1);
+  const cx=pad+(wt/span)*w;
+  rctx.fillStyle='#FFB454'; rctx.fillRect(cx-1,6,2,H-16);
+  rctx.beginPath(); rctx.arc(cx,6,3.5,0,Math.PI*2); rctx.fill();
+}
+const wxruler=document.getElementById('wxruler');
+let dragging=false;
+const setFromX=cx=>{
+  const r=wxruler.getBoundingClientRect(), pad=20;
+  const f=(cx-r.left-pad)/(r.width-pad*2);
+  wt=Math.max(0,Math.min(SPANS[zoom]-0.01,f*SPANS[zoom])); wxRender();
+};
+wxruler.addEventListener('pointerdown',e=>{dragging=true;wxruler.setPointerCapture(e.pointerId);setFromX(e.clientX);});
+wxruler.addEventListener('pointermove',e=>{if(dragging)setFromX(e.clientX);});
+wxruler.addEventListener('pointerup',()=>{dragging=false;});
+wxruler.addEventListener('wheel',e=>{
+  e.preventDefault();
+  const next=e.deltaY>0?1:0;
+  if(next!==zoom){
+    zoom=next; wt=Math.min(wt,SPANS[zoom]-0.01);
+    document.getElementById('wx-hi').textContent=zoom===0?'+48h':'+14d';
+    document.getElementById('wx-zoom').textContent=(zoom===0?'Hours':'Days')+' · drag to scrub · scroll to zoom';
+    wxRender();
+  }
+},{passive:false});
+addEventListener('resize',wxRender);
+wxRender();
+</script>
+</body>
+</html>

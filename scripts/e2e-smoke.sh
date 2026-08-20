@@ -46,14 +46,20 @@ cleanup() {
   [ -n "$SHELL_PID" ] && kill "$SHELL_PID" 2>/dev/null || true
   [ -n "$HOST_PID" ] && wait "$HOST_PID" 2>/dev/null || true
   [ -n "$SHELL_PID" ] && wait "$SHELL_PID" 2>/dev/null || true
-  rm -rf "$WORK_DIR"
+  # `LEDGE_E2E_KEEP=1` preserves the logs for a post-mortem. A failing run
+  # otherwise deletes exactly the evidence you need.
+  if [ -n "${LEDGE_E2E_KEEP:-}" ]; then
+    printf '\033[1;34m[e2e]\033[0m kept workspace: %s\n' "$WORK_DIR" >&2
+  else
+    rm -rf "$WORK_DIR"
+  fi
 }
 trap cleanup EXIT INT TERM
 
 # --- Preconditions ----------------------------------------------------------
 
 log "workspace: $WORK_DIR"
-[ -f "$DEMO_APPS/stocks/app.jsx" ] || fail "demo app missing at $DEMO_APPS/stocks/app.jsx"
+[ -f "$DEMO_APPS/timer/app.jsx" ] || fail "demo app missing at $DEMO_APPS/timer/app.jsx"
 
 # Ensure the apps root's own dependencies are installed (spec §6: the shared
 # node_modules at the apps root, plus the lockfile that pins it). The apps root
@@ -91,8 +97,16 @@ log "socket is up"
 
 # --- Launch the host against the demo apps ----------------------------------
 
-log "starting host against $DEMO_APPS"
-( cd "$HOST_DIR" && exec bun src/host.ts "$SOCK" --apps-root "$DEMO_APPS" ) >"$HOST_LOG" 2>&1 &
+# `LEDGE_HOST_CMD` runs a different host build through the identical pipeline —
+# `LEDGE_HOST_CMD=dist/ledge scripts/e2e-smoke.sh` exercises the COMPILED binary.
+# Worth having as a switch rather than a second script: the compiled host differs
+# from the interpreted one in exactly the ways an e2e test is built to catch
+# (worker entrypoint resolution, React identity — see host/src/render/runtime.ts),
+# and those failures are invisible to `bun test`.
+HOST_CMD=${LEDGE_HOST_CMD:-"bun src/host.ts"}
+log "starting host ($HOST_CMD) against $DEMO_APPS"
+# shellcheck disable=SC2086 # HOST_CMD is a command + args, split on purpose.
+( cd "$HOST_DIR" && exec $HOST_CMD "$SOCK" --apps-root "$DEMO_APPS" ) >"$HOST_LOG" 2>&1 &
 HOST_PID=$!
 
 # Give the pipeline time to: exchange hellos, deliver the catalog, spawn the
@@ -101,7 +115,7 @@ for _ in $(seq 1 40); do
   if grep -q "applied commit" "$SHELL_LOG" 2>/dev/null \
      && grep -q "connected, gen" "$HOST_LOG" 2>/dev/null \
      && grep -q "catalog ->" "$HOST_LOG" 2>/dev/null \
-     && grep -q "stocks=sf:" "$SHELL_LOG" 2>/dev/null; then
+     && grep -q "timer=sf:" "$SHELL_LOG" 2>/dev/null; then
     break
   fi
   kill -0 "$HOST_PID" 2>/dev/null || fail "host exited early"
@@ -118,15 +132,45 @@ log "✓ catalog delivered"
 # Meta extraction (spec §6 → §3.6): the worker declares name/icon, the host
 # merges it, and the shell's strip finally shows real icons instead of the
 # registry's placeholder — the user-visible bug this API group fixes.
-grep -q "meta <- stocks" "$HOST_LOG"   || fail "worker never posted its meta"
+grep -q "meta <- timer" "$HOST_LOG"    || fail "worker never posted its meta"
 log "✓ worker meta extracted"
-grep -q "stocks=sf:chart.line.uptrend.xyaxis" "$SHELL_LOG" \
+grep -q "timer=sf:timer" "$SHELL_LOG" \
   || fail "shell's catalog never carried the app's real icon (strip would show a placeholder)"
 log "✓ shell strip has the app's real sf: icon"
-grep -q "commit -> stocks" "$HOST_LOG" || fail "host never routed a commit for stocks"
+grep -q "commit -> timer" "$HOST_LOG"  || fail "host never routed a commit for timer"
 log "✓ host routed the mount commit"
 grep -q "applied commit" "$SHELL_LOG"  || fail "shell never applied a commit"
 log "✓ shell applied the commit end-to-end"
+
+# React identity (host/src/render/runtime.ts). Asserted by NAME, and by the name
+# of a *default* app, because this is the one failure that appears ONLY in the
+# compiled host (LEDGE_HOST_CMD=dist/ledge), where a static `import react` gets
+# embedded in the binary while the app keeps resolving its own off disk — and
+# `applied commit` on its own would pass on a single app of the eight.
+#
+# `focus`, because it is the widest §5 vocabulary among the apps that need
+# nothing from the outside world to render: no network (weather), no player
+# (nowplaying), no subprocess (chess). It ships, so a break here is a break a
+# user would see on first launch.
+#
+# This check used to name `settings`, on the grounds that it was the demo app
+# using `useState` and two react copies are a null hooks dispatcher on the first
+# hook. Settings is a native macOS window now and the app is archived — and NO
+# demo app uses hooks any longer, so what remains asserted here is the weaker
+# "the reconciler and the app agree well enough to mount". Restoring a
+# hooks-using demo app would restore the sharp edge; until then, treat this as a
+# smoke test rather than the proof it was.
+grep -q "applied commit app=focus" "$SHELL_LOG" \
+  || fail "the react-identity canary never rendered — likely two react instances (see host/src/render/runtime.ts)"
+log "✓ default app rendered (one react instance)"
+
+# No app may crash-loop. Cheap, and it catches the whole class of "it rendered,
+# but half the catalog is restarting behind the log line we asserted on".
+if grep -q " -> crashed" "$HOST_LOG"; then
+  grep " -> crashed" "$HOST_LOG" | sort -u >&2
+  fail "an app crashed during the run (see above; crash.log in the app's folder has the stack)"
+fi
+log "✓ no app crashed"
 
 log "PASS — three-process pipeline connected and rendered."
 echo "--- host.log (tail) ---"

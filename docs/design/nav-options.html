@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge — nav options</title>
+<style>
+:root {
+  --glass-solid: #050506;
+  --raised: rgba(255,255,255,.055);
+  --raised-hover: rgba(255,255,255,.10);
+  --hairline-d: rgba(255,255,255,.09);
+  --track: rgba(255,255,255,.14);
+  --ink-1: rgba(255,255,255,.94);
+  --ink-2: rgba(255,255,255,.56);
+  --ink-3: rgba(255,255,255,.32);
+  --accent: #FFB454;
+  --violet: #8F61FF;
+  --cyan: #2ED1F0;
+  --paper: #F5F6F8;
+  --page-ink: #1B1D21;
+  --page-dim: #757B84;
+  --page-hairline: rgba(27,29,33,.10);
+  --wall-a: #DFE4EB;
+  --wall-b: #C6CDD8;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: var(--paper); color: var(--page-ink); font: 15px/1.6 var(--sys); -webkit-font-smoothing: antialiased; }
+button { font: inherit; cursor: default; border: none; background: none; color: inherit; }
+.wrap { max-width: 1160px; margin: 0 auto; padding: 56px 32px 140px; }
+header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; }
+.mark { font: 700 13px/1 var(--sys); letter-spacing: .30em; text-transform: uppercase; }
+.gov { font: 11px/1 var(--mono); color: var(--page-dim); }
+.note {
+  font-size: 14px; color: var(--page-dim); max-width: 62ch; margin: 14px 0 60px;
+  border-top: 1px solid var(--page-hairline); padding-top: 12px;
+}
+section { margin-bottom: 96px; }
+h2 { font: 600 15px/1.3 var(--sys); margin-bottom: 2px; }
+.sub { font: 11px/1.7 var(--mono); color: var(--page-dim); margin-bottom: 16px; }
+.laws { margin-top: 14px; list-style: none; }
+.laws li { font: 400 11px/2.0 var(--mono); color: var(--page-dim); padding-left: 16px; position: relative; }
+.laws li::before { content: "—"; position: absolute; left: 0; color: var(--accent); }
+.verdict {
+  margin-top: 60px; padding: 22px 26px; border: 1px solid var(--page-hairline); border-radius: 12px;
+  max-width: 70ch;
+}
+.verdict h2 { margin-bottom: 8px; }
+.verdict p { font-size: 14px; color: var(--page-ink); margin-bottom: 10px; }
+.verdict p:last-child { margin-bottom: 0; }
+
+/* ------------------------------------------------ the simulated screen */
+.screen {
+  position: relative; height: 400px; overflow: hidden;
+  border-radius: 14px; border: 1px solid var(--page-hairline);
+  background:
+    radial-gradient(120% 90% at 20% 0%, var(--wall-a), transparent 60%),
+    linear-gradient(165deg, var(--wall-a), var(--wall-b));
+  user-select: none;
+}
+.cutout {
+  position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  width: 168px; height: 26px; background: #000;
+  border-radius: 0 0 10px 10px; z-index: 6;
+}
+.cutout.clicky { cursor: pointer; }
+
+/* floating islands — no bar */
+.island {
+  position: absolute; top: 4px; z-index: 7;
+  height: 24px; border-radius: 999px;
+  background: linear-gradient(180deg, #17181b, #0a0a0c);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 4px rgba(0,0,0,.35);
+  display: flex; align-items: center; overflow: hidden;
+}
+.island.l { left: calc(50% - 84px); transform: translateX(-100%); margin-left: -14px; }
+.island.r { left: calc(50% + 84px); margin-left: 14px; }
+.seg {
+  height: 100%; padding: 0 11px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-2); font: 500 12px/1 var(--sys); gap: 6px;
+  transition: background .15s ease, color .15s ease, box-shadow .15s ease;
+}
+.seg:hover { background: var(--raised-hover); color: var(--ink-1); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16); }
+.seg.on { color: var(--ink-1); background: var(--raised); }
+.seg svg { display: block; }
+.segdiv { width: 1px; height: 12px; background: var(--ink-3); flex: none; }
+
+/* the panel — clean rectangle, no bar */
+.panel {
+  position: absolute; top: 26px; left: 50%; transform: translateX(-50%);
+  width: 336px; background: var(--glass-solid);
+  border-radius: 14px 14px 20px 20px; z-index: 5;
+  overflow: hidden;
+  transition: height .25s cubic-bezier(.33,1,.45,1);
+}
+/* fillet bridge to the cutout */
+.panel::before {
+  content: ""; position: absolute; top: 0; left: 50%; transform: translateX(-50%);
+  width: 168px; height: 10px; background: #000;
+}
+
+/* the fake app (stage) */
+.stage { padding: 24px 22px 18px; position: relative; }
+.eyebrow { font: 600 10px/1 var(--mono); letter-spacing: .22em; text-transform: uppercase; color: var(--ink-3); }
+.numrow { display: flex; align-items: center; margin: 8px 0 14px; }
+.numeral { font-size: 34px; font-weight: 300; color: var(--ink-1); font-variant-numeric: tabular-nums; }
+.numrow .sp { flex: 1; }
+.gbtn { width: 32px; height: 32px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
+.gbtn:hover { background: var(--raised-hover); box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+.meter { height: 3px; border-radius: 2px; background: var(--track); }
+.meter i { display: block; height: 100%; width: 38%; background: var(--accent); border-radius: 2px; }
+.appname { position: absolute; top: 6px; right: 10px; font: 400 9.5px/1 var(--mono); color: var(--ink-3); }
+
+/* the ledge view */
+.ledge { padding: 30px 20px 0; display: none; }
+.shelfrow { display: flex; justify-content: center; align-items: flex-end; gap: 14px; border-bottom: 1px solid var(--track); padding-bottom: 0; height: 96px; }
+.slab {
+  width: 52px; height: 68px; border-radius: 10px 10px 0 0;
+  background: linear-gradient(180deg, rgba(255,255,255,.20), rgba(255,255,255,.075));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.32);
+  color: #fff; display: grid; place-items: center;
+  transform-origin: 50% 100%; transition: transform .18s ease;
+  cursor: pointer; font-size: 19px;
+}
+.slab:hover { transform: translateY(-9px) scale(1.07); }
+.slab.blank { background: none; box-shadow: none; border: 1px dashed var(--track); border-bottom: none; color: var(--ink-3); }
+.ledgepad { height: 26px; }
+
+/* chat overlay */
+.chat {
+  position: absolute; inset: 0; z-index: 4; display: none;
+  background: linear-gradient(rgba(5,5,6,.0) 0%, rgba(10,10,14,.55) 30%, rgba(14,15,20,.86) 100%);
+  backdrop-filter: blur(9px); -webkit-backdrop-filter: blur(9px);
+}
+.panel.chatting .stage { opacity: .55; transform: scale(.965); transform-origin: top center; }
+.chat .bubbles { position: absolute; left: 14px; right: 14px; bottom: 58px; display: flex; flex-direction: column; gap: 7px; }
+.bub { max-width: 78%; padding: 7px 12px; border-radius: 14px; font: 400 12px/1.4 var(--sys); }
+.bub.you { align-self: flex-end; color: #fff; background: linear-gradient(160deg, #A47CFF, #7E4FF2); box-shadow: 0 0 18px rgba(143,97,255,.45), inset 0 1px 0 rgba(255,255,255,.3); border-bottom-right-radius: 4px; }
+.bub.agent { align-self: flex-start; color: var(--ink-1); background: linear-gradient(160deg, rgba(46,209,240,.30), rgba(46,209,240,.14)); border: 1px solid rgba(46,209,240,.36); box-shadow: 0 0 16px rgba(46,209,240,.3); border-bottom-left-radius: 4px; }
+
+/* the pill */
+.pill {
+  position: absolute; left: 12px; right: 12px; bottom: 10px; height: 36px; z-index: 5;
+  border-radius: 999px; display: flex; align-items: center; gap: 8px; padding: 0 5px;
+  background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.16);
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  transition: opacity .2s ease;
+}
+.pill .hint { flex: 1; font: 400 12px/1 var(--sys); color: var(--ink-2); }
+.pill .orb { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; color: var(--ink-1); flex: none; }
+.pill .orb.cy { background: linear-gradient(180deg, #5FE4F8, var(--cyan)); color: #04353D; box-shadow: 0 0 12px rgba(46,209,240,.45), inset 0 1px 0 rgba(255,255,255,.4); }
+.pill.resting { opacity: .55; }
+.pill.resting:hover { opacity: 1; }
+.pill input { flex: 1; background: none; border: none; outline: none; color: var(--ink-1); font: 400 12px/1 var(--sys); }
+.pill input::placeholder { color: var(--ink-2); }
+
+/* coverflow peeks (option 2) */
+.peek {
+  position: absolute; top: 60px; bottom: 60px; width: 26px; z-index: 6; display: none;
+  background: linear-gradient(180deg, rgba(255,255,255,.14), rgba(255,255,255,.05));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.25);
+  color: var(--ink-2); cursor: pointer;
+  align-items: center; justify-content: center;
+  font: 600 12px/1 var(--sys);
+  writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: .08em;
+}
+.peek:hover { color: var(--ink-1); background: linear-gradient(180deg, rgba(255,255,255,.2), rgba(255,255,255,.09)); }
+.peek.pl { left: 0; border-radius: 0 10px 10px 0; }
+.peek.pr { right: 0; border-radius: 10px 0 0 10px; }
+
+/* toast */
+.toast {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%) translateY(6px);
+  background: #fff; color: var(--page-ink); font: 500 12px/1 var(--sys);
+  padding: 9px 14px; border-radius: 8px; box-shadow: 0 8px 24px rgba(27,29,33,.25);
+  opacity: 0; transition: opacity .2s ease, transform .2s ease; pointer-events: none; z-index: 9;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.hoverhint { position: absolute; bottom: 12px; left: 14px; font: 400 10.5px/1 var(--mono); color: var(--page-dim); z-index: 2; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="mark">Ledge</div>
+    <div class="gov">nav options — four working simulations · click everything</div>
+  </header>
+  <p class="note">All four run on the <b>floating-islands chassis</b>: the bar is gone,
+  the beads float beside the notch, the panel hangs clean. Every simulation has
+  three inner views — the app (Focus), the ledge, the chat — and ‹|› always
+  walks apps. What differs is <b>how you reach the ledge and the chat</b>.</p>
+
+  <!-- ============================================================ O1 -->
+  <section id="o1">
+    <h2>Option 1 · The three-way split — ⌂ ✦ ⚙</h2>
+    <div class="sub">home shows the ledge · ✦ toggles chat · ⚙ opens the native settings window · chat is just a mode</div>
+    <div class="screen" data-sim="o1"></div>
+    <ul class="laws">
+      <li>every destination has a truthful door · nothing is hidden</li>
+      <li>three icons on one island — the widest chrome of the four</li>
+      <li>chat de-emphasized: one segment among three</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ O2 -->
+  <section id="o2">
+    <h2>Option 2 · Coverflow chat — neighbors peek</h2>
+    <div class="sub">left island is ⌂ ✦ · in chat, the prev/next apps peek at the edges — click a peek (or ‹|›) to switch <b>while staying in chat</b></div>
+    <div class="screen" data-sim="o2"></div>
+    <ul class="laws">
+      <li>chat becomes a place you browse apps *from* — paint one, peek the next</li>
+      <li>the peeks double as "where am I in the strip"</li>
+      <li>costs horizontal room in chat · peeks must never steal stage clicks</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ O3 -->
+  <section id="o3">
+    <h2>Option 3 · The standing pill</h2>
+    <div class="sub">left island is ⌂ alone · the pill waits at the bottom of every view, dimmed · click it (or type) and the transcript rises · ⌄ drops it</div>
+    <div class="screen" data-sim="o3"></div>
+    <ul class="laws">
+      <li>the agent is foundationally present — never behind a button</li>
+      <li>one icon of chrome total · costs ~40pt of panel height, always</li>
+      <li>unobtrusive-yet-obvious knob: the pill's resting opacity</li>
+    </ul>
+  </section>
+
+  <!-- ============================================================ O4 -->
+  <section id="o4">
+    <h2>Option 4 · The notch is home</h2>
+    <div class="sub">no left island at all — <b>click the notch itself</b> for the ledge · the standing pill carries chat · chrome is just ‹|› and the pill</div>
+    <div class="screen" data-sim="o4"></div>
+    <ul class="laws">
+      <li>the seat is the home button — the most central target on the screen</li>
+      <li>zero left chrome · the quietest of the four</li>
+      <li>risk: nothing *says* the notch is clickable — pure learned magic</li>
+    </ul>
+  </section>
+
+  <div class="verdict">
+    <h2>My read</h2>
+    <p><b>I prefer Option 3</b>, with Option 2's stay-in-chat switching folded in
+    (they compose: the standing pill for entry, mode-preserving ‹|› once you're
+    in — the peeks themselves I'd hold until the strip walking feels wrong
+    without them). The pill is the only design where the agent is discovered by
+    <i>existing</i> rather than by being found behind an icon, which is what
+    principle 11 was always claiming. Its height cost is real but honest — every
+    other option hides the product's main idea to save 40 points.</p>
+    <p>Option 1 is the safest and the most conventional — three truthful doors —
+    but ⚙ pays top-level chrome for something right-click and ⌘, already do,
+    and ✦ still makes the agent a mode you visit. If the pill feels heavy in
+    practice, O1 <i>minus the gear</i> (a ⌂ ✦ split) is my second choice.
+    Option 4 is the one I'd want in a keynote and the one I'd regret shipping
+    first — clickable-notch is a delighter to <i>add later</i> to whichever
+    option wins, not a primary door.</p>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var APPS = [
+    { name: "focus",   eyebrow: "FOCUS",   numeral: "18:42", pct: 38 },
+    { name: "weather", eyebrow: "OUTSIDE", numeral: "25°",   pct: 62 },
+    { name: "tetris",  eyebrow: "",        numeral: "12,480", pct: 20 }
+  ];
+  var GLYPHS = ["◔", "☁", "▦", "＋"];
+
+  function h(tag, cls, html) {
+    var el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (html != null) el.innerHTML = html;
+    return el;
+  }
+  var ICO = {
+    home: '<svg width="12" height="12" viewBox="0 0 14 14"><path d="M2.2 7 7 2.6 11.8 7M3.6 6.2v5h6.8v-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    chat: '<svg width="12" height="12" viewBox="0 0 14 14"><path d="M2.2 3.4h9.6v6h-5.4L3.6 12v-2.6H2.2z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>',
+    gear: '<svg width="12" height="12" viewBox="0 0 14 14"><circle cx="7" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M7 1.6v2M7 10.4v2M1.6 7h2M10.4 7h2M3.2 3.2l1.4 1.4M9.4 9.4l1.4 1.4M10.8 3.2 9.4 4.6M4.6 9.4 3.2 10.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+    pause: '<svg width="15" height="15" viewBox="0 0 14 14"><path d="M4.6 2.8v8.4M9.4 2.8v8.4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    x: '<svg width="13" height="13" viewBox="0 0 14 14"><path d="M3.2 3.2l7.6 7.6M10.8 3.2l-7.6 7.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    down: '<svg width="12" height="12" viewBox="0 0 14 14"><path d="M3.2 5.4 7 9.2l3.8-3.8" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    plus: '<svg width="12" height="12" viewBox="0 0 14 14"><path d="M7 2.4v9.2M2.4 7h9.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>'
+  };
+
+  function buildSim(screen, opts) {
+    var idx = 0, view = "stage"; // stage | ledge | chat
+    var heights = { stage: 150, ledge: 154, chat: 320 };
+
+    var cutout = h("div", "cutout" + (opts.notchHome ? " clicky" : ""));
+    var panel = h("div", "panel");
+    var stage = h("div", "stage");
+    var ledge = h("div", "ledge");
+    var chat = h("div", "chat");
+    var toast = h("div", "toast");
+    screen.append(cutout, panel, toast);
+
+    // stage content
+    var appname = h("div", "appname");
+    var eyebrow = h("div", "eyebrow");
+    var numrow = h("div", "numrow");
+    var numeral = h("span", "numeral");
+    var sp = h("span", "sp");
+    var b1 = h("button", "gbtn", ICO.pause), b2 = h("button", "gbtn", ICO.x);
+    numrow.append(numeral, sp, b1, b2);
+    var meter = h("div", "meter", "<i></i>");
+    stage.append(appname, eyebrow, numrow, meter);
+
+    // ledge content
+    var shelfrow = h("div", "shelfrow");
+    GLYPHS.forEach(function (g, i) {
+      var s = h("button", "slab" + (i === 3 ? " blank" : ""), i === 3 ? ICO.plus : g);
+      s.addEventListener("click", function () {
+        if (i < 3) { idx = i; setView("stage"); }
+        else { say(toast, "the blank slot — a new conversation"); }
+      });
+      shelfrow.append(s);
+    });
+    ledge.append(shelfrow, h("div", "ledgepad"));
+
+    // chat content
+    var bubbles = h("div", "bubbles");
+    bubbles.append(
+      h("div", "bub you", "make the ring a bar"),
+      h("div", "bub agent", "Done — it's live above. Keep it?")
+    );
+    chat.append(bubbles);
+
+    panel.append(stage, ledge, chat);
+
+    // pill
+    var pill = null;
+    if (opts.pill) {
+      pill = h("div", "pill" + (opts.pillStanding ? " resting" : ""));
+      var orb1 = h("span", "orb", ICO.plus);
+      var input = h("input");
+      input.placeholder = "ask anything…";
+      var orb2 = h("button", "orb cy", ICO.down);
+      pill.append(orb1, input, orb2);
+      panel.append(pill);
+      input.addEventListener("focus", function () { if (view !== "chat") setView("chat"); });
+      pill.addEventListener("click", function () { if (view !== "chat") setView("chat"); });
+      orb2.addEventListener("click", function (e) {
+        e.stopPropagation();
+        setView(view === "chat" ? "stage" : "chat");
+      });
+    }
+
+    // peeks (coverflow)
+    var pl, pr;
+    if (opts.peeks) {
+      pl = h("button", "peek pl"); pr = h("button", "peek pr");
+      pl.addEventListener("click", function () { idx = (idx + APPS.length - 1) % APPS.length; render(); });
+      pr.addEventListener("click", function () { idx = (idx + 1) % APPS.length; render(); });
+      panel.append(pl, pr);
+    }
+
+    // islands
+    var right = h("div", "island r");
+    var prev = h("button", "seg", "‹"), div1 = h("span", "segdiv"), next = h("button", "seg", "›");
+    right.append(prev, div1, next);
+    prev.addEventListener("click", function () { walk(-1); });
+    next.addEventListener("click", function () { walk(1); });
+    div1.addEventListener("click", function () { setView("ledge"); });
+    screen.append(right);
+
+    if (opts.segments.length) {
+      var left = h("div", "island l");
+      opts.segments.forEach(function (seg, i) {
+        if (i) left.append(h("span", "segdiv"));
+        var b = h("button", "seg", ICO[seg.icon]);
+        b.dataset.seg = seg.icon;
+        b.addEventListener("click", seg.act);
+        left.append(b);
+      });
+      screen.append(left);
+    }
+    if (opts.notchHome) {
+      cutout.addEventListener("click", function () { setView(view === "ledge" ? "stage" : "ledge"); });
+      screen.append(h("div", "hoverhint", "the notch itself is Home — click it"));
+    }
+
+    function walk(d) {
+      idx = (idx + d + APPS.length) % APPS.length;
+      if (!opts.modePreserving && view === "chat") view = "stage";
+      render();
+    }
+    function say(t, msg) {
+      t.textContent = msg; t.classList.add("show");
+      clearTimeout(t._t); t._t = setTimeout(function () { t.classList.remove("show"); }, 1600);
+    }
+    function setView(v) { view = v; render(); }
+    screen._api = { setView: setView, say: function (m) { say(toast, m); } };
+
+    function render() {
+      var app = APPS[idx];
+      appname.textContent = app.name;
+      eyebrow.textContent = app.eyebrow;
+      numeral.textContent = app.numeral;
+      meter.firstChild.style.width = app.pct + "%";
+      stage.style.display = view === "ledge" ? "none" : "block";
+      ledge.style.display = view === "ledge" ? "block" : "none";
+      chat.style.display = view === "chat" ? "block" : "none";
+      panel.classList.toggle("chatting", view === "chat");
+      var hpill = pill ? (opts.pillStanding || view === "chat" ? 46 : 0) : 0;
+      if (pill) {
+        pill.style.display = (opts.pillStanding || view === "chat") ? "flex" : "none";
+        pill.classList.toggle("resting", opts.pillStanding && view !== "chat");
+      }
+      if (pl) { pl.style.display = pr.style.display = (view === "chat" ? "flex" : "none");
+        pl.textContent = APPS[(idx + APPS.length - 1) % APPS.length].name;
+        pr.textContent = APPS[(idx + 1) % APPS.length].name; }
+      panel.style.height = (heights[view] + (view === "chat" ? 0 : hpill)) + "px";
+      // left segment on-states
+      screen.querySelectorAll(".seg[data-seg]").forEach(function (b) {
+        b.classList.toggle("on",
+          (b.dataset.seg === "home" && view === "ledge") ||
+          (b.dataset.seg === "chat" && view === "chat"));
+      });
+    }
+    render();
+  }
+
+  document.querySelectorAll(".screen").forEach(function (screen) {
+    var sim = screen.dataset.sim;
+    if (sim === "o1") buildSim(screen, {
+      modePreserving: false, pill: true, pillStanding: false,
+      segments: [
+        { icon: "home", act: function () { screen._api.setView(v(screen) === "ledge" ? "stage" : "ledge"); } },
+        { icon: "chat", act: function () { screen._api.setView(v(screen) === "chat" ? "stage" : "chat"); } },
+        { icon: "gear", act: function () { screen._api.say("Settings opens as a normal macOS window"); } }
+      ]
+    });
+    if (sim === "o2") buildSim(screen, {
+      modePreserving: true, pill: true, pillStanding: false, peeks: true,
+      segments: [
+        { icon: "home", act: function () { screen._api.setView(v(screen) === "ledge" ? "stage" : "ledge"); } },
+        { icon: "chat", act: function () { screen._api.setView(v(screen) === "chat" ? "stage" : "chat"); } }
+      ]
+    });
+    if (sim === "o3") buildSim(screen, {
+      modePreserving: true, pill: true, pillStanding: true,
+      segments: [
+        { icon: "home", act: function () { screen._api.setView(v(screen) === "ledge" ? "stage" : "ledge"); } }
+      ]
+    });
+    if (sim === "o4") buildSim(screen, {
+      modePreserving: true, pill: true, pillStanding: true, notchHome: true,
+      segments: []
+    });
+  });
+
+  // tiny helper: read current view back out of the DOM state
+  function v(screen) {
+    var panel = screen.querySelector(".panel");
+    if (panel.classList.contains("chatting")) return "chat";
+    return screen.querySelector(".ledge").style.display === "block" ? "ledge" : "stage";
+  }
+})();
+</script>
+</body>
+</html>

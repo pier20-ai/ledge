@@ -1,0 +1,112 @@
+import Foundation
+import Testing
+@testable import LedgeShellCore
+
+/// **The strip** (flow.md, "The strip"), which replaced the bottom app bar.
+///
+/// `AppStripTests` used to live here and tested a scrolling row of icons with a
+/// pinned **[+]** and a pinned Settings — a bar flow.md does not have. What
+/// survived the deletion is the *idea*: a linear row of sessions you walk. Its
+/// two laws are below, and the second one is the whole reason this is a value
+/// type rather than an index into an array.
+@Suite("The session strip (flow.md)")
+struct SessionStripTests {
+    private func catalog(_ ids: [String], disabled: Set<String> = []) -> [CatalogApp] {
+        ids.enumerated().map { index, id in
+            CatalogApp(
+                id: id,
+                name: id.capitalized,
+                icon: "sf:circle",
+                order: index,
+                enabled: !disabled.contains(id),
+                running: true
+            )
+        }
+    }
+
+    @Test("Installed apps in registry order, then exactly one blank slot")
+    func slotsAreRegistryOrderPlusOneBlank() {
+        let strip = SessionStrip(catalog: catalog(["music", "chess", "weather"]))
+        #expect(strip.slots == [.app("music"), .app("chess"), .app("weather"), .blank])
+        #expect(strip.slots.filter { $0 == .blank }.count == 1)
+    }
+
+    @Test("Catalog order wins over catalog sequence, and disabled apps are not on it")
+    func orderAndEnablement() {
+        var apps = catalog(["weather", "chess"], disabled: ["chess"])
+        apps[0].order = 5
+        let strip = SessionStrip(catalog: apps)
+        // A disabled app is one the user turned off; walking onto it would be
+        // walking onto nothing.
+        #expect(strip.apps == ["weather"])
+    }
+
+    /// flow.md: "Walking past either end lands on the blank slot — at most one
+    /// blank exists, and it IS the end." (G2.7: the slots used to be a ring,
+    /// and swiping outward from the blank silently wrapped to the far end.)
+    @Test("Walking past either end lands on the same blank slot, and the blank is the end")
+    func bothEndsMeetAtTheBlank() {
+        let strip = SessionStrip(catalog: catalog(["music", "chess", "weather"]))
+
+        // Off the right-hand end.
+        #expect(strip.step(from: .app("weather"), by: 1, blankEnd: .trailing) == .blank)
+        // Off the left-hand end — the *same* blank, not a second one.
+        #expect(strip.step(from: .app("music"), by: -1, blankEnd: .leading) == .blank)
+        // Leaving the blank *inward* lands on the session beside the end it is
+        // standing in for…
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .trailing) == .app("weather"))
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .leading) == .app("music"))
+        // …and *outward* is the end of the strip: nil, the caller's cue to
+        // bounce rather than move.
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .trailing) == nil)
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .leading) == nil)
+    }
+
+    @Test("Ordinary steps walk one session at a time, in both directions")
+    func ordinarySteps() {
+        let strip = SessionStrip(catalog: catalog(["music", "chess", "weather"]))
+        #expect(strip.step(from: .app("music"), by: 1, blankEnd: .trailing) == .app("chess"))
+        #expect(strip.step(from: .app("chess"), by: 1, blankEnd: .trailing) == .app("weather"))
+        #expect(strip.step(from: .app("weather"), by: -1, blankEnd: .trailing) == .app("chess"))
+        // A step of zero is where you already are — the identity a swipe that
+        // did not clear the threshold must resolve to.
+        #expect(strip.step(from: .app("chess"), by: 0, blankEnd: .trailing) == .app("chess"))
+    }
+
+    @Test("A presentation maps onto the strip; the blank slot IS the [+] surface")
+    func presentationsMapOntoSlots() {
+        let strip = SessionStrip(catalog: catalog(["music", "chess"]))
+        #expect(strip.slot(for: .expanded(app: "chess")) == .app("chess"))
+        #expect(strip.slot(for: .chat(app: "chess")) == .app("chess"))
+        // **[+]** is gone as a control; the blank slot is what it became.
+        #expect(strip.slot(for: .newApp) == .blank)
+        // Surfaces that are not sessions are not on the strip at all — the
+        // overview (which is *about* all of them and so is none of them), and
+        // an app the catalog does not have. The permission card used to be the
+        // third example here; onboarding is a Settings page now (G4), and a
+        // window is not a presentation at all.
+        #expect(strip.slot(for: .overview) == nil)
+        #expect(strip.slot(for: .expanded(app: "ghost")) == nil)
+        #expect(strip.slot(for: .collapsed) == nil)
+    }
+
+    @Test("A strip with nothing installed is one blank slot, and every direction is the end")
+    func emptyStrip() {
+        let strip = SessionStrip(catalog: [])
+        #expect(strip.slots == [.blank])
+        // No apps: there is no inward, so both directions are the end.
+        #expect(strip.step(from: .blank, by: 1, blankEnd: .trailing) == nil)
+        #expect(strip.step(from: .blank, by: -1, blankEnd: .trailing) == nil)
+        // Walking from a surface that is not on the strip walks *onto* it,
+        // rather than refusing — which is how ‹|› gets you out of the
+        // placeholder card.
+        #expect(strip.step(from: nil, by: 1, blankEnd: .trailing) == .blank)
+    }
+
+    @Test("Walking from a non-strip surface lands on the first session")
+    func walkingOntoTheStrip() {
+        let strip = SessionStrip(catalog: catalog(["music", "chess"]))
+        #expect(strip.step(from: nil, by: 1, blankEnd: .trailing) == .app("music"))
+        #expect(strip.step(from: nil, by: -1, blankEnd: .trailing) == .blank)
+    }
+}

@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Runs each test file in its own bun process.
 #
-# `bun test` (one process for all 18 files) intermittently segfaults in Bun
-# 1.3.9 itself — its own panic banner, ~50% of full runs, never mid-suite and
-# never when files run alone. The trigger is accumulated Worker/socket state
-# across suites, i.e. an upstream runtime bug at teardown scale, not a test
-# failure: every completed run is 135/135. Per-file processes sidestep it at
-# the cost of a few seconds. `bun run test:fast` keeps the one-shot mode.
+# HISTORICAL. This existed because `bun test` segfaulted on roughly a quarter of
+# full runs — attributed here, wrongly, to an upstream teardown bug. It was
+# ours: every app worker called `Bun.resolveSync` three times at boot, which
+# walks node_modules through a PROCESS-GLOBAL filesystem cache, and enough
+# workers starting close enough together put two threads inside the same hash
+# map. The host resolves those paths once now and hands them down
+# (src/render/runtime.ts); the crash rate went from 4 runs in 14 to 0 in 30.
+#
+# `bun test` is the ordinary way to run the suite. This is kept as a bisecting
+# tool: one file per process is still the fastest way to find out whether a
+# failure belongs to a file or to the state it inherited.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

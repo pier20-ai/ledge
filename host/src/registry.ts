@@ -3,7 +3,14 @@
 
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { sanitizeAppMeta, type AppMeta, type PanelSpec } from "./worker/meta";
+import { NO_DISABLED_APPS } from "./settings";
+import {
+  sanitizeAppMeta,
+  type AppMeta,
+  type PanelSpec,
+  type SettingSpec,
+  type SettingValue,
+} from "./worker/meta";
 
 /** One row of the `catalog` snapshot (spec §3.6). `panel` is the app's declared
  * panel size (spec §5 extension) — absent means "shell default"; present is a
@@ -16,6 +23,14 @@ export interface CatalogApp {
   enabled: boolean;
   running: boolean;
   panel?: PanelSpec;
+  /** The native controls this app declared (`meta.settings`), sanitized. Absent
+   * — not empty — for an app that declares none: the Settings window draws a
+   * section for a row that has one, and nothing at all for a row that does not. */
+  settings?: SettingSpec[];
+  /** What those controls are currently set to: one entry per declared key,
+   * always complete (the router builds it; see `effectiveSettings`). Travels
+   * with `settings` and never without it. */
+  values?: Record<string, SettingValue>;
 }
 
 export const DEFAULT_ROOT = join(
@@ -43,6 +58,9 @@ export function applyMeta(app: CatalogApp, meta: AppMeta | undefined): CatalogAp
   if (meta.name !== undefined) merged.name = meta.name;
   if (meta.icon !== undefined) merged.icon = meta.icon;
   if (meta.panel !== undefined) merged.panel = meta.panel;
+  // The declaration only; `values` needs the settings file, which the registry
+  // does not have and should not read (see `scanApps` on `disabled`).
+  if (meta.settings !== undefined) merged.settings = meta.settings;
   return merged;
 }
 
@@ -83,8 +101,17 @@ export function parseCatalogApp(raw: unknown): CatalogApp {
  * produces the dirname fallback, and the router merges each worker's `meta`
  * message over it before the snapshot goes out (spec §3.6). Order is
  * alphabetical until Settings owns persistence.
+ *
+ * `disabled` is the host's settings file (src/settings.ts), passed in rather
+ * than read here: a scan is a filesystem question, and threading the answer
+ * through keeps "who may write this" in the one place that does write it.
+ * Absent means every app found is enabled, which is what a machine with no
+ * settings file yet is.
  */
-export async function scanApps(root: string = DEFAULT_ROOT): Promise<CatalogApp[]> {
+export async function scanApps(
+  root: string = DEFAULT_ROOT,
+  disabled: ReadonlySet<string> = NO_DISABLED_APPS,
+): Promise<CatalogApp[]> {
   let entries;
   try {
     entries = await readdir(root, { withFileTypes: true });
@@ -100,7 +127,7 @@ export async function scanApps(root: string = DEFAULT_ROOT): Promise<CatalogApp[
       id: entry.name,
       ...fallbackIdentity(entry.name),
       order: apps.length,
-      enabled: true,
+      enabled: !disabled.has(entry.name),
       running: false,
     });
   }

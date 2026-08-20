@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { InMemorySink, type Mutation } from "../src/render/mutations";
-import { createAppSession } from "../src/render/session";
+import { mountApp } from "./helpers/react-runtime";
 import { createCtx, type PrivilegedCtx } from "../src/worker/ctx";
 import type { WorkerToHost } from "../src/worker/messages";
 
@@ -381,10 +381,42 @@ describe("ctx bridges", () => {
   });
 });
 
+// Reduce Motion (spec §4.2, principle 10). A property rather than a callback,
+// because the code that has to obey it is a draw loop — and read-only, because
+// an app that could set it would be turning the user's accessibility preference
+// off from inside the app.
+describe("ctx.reduceMotion", () => {
+  test("defaults to false and tracks what the shell last said", () => {
+    const { ctx, setReduceMotion } = createCtx({ post: () => {}, update: () => {} });
+    expect(ctx.reduceMotion).toBe(false);
+
+    setReduceMotion(true);
+    expect(ctx.reduceMotion).toBe(true);
+    setReduceMotion(false);
+    expect(ctx.reduceMotion).toBe(false);
+  });
+
+  test("a reference captured by a frame loop sees today's value, not boot's", () => {
+    const { ctx, setReduceMotion } = createCtx({ post: () => {}, update: () => {} });
+    // The documented pattern: a monitor keeps `ctx` and a setInterval reads it.
+    const captured = ctx;
+    setReduceMotion(true);
+    expect(captured.reduceMotion).toBe(true);
+  });
+
+  test("app code cannot write it", () => {
+    const { ctx } = createCtx({ post: () => {}, update: () => {} });
+    expect(() => {
+      (ctx as { reduceMotion: boolean }).reduceMotion = true;
+    }).toThrow();
+    expect(ctx.reduceMotion).toBe(false);
+  });
+});
+
 describe("ctx.update", () => {
   test("a fake monitor's updates shallow-merge and re-render", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ price = "—", label = "AAPL" }) => (
         <stack axis="v">
           <text content={String(label)} />
@@ -405,5 +437,51 @@ describe("ctx.update", () => {
     const last = sink.commits.at(-1)!;
     expect(last.map((m) => m.op)).toEqual(["update"]);
     expect((last[0] as Extract<Mutation, { op: "update" }>).props).toEqual({ content: "AAPL Inc" });
+  });
+
+  // `ctx.peek` (spec §3.3 extension). The dwell is clamped HERE, in the host,
+  // rather than shell-side: an app that could ask for a five-minute peek could
+  // pin the notch open without ever calling expand — which is the one thing the
+  // surface is not allowed to let it do.
+  test("peek posts a chrome request with a clamped dwell", () => {
+    const { posts, post } = recorder();
+    const { ctx } = createCtx({ post, update: () => {} });
+
+    ctx.peek();          // default
+    ctx.peek(1500);      // honoured as-is
+    ctx.peek(50);        // below the floor
+    ctx.peek(10 * 60_000); // a peek that wanted to be a panel
+    ctx.peek(Number.NaN);  // nonsense
+
+    const peeks = posts.filter(
+      (msg): msg is Extract<WorkerToHost, { type: "chrome" }> =>
+        msg.type === "chrome" && msg.request === "peek",
+    );
+    expect(peeks.map((msg) => msg.ms)).toEqual([4000, 1500, 500, 20_000, 4000]);
+    // None of them named a class, so none of them carries one: absent is
+    // ambient, and a default spelled out on the wire is a default that has to be
+    // kept in sync in two places.
+    expect(peeks.every((msg) => msg.cls === undefined)).toBe(true);
+  });
+
+  // flow.md's Ti knob has two halves — "Ti ≈ 6 s for ambient-class, alert-class
+  // holds" — and this field is the whole of the second one. An alert that timed
+  // out while the user was looking away is the one failure this surface cannot
+  // have.
+  test("peek carries its priority class, and nothing else does", () => {
+    const { posts, post } = recorder();
+    const { ctx } = createCtx({ post, update: () => {} });
+
+    ctx.peek(2000, { class: "alert" });
+    ctx.peek(2000, { class: "ambient" });
+
+    const peeks = posts.filter(
+      (msg): msg is Extract<WorkerToHost, { type: "chrome" }> =>
+        msg.type === "chrome" && msg.request === "peek",
+    );
+    expect(peeks.map((msg) => msg.cls)).toEqual(["alert", "ambient"]);
+    // The dwell is still clamped: an alert holds on the shell's decision, not
+    // by asking for a twenty-minute peek.
+    expect(peeks.map((msg) => msg.ms)).toEqual([2000, 2000]);
   });
 });

@@ -43,6 +43,8 @@ enum SystemPlatformSources {
                 return ReachabilitySource(monitor: SystemPathMonitor())
             case PlatformObserveKind.audio:
                 return AudioSource(device: SystemAudioDevice.shared, watcher: SystemAudioWatcher())
+            case PlatformObserveKind.focus:
+                return FocusSource(reader: SystemFocusReader(), watcher: SystemFocusWatcher())
             default:
                 return nil
             }
@@ -428,6 +430,212 @@ final class SystemPathMonitor: PathObserving {
             "constrained": .bool(path.isConstrained),
             "interface": .string(interface),
         ]
+    }
+}
+
+// MARK: - focus
+
+/// What the focus source is allowed to know: the current state, or **nil** when
+/// it cannot be established. The distinction is the whole design — see
+/// `FocusSource`.
+@MainActor
+protocol FocusReading: AnyObject {
+    func snapshot() -> [String: JSONValue]?
+}
+
+/// The change half: something that calls back when the Focus database is
+/// written. Injected for the same reason every other backend is — a file-system
+/// event source is not something a headless test should have to provoke.
+@MainActor
+protocol FocusWatching: AnyObject {
+    func start(changed: @escaping @MainActor () -> Void)
+    func stop()
+}
+
+/// `kind: "focus"` — Do Not Disturb / Focus, as `{ active, modeName? }`.
+///
+/// macOS publishes no notification for this and no public API to read it. What
+/// it does have is the user's own Focus database at `~/Library/DoNotDisturb/DB`,
+/// which is a **file read** — the mechanism every third-party menu-bar tool
+/// already uses, and specifically not a private framework. It is TCC-protected,
+/// so a Ledge without Full Disk Access simply reads nothing.
+///
+/// Both of the ways this can fail — an undocumented format that shifts under a
+/// macOS update, and a read the system refuses — are handled the same way: the
+/// reader answers **nil**, and the source emits nothing at all. An app that
+/// observed `focus` sees silence, which is the same posture the platform takes
+/// everywhere else (a monitor whose API starts 429ing goes quiet; it does not
+/// start reporting zero). Reporting `active: false` because a file moved would
+/// be confidently wrong, and something would act on it.
+///
+/// Payloads are deduped: the database is rewritten for more than mode changes,
+/// and waking every observing app for an identical state is exactly the cost
+/// this kind exists to avoid.
+@MainActor
+final class FocusSource: PlatformSignalSource {
+    nonisolated let supportedNames: Set<String>? = PlatformSignalName.snapshot
+
+    private let reader: FocusReading
+    private let watcher: FocusWatching
+    private var lastPayload: [String: JSONValue]?
+
+    init(reader: FocusReading, watcher: FocusWatching) {
+        self.reader = reader
+        self.watcher = watcher
+    }
+
+    func start(emit: @escaping @MainActor (String, [String: JSONValue]) -> Void) {
+        lastPayload = nil
+        watcher.start { [weak self] in
+            guard let self, let payload = reader.snapshot(), payload != lastPayload else { return }
+            lastPayload = payload
+            emit(PlatformSignalName.changed, payload)
+        }
+    }
+
+    func stop() {
+        watcher.stop()
+        lastPayload = nil
+    }
+
+    /// Fires immediately on observe, like `power` and `reachability`: this
+    /// describes a *state*, and an app that had to wait for the next change to
+    /// learn the current one would show the wrong thing until the user next
+    /// touched Focus — which can be days.
+    func snapshot(for name: String) -> [String: JSONValue]? {
+        guard name == PlatformSignalName.changed, let payload = reader.snapshot() else { return nil }
+        lastPayload = payload
+        return payload
+    }
+}
+
+/// The Focus database, read defensively.
+///
+/// **The shape is searched for, not walked to.** The documented-by-nobody layout
+/// is `data[0].storeAssertionRecords[…].assertionDetails.assertionDetailsModeIdentifier`,
+/// and a fixed path through it breaks on any re-nesting Apple does. Looking for
+/// the two keys *anywhere* in the tree survives that, and is no less correct:
+/// nothing else in the file is called `storeAssertionRecords`.
+@MainActor
+final class SystemFocusReader: FocusReading {
+    /// Overridable so tests read a database they wrote, rather than the one
+    /// belonging to whoever is running the suite.
+    let directory: URL
+
+    init(directory: URL = SystemFocusReader.defaultDirectory) {
+        self.directory = directory
+    }
+
+    static var defaultDirectory: URL {
+        URL(fileURLWithPath: NSHomeDirectory())
+            .appendingPathComponent("Library/DoNotDisturb/DB", isDirectory: true)
+    }
+
+    func snapshot() -> [String: JSONValue]? {
+        // No database at all: this Mac has never used Focus, or the read was
+        // refused. Either way we do not know, so we say nothing.
+        guard FileManager.default.fileExists(atPath: directory.path) else { return nil }
+        let assertions = directory.appendingPathComponent("Assertions.json")
+        guard FileManager.default.fileExists(atPath: assertions.path) else {
+            // The directory is there and the file is not: nothing is asserted.
+            return ["active": .bool(false)]
+        }
+        guard let root = Self.json(at: assertions) else { return nil }
+
+        let records = Self.firstArray(in: root, key: "storeAssertionRecords") ?? []
+        var payload: [String: JSONValue] = ["active": .bool(!records.isEmpty)]
+        if let identifier = Self.firstString(in: records, key: "assertionDetailsModeIdentifier") {
+            payload["modeName"] = .string(modeName(for: identifier) ?? Self.shortName(identifier))
+        }
+        return payload
+    }
+
+    /// The user's own name for a mode ("Work"), from the configuration file
+    /// beside the assertions. Best effort by design: a mode the file does not
+    /// describe falls back to the identifier's last component, which is at
+    /// least stable and greppable.
+    private func modeName(for identifier: String) -> String? {
+        guard let root = Self.json(at: directory.appendingPathComponent("ModeConfigurations.json")),
+              let configurations = Self.firstObject(in: root, key: "modeConfigurations"),
+              let mode = configurations[identifier] else { return nil }
+        return Self.firstString(in: mode, key: "name")
+    }
+
+    private static func shortName(_ identifier: String) -> String {
+        identifier.split(separator: ".").last.map(String.init) ?? identifier
+    }
+
+    private static func json(at url: URL) -> Any? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
+
+    // MARK: - Shape-tolerant lookups
+
+    private static func firstArray(in value: Any, key: String) -> [Any]? {
+        first(in: value, key: key) as? [Any]
+    }
+
+    private static func firstObject(in value: Any, key: String) -> [String: Any]? {
+        first(in: value, key: key) as? [String: Any]
+    }
+
+    private static func firstString(in value: Any, key: String) -> String? {
+        first(in: value, key: key) as? String
+    }
+
+    /// Breadth-first search for `key` anywhere in a decoded JSON tree.
+    private static func first(in value: Any, key: String) -> Any? {
+        var queue: [Any] = [value]
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            if let object = current as? [String: Any] {
+                if let hit = object[key] { return hit }
+                queue.append(contentsOf: object.values)
+            } else if let array = current as? [Any] {
+                queue.append(contentsOf: array)
+            }
+        }
+        return nil
+    }
+}
+
+/// A file-system event source on the Focus database's **directory**, not on the
+/// file: the assertions file is replaced rather than edited, and a descriptor
+/// held on the old inode would stop hearing about anything the moment Focus was
+/// first toggled.
+@MainActor
+final class SystemFocusWatcher: FocusWatching {
+    private let directory: URL
+    private var source: DispatchSourceFileSystemObject?
+    private var descriptor: CInt = -1
+
+    init(directory: URL = SystemFocusReader.defaultDirectory) {
+        self.directory = directory
+    }
+
+    func start(changed: @escaping @MainActor () -> Void) {
+        stop()
+        let fd = open(directory.path, O_EVTONLY)
+        guard fd >= 0 else { return }               // unreadable → simply quiet
+        descriptor = fd
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: fd,
+            eventMask: [.write, .rename, .delete, .attrib],
+            queue: .main
+        )
+        source.setEventHandler {
+            MainActor.assumeIsolated { changed() }
+        }
+        source.setCancelHandler { [descriptor] in close(descriptor) }
+        source.resume()
+        self.source = source
+    }
+
+    func stop() {
+        source?.cancel()                            // its cancel handler closes fd
+        source = nil
+        descriptor = -1
     }
 }
 

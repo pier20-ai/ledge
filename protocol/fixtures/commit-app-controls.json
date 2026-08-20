@@ -1,0 +1,18 @@
+{ "v": 1, "app": "gallery", "seq": 5, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 14, "pad": 16 } },
+  { "op": "create", "id": 2, "kind": "image", "props": { "src": "/tmp/ledge-fixture-artwork.png", "w": 72, "h": 72, "radius": 14, "stroke": "hairline" } },
+  { "op": "create", "id": 3, "kind": "image", "props": { "src": "sf:waveform", "w": 26, "h": 26, "stroke": "accent" } },
+  { "op": "create", "id": 4, "kind": "image", "props": { "src": "/tmp/ledge-fixture-artwork.png", "w": 40, "h": 40 } },
+  { "op": "create", "id": 5, "kind": "button", "props": { "icon": "sf:play.fill", "variant": "ghost", "onClick": true } },
+  { "op": "create", "id": 6, "kind": "button", "props": { "icon": "sf:forward.end.fill", "variant": "ghost", "onClick": true } },
+  { "op": "create", "id": 7, "kind": "button", "props": { "label": "Apps", "variant": "bead", "onClick": true } },
+  { "op": "create", "id": 8, "kind": "button", "props": { "label": "Done", "variant": "glass", "onClick": true } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "insert", "parent": 1, "id": 7, "before": null },
+  { "op": "insert", "parent": 1, "id": 8, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

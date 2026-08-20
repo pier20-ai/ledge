@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge · design v0.3 mockups</title>
+<style>
+  /* ── Ledge shell language, transcribed ─────────────────────────────── */
+  :root {
+    --page: #141417;
+    --panel: #000000;
+    --hairline: rgba(255,255,255,.09);
+    --hairline-strong: rgba(255,255,255,.16);
+    --primary: #F2F2F4;
+    --secondary: rgba(235,235,245,.55);
+    --tertiary: rgba(235,235,245,.30);
+    --green: #30D158;
+    --red: #FF453A;
+    --orange: #FF9500;   /* world clock accent */
+    --teal: #2AB8A6;     /* now-playing artwork-derived accent */
+    --cyan: #5AC8FA;     /* copilot accent */
+    --violet: #BF87FF;
+    --r-panel: 26px;
+    --r-content: 14px;
+    --font: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--page); color: var(--primary);
+    font-family: var(--font); -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .rail { max-width: 940px; margin: 0 auto; }
+
+  /* gallery scaffolding (not shell language) */
+  h1 { font-size: 21px; font-weight: 600; letter-spacing: -.01em; }
+  .lede { color: var(--secondary); font-size: 13px; margin-top: 6px; max-width: 62ch; line-height: 1.5; }
+  .sect { margin-top: 72px; }
+  .sect > .eyebrow { margin-bottom: 6px; }
+  .sect > .note { color: var(--secondary); font-size: 12.5px; margin-bottom: 20px; max-width: 68ch; line-height: 1.5; }
+  .pair { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+  .tag { display: inline-block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em;
+         color: var(--tertiary); border: 1px solid var(--hairline); border-radius: 99px;
+         padding: 3px 9px; margin-bottom: 10px; }
+
+  /* ── shared shell primitives ───────────────────────────────────────── */
+  .eyebrow { font-family: var(--mono); font-size: 10px; font-weight: 500;
+             letter-spacing: .07em; text-transform: uppercase; color: var(--secondary); }
+  .eyebrow.dim { color: var(--tertiary); }
+  .panel {
+    width: 440px; background: var(--panel); border-radius: var(--r-panel);
+    border: 1px solid var(--hairline); overflow: hidden; position: relative;
+    box-shadow: 0 18px 50px rgba(0,0,0,.5);
+  }
+  .chrome { display: flex; align-items: center; gap: 8px; padding: 14px 18px 10px; position: relative; z-index: 2; }
+  .chrome .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .chrome .dot.idle { background: var(--tertiary); }
+  .chrome .name { font-family: var(--mono); font-size: 10px; letter-spacing: .07em;
+                  text-transform: uppercase; color: var(--secondary); }
+  .chrome .edit { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--primary);
+                  border: 1px solid var(--hairline-strong); border-radius: 99px; padding: 5px 12px;
+                  background: rgba(255,255,255,.06); }
+  .hair { height: 1px; background: var(--hairline); }
+  .capsule { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+             border-radius: 99px; padding: 8px 16px; background: rgba(255,255,255,.08);
+             border: 1px solid var(--hairline-strong); color: var(--primary); }
+  .capsule.accented { background: transparent; }
+
+  /* display type (D1) */
+  .t-display { font-size: 36px; font-weight: 300; letter-spacing: -.01em;
+               font-variant-numeric: tabular-nums; line-height: 1.05; }
+  .t-hero    { font-size: 48px; font-weight: 300; letter-spacing: -.015em;
+               font-variant-numeric: tabular-nums; line-height: 1; }
+
+  /* odometer (D4) */
+  .odo { display: inline-flex; overflow: hidden; }
+  .odo .digit { display: inline-block; height: 1.05em; overflow: hidden; }
+  .odo .strip { display: flex; flex-direction: column; transition: transform .34s cubic-bezier(.3,.9,.25,1); }
+  .odo .strip span { height: 1.05em; line-height: 1.05; }
+  .odo .static { display: inline-block; }
+
+  /* ── type specimen ─────────────────────────────────────────────────── */
+  .spec-row { display: flex; align-items: baseline; gap: 22px; padding: 13px 2px; }
+  .spec-row + .spec-row { border-top: 1px solid var(--hairline); }
+  .spec-row .k { font-family: var(--mono); font-size: 10px; color: var(--tertiary); width: 150px;
+                 letter-spacing: .06em; }
+
+  /* ── now playing ───────────────────────────────────────────────────── */
+  .np-wash { position: absolute; inset: 0 0 40%; z-index: 0; pointer-events: none;
+             background: linear-gradient(180deg, rgba(42,184,166,.24), rgba(42,184,166,0) 92%); }
+  .np-body { display: flex; gap: 18px; padding: 12px 20px 22px; position: relative; z-index: 1; align-items: center; }
+  .np-art { width: 96px; height: 96px; border-radius: var(--r-content); flex: none;
+            background: radial-gradient(120% 120% at 20% 15%, #3BE0C4 0%, #1D8F84 38%, #14343E 78%, #0B1220 100%);
+            box-shadow: 0 6px 24px rgba(42,184,166,.25); }
+  .np-meta { min-width: 0; flex: 1; }
+  .np-title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; white-space: nowrap;
+              overflow: hidden; text-overflow: ellipsis; }
+  .np-artist { font-size: 13px; color: var(--secondary); margin-top: 2px; }
+  .np-times { display: flex; justify-content: space-between; align-items: baseline; margin-top: 14px; }
+  .np-elapsed { font-size: 22px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  .np-total { font-family: var(--mono); font-size: 10px; color: var(--tertiary); letter-spacing: .06em; }
+  .np-track { height: 3px; border-radius: 2px; background: rgba(255,255,255,.12); margin-top: 8px; overflow: hidden; }
+  .np-track i { display: block; height: 100%; width: 34%; border-radius: 2px; background: var(--primary); }
+  .wave { display: inline-flex; align-items: flex-end; gap: 2.5px; height: 14px; margin-left: 10px; }
+  .wave i { width: 2.5px; border-radius: 2px; background: var(--teal); height: 100%;
+            transform-origin: bottom; animation: wv 1.15s ease-in-out infinite; }
+  .wave i:nth-child(1) { animation-delay: 0s; }  .wave i:nth-child(2) { animation-delay: .18s; }
+  .wave i:nth-child(3) { animation-delay: .32s; } .wave i:nth-child(4) { animation-delay: .09s; }
+  .wave i:nth-child(5) { animation-delay: .25s; }
+  @keyframes wv { 0%,100% { transform: scaleY(.25); } 50% { transform: scaleY(1); } }
+  .np-transport { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 0 20px 20px; position: relative; z-index: 1; }
+  .tbtn { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+          border: 1px solid var(--hairline); background: rgba(255,255,255,.05); }
+  .tbtn svg { display: block; }
+
+  /* ── world clock ───────────────────────────────────────────────────── */
+  .ruler { position: relative; height: 78px; margin: 4px 0 0; overflow: hidden;
+           background: linear-gradient(180deg, rgba(255,149,0,.07), rgba(255,149,0,0) 85%); }
+  .ticks, .ticks-orange {
+    position: absolute; left: 0; right: 0; bottom: 10px; height: 26px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,.38) 0 1px, transparent 1px 44px) left bottom / 100% 26px no-repeat,
+      repeating-linear-gradient(90deg, rgba(255,255,255,.20) 0 1px, transparent 1px 11px) left bottom / 100% 14px no-repeat;
+  }
+  .ticks-orange {
+    background:
+      repeating-linear-gradient(90deg, var(--orange) 0 1px, transparent 1px 44px) left bottom / 100% 26px no-repeat,
+      repeating-linear-gradient(90deg, rgba(255,149,0,.75) 0 1px, transparent 1px 11px) left bottom / 100% 14px no-repeat;
+    clip-path: inset(0 24% 0 44%);
+  }
+  .scrub-range { position: absolute; top: 0; bottom: 36px; left: 44%; right: 24%;
+                 background: rgba(255,149,0,.16); border-left: 2px solid var(--orange);
+                 border-right: 2px solid rgba(255,149,0,.7); }
+  .ruler .zone { position: absolute; top: 10px; left: 20px; }
+  .ruler .offset { position: absolute; top: 10px; right: 20px; font-family: var(--mono);
+                   font-size: 11px; color: var(--primary); letter-spacing: .05em; }
+  .city { display: flex; align-items: center; justify-content: space-between; padding: 13px 20px; }
+  .city .l { min-width: 0; }
+  .city .name { font-size: 17px; font-weight: 500; letter-spacing: -.01em; margin-top: 3px; }
+  .city .r { text-align: right; }
+  .city .time { margin-top: 1px; }
+  .glyph-sun { color: #FFD60A; } .glyph-moon { color: var(--secondary); }
+  .dot-live { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+              vertical-align: 1px; margin-left: 5px; }
+
+  /* ── copilot ───────────────────────────────────────────────────────── */
+  .menubar-scene { width: 620px; }
+  .menubar { height: 26px; background: #1d1d21; border-radius: 8px 8px 0 0; position: relative;
+             display: flex; align-items: center; justify-content: space-between; padding: 0 14px; }
+  .menubar .mi { font-family: var(--mono); font-size: 9px; color: var(--tertiary); letter-spacing: .08em; }
+  .notch-cut { position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+               width: 189px; height: 26px; background: #000; border-radius: 0 0 10px 10px; }
+  .mini { width: 244px; margin: 0 auto; background: #000; border-radius: 0 0 18px 18px;
+          padding: 8px 16px 12px; display: flex; align-items: center; justify-content: space-between;
+          box-shadow: 0 14px 34px rgba(0,0,0,.55); }
+  .mini .cd { font-size: 24px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  .cp-next { padding: 14px 20px 4px; display: flex; justify-content: space-between; align-items: center; }
+  .cp-count { padding: 2px 20px 16px; }
+  .cp-agent { display: flex; align-items: center; gap: 10px; padding: 13px 20px; }
+  .cp-agent .adot { width: 6px; height: 6px; border-radius: 50%; background: var(--violet); flex: none; }
+  .cp-agent .draft { font-size: 13px; color: var(--secondary); font-style: italic; min-width: 0;
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cp-agent .send { margin-left: auto; flex: none; font-size: 12px; font-weight: 600; color: var(--cyan);
+                    border: 1px solid rgba(90,200,250,.4); border-radius: 99px; padding: 5px 13px; }
+  .timeline { position: relative; height: 30px; margin: 4px 20px 16px; }
+  .timeline .rail-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--hairline-strong); }
+  .timeline .blk { position: absolute; top: 8px; height: 14px; border-radius: 5px; background: rgba(255,255,255,.14); }
+  .timeline .blk.now { background: rgba(90,200,250,.35); border: 1px solid var(--cyan); }
+  .timeline .cursor { position: absolute; top: 2px; bottom: 2px; width: 1.5px; background: var(--cyan); }
+
+  /* ── stocks before/after ───────────────────────────────────────────── */
+  .grid-old { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 6px 16px 18px; }
+  .box-old { border: 1px solid var(--hairline-strong); border-radius: 10px; padding: 12px;
+             min-height: 84px; display: flex; flex-direction: column; justify-content: space-between; }
+  .box-old .tick { font-size: 12px; font-weight: 700; }
+  .box-old .foot { display: flex; justify-content: space-between; align-items: baseline; }
+  .box-old .px { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .srow { display: flex; align-items: center; gap: 14px; padding: 12px 20px; }
+  .srow .tick { width: 64px; }
+  .srow .tick b { display: block; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .srow .tick span { font-family: var(--mono); font-size: 9px; color: var(--tertiary); letter-spacing: .07em; }
+  .srow svg { flex: 1; height: 26px; min-width: 0; }
+  .srow .px { text-align: right; }
+  .srow .px b { display: block; font-size: 19px; font-weight: 400; font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+  .srow .px span { font-family: var(--mono); font-size: 10px; letter-spacing: .05em; }
+  .up { color: var(--green); } .down { color: var(--red); }
+
+  /* ── empty states ──────────────────────────────────────────────────── */
+  .empty-old { padding: 26px 20px 34px; display: flex; gap: 14px; align-items: center; }
+  .empty-old .well { width: 64px; height: 64px; border-radius: 12px; background: #17171a;
+                     border: 1px solid var(--hairline); }
+  .empty-old .t1 { font-size: 14px; font-weight: 600; }
+  .empty-old .t2 { font-size: 12.5px; color: var(--tertiary); margin-top: 3px; }
+  .empty-new { padding: 34px 20px 38px; text-align: center; }
+  .empty-new .glyph { font-size: 40px; font-weight: 200; color: var(--tertiary); line-height: 1; }
+  .empty-new .line { font-size: 13px; color: var(--secondary); margin: 14px 0 18px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .wave i { animation: none; transform: scaleY(.55); }
+    .odo .strip { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="rail">
+
+  <h1>Ledge · design v0.3 — the beauty wave</h1>
+  <p class="lede">Living mockups for the D1–D7 proposals in <span style="font-family:var(--mono);font-size:12px">design-v0.3.md</span>.
+  Everything below uses only vocabulary that exists or is proposed in v0.3 — no effect a Ledge app couldn't ship.
+  Two values are ticking live: the now-playing elapsed and the copilot countdown (D4 roll).</p>
+
+  <!-- ═══ D1 type specimen ═══ -->
+  <div class="sect">
+    <span class="tag">D1 · DISPLAY TYPOGRAPHY</span>
+    <p class="note">The ramp gains a protagonist tier. Digits are tabular everywhere by
+    existing renderer behavior — v0.3 just writes it down. The eyebrow (bottom row) is the
+    new <span style="font-family:var(--mono);font-size:11px">caps</span> prop: uppercase + 6% tracking.</p>
+    <div style="max-width:560px">
+      <div class="spec-row"><span class="k">hero · 48 · light</span><span class="t-hero">06:47</span></div>
+      <div class="spec-row"><span class="k">display · 36 · light</span><span class="t-display">21:03:44</span></div>
+      <div class="spec-row"><span class="k">xl · 30 (unchanged)</span><span style="font-size:30px;font-weight:600;font-variant-numeric:tabular-nums">$214.62</span></div>
+      <div class="spec-row"><span class="k">l · 15 (unchanged)</span><span style="font-size:15px;font-weight:500">San Francisco</span></div>
+      <div class="spec-row"><span class="k">xs · mono · caps</span><span class="eyebrow">−9H / PDT · Yesterday</span></div>
+    </div>
+  </div>
+
+  <!-- ═══ Now playing v2 ═══ -->
+  <div class="sect">
+    <span class="tag">HERO 1 · NOW PLAYING V2 — D3 WASH · D4 ROLL · D6 SYMBOLS</span>
+    <p class="note">Signature: the waveform on an artwork-derived wash. The wash is one prop
+    (<span style="font-family:var(--mono);font-size:11px">wash:"#2AB8A6"</span>, host-computed from the artwork);
+    the elapsed digits roll (live below); transport is SF Symbols on the s-size circle ramp.</p>
+    <div class="panel">
+      <div class="np-wash"></div>
+      <div class="chrome"><span class="dot"></span><span class="name">Music</span>
+        <span class="wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span class="edit">✦ Edit</span></div>
+      <div class="np-body">
+        <div class="np-art"></div>
+        <div class="np-meta">
+          <div class="np-title">Emagination (B-Side)</div>
+          <div class="np-artist">Miami Horror</div>
+          <div class="np-times">
+            <span class="np-elapsed" id="np-odo">2:41</span>
+            <span class="np-total">−1:36 · AIRPODS MAX</span>
+          </div>
+          <div class="np-track"><i id="np-fill"></i></div>
+        </div>
+      </div>
+      <div class="np-transport">
+        <span class="tbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M7.5 1v10L1 6zM9.5 1h1.6v10H9.5z" fill="#F2F2F4"/></svg></span>
+        <span class="tbtn" style="width:40px;height:40px"><svg width="11" height="12" viewBox="0 0 11 12"><path d="M1 1h2.8v10H1zM7.2 1H10v10H7.2z" fill="#F2F2F4"/></svg></span>
+        <span class="tbtn"><svg width="12" height="12" viewBox="0 0 12 12"><path d="M4.5 1v10L11 6zM.9 1h1.6v10H.9z" fill="#F2F2F4"/></svg></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ World clock ═══ -->
+  <div class="sect">
+    <span class="tag">HERO 2 · WORLD CLOCK — D1 TYPE · D2 ROWS · D3 CANVAS GRADIENT · A1 DRAG</span>
+    <p class="note">Signature: the drag-scrub ruler (canvas: line/rect/gradient ops + A1 drag events).
+    Rows are full-bleed with hairlines — no boxes. City 17/medium, time 36/light,
+    eyebrows carry the offsets. Status glyphs are content, so they may be glyphs/emoji (D6).</p>
+    <div class="panel">
+      <div class="chrome"><span class="dot idle"></span><span class="name">Clocks</span><span class="edit">✦ Edit</span></div>
+      <div class="ruler">
+        <span class="zone eyebrow dim">UTC+02:00</span>
+        <span class="offset">−2H 59M</span>
+        <div class="scrub-range"></div>
+        <div class="ticks"></div>
+        <div class="ticks-orange"></div>
+      </div>
+      <div class="hair"></div>
+      <div class="city">
+        <div class="l"><span class="eyebrow dim">Your time · Sat 9 Aug</span><div class="name">Warsaw</div></div>
+        <div class="r"><span class="eyebrow">Before work <span class="glyph-sun">☀</span></span><div class="time t-display">06:47</div></div>
+      </div>
+      <div class="hair"></div>
+      <div class="city">
+        <div class="l"><span class="eyebrow dim">−9H / PDT · Yesterday</span><div class="name">San Francisco</div></div>
+        <div class="r"><span class="eyebrow">Night <span class="glyph-moon">☾</span></span><div class="time t-display">21:47</div></div>
+      </div>
+      <div class="hair"></div>
+      <div class="city">
+        <div class="l"><span class="eyebrow dim">+3H 30M / IST</span><div class="name">New Delhi</div></div>
+        <div class="r"><span class="eyebrow">Working<span class="dot-live"></span></span><div class="time t-display">10:17</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Calendar copilot ═══ -->
+  <div class="sect">
+    <span class="tag">HERO 3 · CALENDAR COPILOT — D4 ROLL · MINI RUNG · CTX.AGENT</span>
+    <p class="note">Signature: the T−minus countdown (rolling live in both surfaces).
+    Top: the mini, as it peeks under the notch when a meeting nears — hero-tier digits, one action.
+    Bottom: the panel with the day ribbon and the agent's drafted message. The agent row is the
+    state-of-the-art claim — a widget with a colleague inside.</p>
+    <div class="menubar-scene">
+      <div class="menubar">
+        <span class="mi">LEDGE</span>
+        <div class="notch-cut"></div>
+        <span class="mi">SAT 10:18</span>
+      </div>
+      <div class="mini">
+        <div><span class="eyebrow dim">Standup · Zoom</span><div class="cd" id="mini-odo">11:52</div></div>
+        <span class="capsule accented" style="color:var(--cyan);border-color:rgba(90,200,250,.4)">Join</span>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:28px">
+      <div class="chrome"><span class="dot"></span><span class="name">Copilot</span><span class="edit">✦ Edit</span></div>
+      <div class="cp-next">
+        <span class="eyebrow dim">Next · 10:30 Standup · Zoom</span>
+        <span class="eyebrow" style="color:var(--cyan)">On time</span>
+      </div>
+      <div class="cp-count"><span class="t-display">T−<span id="cp-odo">11:52</span></span></div>
+      <div class="timeline">
+        <div class="rail-line"></div>
+        <div class="blk" style="left:2%;width:10%"></div>
+        <div class="blk now" style="left:26%;width:12%"></div>
+        <div class="blk" style="left:47%;width:22%"></div>
+        <div class="blk" style="left:80%;width:9%"></div>
+        <div class="cursor" style="left:24%"></div>
+      </div>
+      <div class="hair"></div>
+      <div class="cp-agent">
+        <span class="adot"></span>
+        <span class="draft">“Running 5 late — start without me.”</span>
+        <span class="send">Send</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ D2 stocks before/after ═══ -->
+  <div class="sect">
+    <span class="tag">D2 · ROWS, NOT BOXES — STOCKS RETROFIT</span>
+    <p class="note">Same data, same 440 pt. Left: today's boxed grid. Right: full-bleed rows —
+    hairlines and negative space do the structure; the sparkline (existing chart kind) earns its
+    width; prices step up to 19/regular tabular.</p>
+    <div class="pair">
+      <div class="panel">
+        <div class="chrome"><span class="dot"></span><span class="name">Stocks · v0.2</span><span class="edit">✦ Edit</span></div>
+        <div class="grid-old">
+          <div class="box-old"><span class="tick">AAPL</span><div class="foot"><span class="px">229.11</span><span class="eyebrow" style="color:var(--green)">+0.8%</span></div></div>
+          <div class="box-old"><span class="tick">NVDA</span><div class="foot"><span class="px">181.40</span><span class="eyebrow" style="color:var(--red)">−1.2%</span></div></div>
+          <div class="box-old"><span class="tick">GOOG</span><div class="foot"><span class="px">201.73</span><span class="eyebrow" style="color:var(--green)">+0.3%</span></div></div>
+          <div class="box-old"><span class="tick">MSFT</span><div class="foot"><span class="px">512.60</span><span class="eyebrow" style="color:var(--green)">+1.1%</span></div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="chrome"><span class="dot"></span><span class="name">Stocks · v0.3</span><span class="edit">✦ Edit</span></div>
+        <div class="srow"><div class="tick"><b>AAPL</b><span>NASDAQ</span></div>
+          <svg viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,18 14,16 28,19 42,12 56,14 70,9 84,10 100,6" fill="none" stroke="#30D158" stroke-width="1.5"/></svg>
+          <div class="px"><b>229.11</b><span class="up">+0.8%</span></div></div>
+        <div class="hair"></div>
+        <div class="srow"><div class="tick"><b>NVDA</b><span>NASDAQ</span></div>
+          <svg viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,8 14,10 28,7 42,13 56,12 70,17 84,15 100,19" fill="none" stroke="#FF453A" stroke-width="1.5"/></svg>
+          <div class="px"><b>181.40</b><span class="down">−1.2%</span></div></div>
+        <div class="hair"></div>
+        <div class="srow"><div class="tick"><b>GOOG</b><span>NASDAQ</span></div>
+          <svg viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,15 14,17 28,14 42,15 56,11 70,13 84,9 100,10" fill="none" stroke="#30D158" stroke-width="1.5"/></svg>
+          <div class="px"><b>201.73</b><span class="up">+0.3%</span></div></div>
+        <div class="hair"></div>
+        <div class="srow"><div class="tick"><b>MSFT</b><span>NASDAQ</span></div>
+          <svg viewBox="0 0 100 26" preserveAspectRatio="none"><polyline points="0,20 14,17 28,18 42,13 56,15 70,10 84,8 100,4" fill="none" stroke="#30D158" stroke-width="1.5"/></svg>
+          <div class="px"><b>512.60</b><span class="up">+1.1%</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ D5 empty states ═══ -->
+  <div class="sect">
+    <span class="tag">D5 · EMPTY STATES — MUSIC, FIRST LAUNCH</span>
+    <p class="note">What a first-run user sees. Left: today. Right: the pattern — one glyph at
+    display weight, one sentence that invites, one action. No “no data”, ever.</p>
+    <div class="pair">
+      <div class="panel">
+        <div class="chrome"><span class="dot idle"></span><span class="name">Music · v0.2</span><span class="edit">✦ Edit</span></div>
+        <div class="empty-old">
+          <div class="well"></div>
+          <div><div class="t1">Nothing playing</div><div class="t2">Music and Spotify are quiet</div></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="chrome"><span class="dot idle"></span><span class="name">Music · v0.3</span><span class="edit">✦ Edit</span></div>
+        <div class="empty-new">
+          <div class="glyph">♪</div>
+          <div class="line">Play something and it lands here.</div>
+          <span class="capsule">Open Music</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // D4 demo: per-digit odometer roll. Non-digits render static; digits get a 0–9
+  // strip translated to the current value. Mirrors the proposed renderer behavior.
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  function makeOdo(el) {
+    const value = el.textContent.trim();
+    el.classList.add('odo'); el.textContent = '';
+    const digits = [];
+    for (const ch of value) {
+      if (ch >= '0' && ch <= '9') {
+        const d = document.createElement('span'); d.className = 'digit';
+        const s = document.createElement('span'); s.className = 'strip';
+        for (let i = 0; i <= 9; i++) { const n = document.createElement('span'); n.textContent = i; s.appendChild(n); }
+        d.appendChild(s); el.appendChild(d); digits.push(s);
+      } else {
+        const c = document.createElement('span'); c.className = 'static'; c.textContent = ch;
+        el.appendChild(c); digits.push(null);
+      }
+    }
+    return {
+      set(str) {
+        let di = 0;
+        for (const ch of str) {
+          const strip = digits[di++];
+          if (strip && ch >= '0' && ch <= '9') strip.style.transform = `translateY(-${(+ch) * 1.05}em)`;
+        }
+      }
+    };
+  }
+
+  const fmt = t => `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+  const fmt2 = t => `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+
+  const np = makeOdo(document.getElementById('np-odo'));
+  const cp = makeOdo(document.getElementById('cp-odo'));
+  const mini = makeOdo(document.getElementById('mini-odo'));
+  const fill = document.getElementById('np-fill');
+
+  let elapsed = 161, total = 257, down = 712;
+  np.set(fmt(elapsed)); cp.set(fmt2(down)); mini.set(fmt2(down));
+
+  setInterval(() => {
+    elapsed = (elapsed + 1) % total;
+    down = down > 0 ? down - 1 : 712;
+    np.set(fmt(elapsed)); cp.set(fmt2(down)); mini.set(fmt2(down));
+    fill.style.width = `${(elapsed / total) * 100}%`;
+  }, 1000);
+</script>
+</body>
+</html>

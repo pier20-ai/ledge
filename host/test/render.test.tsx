@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { useState } from "react";
 import { InMemorySink, type Mutation } from "../src/render/mutations";
-import { createLedgeRenderer } from "../src/render/reconciler";
-import { createAppSession } from "../src/render/session";
+import { makeRenderer, mountApp } from "./helpers/react-runtime";
 
 function ops(mutations: Mutation[]): string[] {
   return mutations.map((m) => m.op);
@@ -28,7 +27,7 @@ function soleUpdate(sink: InMemorySink): Update {
 describe("mount", () => {
   test("first commit creates children before parents attach, then sets root", () => {
     const sink = new InMemorySink();
-    const renderer = createLedgeRenderer(sink);
+    const renderer = makeRenderer(sink);
     renderer.render(
       <stack axis="v" pad={14} gap={8}>
         <text content="AAPL" color="secondary" />
@@ -59,13 +58,13 @@ describe("mount", () => {
   });
 
   test("raw text children are a hard error pointing at <text>", () => {
-    const renderer = createLedgeRenderer(new InMemorySink());
+    const renderer = makeRenderer(new InMemorySink());
     expect(() => renderer.render(<stack>oops</stack>)).toThrow(/use <text/);
   });
 
   test("ids are never reused across a session", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ n = 0 }) => (
         <stack>
           <text content={`v${n}`} key={n as number} />
@@ -85,7 +84,7 @@ describe("mount", () => {
 describe("updates", () => {
   test("prop changes emit partial updates only", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ price = "—", up = false }) => (
         <stack>
           <text content={String(price)} color={up ? "green" : "primary"} />
@@ -105,7 +104,7 @@ describe("updates", () => {
 
   test("a dropped prop is deleted with null", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ dim = true }) =>
         dim ? <text content="x" color="secondary" /> : <text content="x" />,
       sink,
@@ -117,7 +116,7 @@ describe("updates", () => {
 
   test("no-op re-render emits no commit", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(() => <text content="fixed" />, sink);
+    const session = mountApp(() => <text content="fixed" />, sink);
     const commitsBefore = sink.commits.length;
     session.update({});
     expect(sink.commits.length).toBe(commitsBefore);
@@ -125,7 +124,7 @@ describe("updates", () => {
 
   test("conditional children produce insert/remove", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ alert = false }) => (
         <stack>
           <text content="always" />
@@ -147,7 +146,7 @@ describe("events", () => {
   test("handler props serialize as true and dispatch by (id, name)", () => {
     const sink = new InMemorySink();
     const clicks: string[] = [];
-    const renderer = createLedgeRenderer(sink);
+    const renderer = makeRenderer(sink);
     renderer.render(
       <stack>
         <button label="Refresh" variant="glass" onClick={() => clicks.push("hit")} />
@@ -167,7 +166,7 @@ describe("events", () => {
 
   test("state set inside a handler re-renders synchronously with a partial update", () => {
     const sink = new InMemorySink();
-    const renderer = createLedgeRenderer(sink);
+    const renderer = makeRenderer(sink);
 
     function Counter() {
       const [count, setCount] = useState(0);
@@ -195,7 +194,7 @@ describe("events", () => {
   test("handler identity swap re-registers without a wire update", () => {
     const sink = new InMemorySink();
     const seen: string[] = [];
-    const session = createAppSession(
+    const session = mountApp(
       ({ label = "a" }) => (
         <button label="b" onClick={() => seen.push(String(label))} />
       ),
@@ -219,7 +218,7 @@ describe("events", () => {
 
   test("removing an instance drops its handlers", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ show = true }) =>
         show ? <button label="x" onClick={() => {}} /> : <text content="gone" />,
       sink,
@@ -238,10 +237,34 @@ describe("events", () => {
 // kind updates in place — a kind that silently remounted would look identical in
 // a mount-only test and destroy toggle state on every render.
 describe("new kinds (D6)", () => {
+  test("canvas onDrag serializes as true and dispatches the phase (§4.1)", () => {
+    const sink = new InMemorySink();
+    const phases: string[] = [];
+    const renderer = makeRenderer(sink);
+    renderer.render(
+      <stack>
+        <canvas
+          w={416}
+          h={44}
+          onDrag={({ phase, x }) => phases.push(`${phase}@${x}`)}
+        />
+      </stack>,
+    );
+
+    const create = created(sink, "canvas");
+    expect(create.props).toEqual({ w: 416, h: 44, onDrag: true });
+
+    // "drag" — the wire name eventName() derives from onDrag. The shell has
+    // already throttled `move`; the host only routes what it is handed.
+    expect(renderer.dispatchEvent(create.id, "drag", { phase: "down", x: 10, y: 4 })).toBe(true);
+    expect(renderer.dispatchEvent(create.id, "drag", { phase: "up", x: 214, y: 6 })).toBe(true);
+    expect(phases).toEqual(["down@10", "up@214"]);
+  });
+
   test("toggle creates with on/disabled and serializes onChange as true", () => {
     const sink = new InMemorySink();
     const changes: boolean[] = [];
-    const renderer = createLedgeRenderer(sink);
+    const renderer = makeRenderer(sink);
     renderer.render(
       <stack>
         <toggle on={true} onChange={({ on }) => changes.push(on)} />
@@ -263,7 +286,7 @@ describe("new kinds (D6)", () => {
 
   test("toggle flips in place", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ on = false }) => <toggle on={on as boolean} onChange={() => {}} />,
       sink,
     );
@@ -279,7 +302,7 @@ describe("new kinds (D6)", () => {
       { id: "1w", label: "1W" },
       { id: "1m", label: "1M" },
     ];
-    const session = createAppSession(
+    const session = mountApp(
       ({ range = "1w" }) => (
         <segment
           options={options}
@@ -303,7 +326,7 @@ describe("new kinds (D6)", () => {
 
   test("stepper carries min/max/step and an app-formatted display string", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ minutes = 450 }) => (
         <stepper
           value={minutes as number}
@@ -332,7 +355,7 @@ describe("new kinds (D6)", () => {
 
   test("progress is value-only — no handler crosses the wire", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ done = 0.64 }) => <progress value={done as number} />,
       sink,
     );
@@ -343,7 +366,7 @@ describe("new kinds (D6)", () => {
 
   test("spinner creates with empty props and survives its parent's updates", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ pad = 12 }) => (
         <stack pad={pad as number}>
           <spinner />
@@ -362,7 +385,7 @@ describe("new kinds (D6)", () => {
 
   test("pill updates label and tone together", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ live = false }) => (
         <pill label={live ? "LIVE" : "PAPER"} tone={live ? "green" : "accent"} />
       ),
@@ -375,7 +398,7 @@ describe("new kinds (D6)", () => {
 
   test("a tone dropped entirely deletes the key rather than guessing neutral", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ toned = true }) =>
         toned ? <pill label="DRAFT" tone="violet" /> : <pill label="DRAFT" />,
       sink,
@@ -386,7 +409,7 @@ describe("new kinds (D6)", () => {
 
   test("all six new kinds mount in one tree", () => {
     const sink = new InMemorySink();
-    createLedgeRenderer(sink).render(
+    makeRenderer(sink).render(
       <stack axis="v" gap={8} pad={12} scroll>
         <toggle on={true} />
         <segment options={[{ id: "a", label: "A" }]} value="a" />
@@ -417,7 +440,7 @@ describe("new kinds (D6)", () => {
 describe("control props (D8)", () => {
   test("button size and disabled create and update in place", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ stale = true }) => (
         <button
           label="Execute"
@@ -445,13 +468,13 @@ describe("control props (D8)", () => {
 
   test("a button with no size omits the key — the shell's default is m", () => {
     const sink = new InMemorySink();
-    createLedgeRenderer(sink).render(<button label="Medium" variant="glass" />);
+    makeRenderer(sink).render(<button label="Medium" variant="glass" />);
     expect("size" in created(sink, "button").props).toBe(false);
   });
 
   test("slider min/max/step ride the wire and value moves alone", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ bpm = 90 }) => (
         <slider value={bpm as number} min={60} max={200} step={5} onChange={() => {}} />
       ),
@@ -471,7 +494,7 @@ describe("control props (D8)", () => {
 
   test("text maxLines and truncate=false create and update", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ expanded = true }) => (
         <stack>
           <text content="a long clinical note" maxLines={expanded ? 3 : 1} />
@@ -496,7 +519,7 @@ describe("control props (D8)", () => {
 
   test("stack scroll is an ordinary boolean prop, toggled in place", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ long = false }) => (
         <stack axis="v" scroll={long ? true : undefined}>
           <text content="row" />
@@ -511,7 +534,7 @@ describe("control props (D8)", () => {
 
   test("`wing` is an ordinary attachable kind with a `side` prop (§5 panel wings)", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ status = "starting…" }) => (
         <stack axis="v" pad={14}>
           <wing side="left">
@@ -546,7 +569,7 @@ describe("control props (D8)", () => {
 
   test("`rate` on slider and progress is an ordinary number prop (§5)", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ playing = true }) => (
         <stack axis="v">
           <slider value={64} min={0} max={224} rate={playing ? 1 : 0} />
@@ -571,10 +594,89 @@ describe("control props (D8)", () => {
   });
 });
 
+// Lists and pages (spec §5): the rule between rows, the row that is itself a
+// button, and the page swap both of them live inside. Nothing here is a new
+// protocol *mechanism* — that is the finding these tests record.
+describe("lists and pages", () => {
+  test("divider is a propless kind", () => {
+    const sink = new InMemorySink();
+    makeRenderer(sink).render(
+      <stack axis="v">
+        <text content="Open" />
+        <divider />
+        <text content="High" />
+      </stack>,
+    );
+    expect(created(sink, "divider").props).toEqual({});
+  });
+
+  test("a button's child rides the tree, not a `children` prop", () => {
+    const sink = new InMemorySink();
+    makeRenderer(sink).render(
+      <stack axis="v">
+        <button variant="plain" onClick={() => {}}>
+          <stack axis="h" gap={10} pad={10}>
+            <text content="AAPL" />
+            <spacer />
+            <text content="$214.62" />
+          </stack>
+        </button>
+      </stack>,
+    );
+
+    const row = created(sink, "button");
+    // `children` never crosses the wire; the handler does, as `true`.
+    expect(row.props).toEqual({ variant: "plain", onClick: true });
+
+    const inserts = sink.all.filter((m) => m.op === "insert") as Extract<
+      Mutation,
+      { op: "insert" }
+    >[];
+    const child = inserts.find((m) => m.parent === row.id);
+    expect(child).toBeDefined();
+    const kindOf = (id: number) =>
+      (sink.all.find((m) => m.op === "create" && m.id === id) as Create).kind;
+    expect(kindOf(child!.id)).toBe("stack");
+  });
+
+  test("navigating is an ordinary commit: the old page out, the new page in", () => {
+    const sink = new InMemorySink();
+    // The whole navigation mechanism, in one prop standing in for `useState`.
+    const session = mountApp(
+      ({ focus = null }) => (
+        <stack axis="v">
+          {focus ? (
+            <stack axis="v" pad={14}>
+              <button label="Watchlist" icon="sf:chevron.left" onClick={() => {}} />
+              <text content={String(focus)} size="xl" />
+            </stack>
+          ) : (
+            <stack axis="v" scroll>
+              <text content="AAPL" />
+            </stack>
+          )}
+        </stack>
+      ),
+      sink,
+    );
+
+    session.update({ focus: "AAPL" });
+    const swap = sink.commits.at(-1)!;
+    // A page is a subtree. The shell learns of the navigation as creates,
+    // one remove and one insert — there is no route on the wire, and the root
+    // node is never replaced, so the panel morphs rather than remounting.
+    expect(ops(swap)).toContain("remove");
+    expect(ops(swap)).toContain("insert");
+    expect(ops(swap)).not.toContain("setRoot");
+    const removed = swap.filter((m) => m.op === "remove");
+    expect(removed).toHaveLength(1);
+  });
+});
+
 describe("session", () => {
   test("update() shallow-merges props across calls", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(
+    const session = mountApp(
       ({ a = "-", b = "-" }) => <text content={`${a}/${b}`} />,
       sink,
     );
@@ -587,7 +689,7 @@ describe("session", () => {
 
   test("unmount removes the root", () => {
     const sink = new InMemorySink();
-    const session = createAppSession(() => <text content="bye" />, sink);
+    const session = mountApp(() => <text content="bye" />, sink);
     session.unmount();
     expect(ops(sink.commits.at(-1)!)).toContain("remove");
   });

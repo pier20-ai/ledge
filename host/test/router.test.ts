@@ -6,8 +6,17 @@ import { fileURLToPath } from "node:url";
 import type { ShellSession } from "../src/connection";
 import type { Envelope } from "../src/protocol/envelope";
 import { Router } from "../src/router";
+import { Builder } from "../src/builder";
+import { FakeCodex } from "../src/fakes/fake-codex";
 import type { RestartScheduler } from "../src/supervisor";
 import type { Mutation } from "../src/render/mutations";
+import { parseEnvelope } from "../src/protocol/envelope";
+
+/** One envelope from the corpus both sides read (protocol/fixtures). */
+const PROTOCOL_FIXTURES = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "protocol", "fixtures");
+async function fixtureEnvelope(name: string): Promise<Envelope> {
+  return parseEnvelope(await Bun.file(join(PROTOCOL_FIXTURES, name)).json());
+}
 
 // Router + REAL Bun workers against a recording ShellSession (spec §§3–4). This is
 // the host-side end-to-end: a genuine worker mounts through the supervisor, the
@@ -208,5 +217,168 @@ describe("Router end-to-end (real workers)", () => {
     await waitFor(
       () => session.envelopesFor("crasher", "app").filter((e) => e.payload.state === "started").length > startsBefore,
     );
+  }, 30000);
+
+  // The registry used to be read once, at bindSession, so an app created after
+  // the host started was invisible until it restarted. That blocks the whole
+  // builder flow: the agent scaffolds a folder and then has nothing to show.
+  test("an app folder created after bind is scanned, published, and started", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    // Real watcher here (watch: true) — the rescan is triggered by fs events,
+    // so a fake would test everything except the part that was missing.
+    const router = new Router({ appsRoot: root, scheduler: new FakeScheduler(), watch: true });
+    openRouter = router;
+
+    await router.bindSession(session);
+    await waitFor(() => session.envelopesFor("counter", "commit").length >= 1);
+    // (More than one catalog by now is normal: the worker's `meta` re-publishes
+    // the full snapshot, spec §3.6. What matters is that nothing names the app
+    // that does not exist yet.)
+    expect(
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "flights")),
+    ).toBe(false);
+
+    // What `ledge new` / an agent scaffolding an app does on disk.
+    await mkdir(join(root, "flights"), { recursive: true });
+    await writeFile(join(root, "flights", "app.jsx"), COUNTER(41));
+
+    // A fresh catalog naming the new app…
+    await waitFor(() =>
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "flights")),
+    );
+    // …and a worker that actually mounted it.
+    await waitFor(() => session.envelopesFor("flights", "commit").length >= 1);
+    const mount = session.envelopesFor("flights", "commit")[0]!.payload.mutations as Mutation[];
+    expect(createOfKind(mount, "text")!.props.content).toBe("count 41");
+
+    // The pre-existing app is untouched — a rescan must not restart the world.
+    expect(session.envelopesFor("counter", "app").filter((e) => e.payload.state === "started").length).toBe(1);
+  }, 30000);
+
+  // The builder's two ends (spec §4.3 in, §3.6 out). The Builder's own behaviour
+  // is covered in builder.test.ts; what is unproven without this is the WIRING —
+  // a `builderInput` envelope actually reaching it, and its events coming back
+  // out as `builder` envelopes tagged with the right app and turn.
+  test("builderInput runs a turn and its events reach the shell", async () => {
+    const root = await makeAppsRoot({ stocks: COUNTER(0) });
+    const session = new RecordingSession();
+    const fake = new FakeCodex();
+
+    const router = new Router({
+      appsRoot: root,
+      scheduler: new FakeScheduler(),
+      watch: false,
+    });
+    openRouter = router;
+    // Replace the router's builder with one wired to the fake, keeping the
+    // router's own sink so the outbound half is the production path.
+    const sink = (router as unknown as { sendBuilder: (a: string, t: number, e: unknown) => void });
+    (router as unknown as { builder: Builder }).builder = new Builder({
+      appsRoot: root,
+      sink: {
+        builder: (app, turn, event) => sink.sendBuilder(app, turn, event),
+        log: () => {},
+      },
+      client: { spawn: () => fake.process },
+    });
+
+    await router.bindSession(session);
+    // EXACTLY what the shell sends (ProtocolEngine.sendBuilderInput): a
+    // control-plane frame, app `""`, target in the payload. This test used to
+    // send it per-app — encoding the same mistake the router made — and so both
+    // halves agreed with each other and disagreed with the shell. The symptom
+    // was total: every message the user typed started a turn for the app named
+    // `""` and streamed back to an editor that was showing a different one.
+    // Read from the SHARED fixture rather than written out here: the previous
+    // version of this test wrote the frame itself, agreed with the router, and
+    // so proved only that the host was self-consistent. Swift asserts its
+    // emitter against the same file (ProtocolEngineTests), which is the only
+    // arrangement in which the two halves cannot drift apart in silence.
+    router.onEnvelope(session, await fixtureEnvelope("builder-input.json"));
+
+    await waitFor(() => fake.requests.some((r) => r.method === "turn/start"));
+    fake.emitTurn("thread-1", "on it");
+    // Control-plane framing (spec §3.6): the envelope's app is EMPTY and the
+    // payload names the app. Sending it per-app instead decodes on neither
+    // side — the shell drops it silently and the editor shows nothing.
+    // The first builder envelope of any session is the agent announcement (is
+    // Codex installed at all); the turn's own events follow it.
+    await waitFor(() => session.envelopesFor("", "builder").length >= 3);
+
+    const all = session.envelopesFor("", "builder").map((e) => e.payload);
+    expect(all[0]!.event).toBe("agent");
+    const events = all.slice(1);
+    expect(events[0]).toEqual({ app: "stocks", turn: 1, event: "text", delta: "on it" });
+    expect(events[1]).toEqual({ app: "stocks", turn: 1, event: "done", status: "completed" });
+  }, 30000);
+
+  // The [+] surface, end to end through the router: an empty app id in, a
+  // scaffolded app and a catalog that knows about it out (spec §4.3, §8).
+  test("builderInput with no app scaffolds one and puts it in the catalog", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    const fake = new FakeCodex();
+
+    const router = new Router({
+      appsRoot: root,
+      scheduler: new FakeScheduler(),
+      watch: false,
+    });
+    openRouter = router;
+    const sink = (router as unknown as { sendBuilder: (a: string, t: number, e: unknown) => void });
+    (router as unknown as { builder: Builder }).builder = new Builder({
+      appsRoot: root,
+      sink: {
+        builder: (app, turn, event) => sink.sendBuilder(app, turn, event),
+        log: () => {},
+        created: () => void (router as unknown as { rescanApps(): Promise<void> }).rescanApps(),
+      },
+      client: { spawn: () => fake.process },
+    });
+
+    await router.bindSession(session);
+    router.onEnvelope(session, await fixtureEnvelope("builder-input-new.json"));
+
+    await waitFor(() => session.envelopesFor("", "builder").length >= 2);
+    const created = session.envelopesFor("", "builder")[1]!.payload;
+    expect(created).toEqual({ app: "pomodoro-timer", turn: 0, event: "created" });
+
+    // And the strip can name it: the shell moves its editor onto this id the
+    // moment it hears `created`, so a catalog that has never mentioned it would
+    // put a nameless, iconless entry on screen.
+    await waitFor(() =>
+      session
+        .envelopesFor("", "catalog")
+        .some((e) => (e.payload.apps as Array<{ id: string }>).some((a) => a.id === "pomodoro-timer")),
+    );
+  }, 30000);
+
+  // The permission surface can only be raised by Settings. Gated in the host as
+  // well as the shell, and this is the host's half: an app that could put an
+  // official-looking consent panel on screen at a moment of its choosing is
+  // exactly the ambush that surface exists to prevent.
+  test("only Settings may ask for the permission surface", async () => {
+    const root = await makeAppsRoot({ counter: COUNTER(0) });
+    const session = new RecordingSession();
+    const router = new Router({ appsRoot: root, scheduler: new FakeScheduler(), watch: false });
+    openRouter = router;
+    await router.bindSession(session);
+
+    router.chrome("counter", "permissions");
+    expect(session.envelopesFor("counter", "chrome")).toHaveLength(0);
+
+    // And the ordinary verbs still pass for anybody.
+    router.chrome("counter", "expand");
+    expect(session.envelopesFor("counter", "chrome")).toHaveLength(1);
+
+    router.chrome("settings", "permissions");
+    const sent = session.envelopesFor("settings", "chrome");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.payload).toEqual({ request: "permissions" });
   }, 30000);
 });

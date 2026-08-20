@@ -25,7 +25,16 @@ public protocol ProtocolEngineDelegate: AnyObject {
     /// plus this phase's `wing` (§3.3 extension) whose payload rides along —
     /// `wing` is non-nil only for `request == "wing"` with a spec attached; a
     /// `wing` request with a nil spec releases the notch.
-    func chromeRequest(app: String, request: String, wing: WingSpec?)
+    /// `ms` accompanies `peek` only; nil everywhere else means "your default".
+    /// `priority` (`class` on the wire) accompanies `peek` too: an alert-class
+    /// swell holds until acted on, an ambient one retracts on `Ti` (flow.md).
+    func chromeRequest(
+        app: String,
+        request: String,
+        wing: WingSpec?,
+        ms: Double?,
+        priority: NotificationClass?
+    )
 
     /// Blit coalesced draw ops to one app's canvas (spec §3.4). Called on flush.
     /// Scoped by app because node ids restart at 1 per worker (§3.1).
@@ -120,6 +129,10 @@ public final class ProtocolEngine {
     public weak var capabilities: CapabilityDelegate?
     private let send: (Envelope) -> Void
     private var screen: ScreenInfo
+    /// The system's Reduce Motion preference (spec §4.2). Held here rather than
+    /// read at each emit so the engine stays testable without an `NSWorkspace`,
+    /// and so every `lifecycle` and `hello` reports the same value.
+    private var reduceMotion = false
 
     private var shadows: [String: ShadowTree] = [:]
     private var inbound = SeqGate()
@@ -168,6 +181,20 @@ public final class ProtocolEngine {
 
     public func updateScreen(_ screen: ScreenInfo) { self.screen = screen }
 
+    /// Record the system's Reduce Motion preference (spec §4.2). Returns true
+    /// when it actually changed, which is the caller's cue to re-send a
+    /// `lifecycle` to every running app — the flag has no envelope of its own,
+    /// because it is the same kind of fact `phase` is: how hard to work.
+    @discardableResult
+    public func updateReduceMotion(_ value: Bool) -> Bool {
+        guard reduceMotion != value else { return false }
+        reduceMotion = value
+        return true
+    }
+
+    /// What the engine will report on the next `lifecycle`/`hello`.
+    public var reducesMotion: Bool { reduceMotion }
+
     // MARK: - Inbound dispatch (spec §3)
 
     /// Handle one decoded envelope. Returns false only when the frame is
@@ -196,7 +223,7 @@ public final class ProtocolEngine {
         case .capture:    handleCapture(envelope)
         case .platform:   handlePlatform(envelope)
         // Shell → host types are never received; ignore if echoed.
-        case .event, .lifecycle, .selection, .builderInput, .resyncRequest,
+        case .event, .lifecycle, .selection, .builderInput, .appControl, .resyncRequest,
              .appleResult, .notifyAction, .captureResult, .platformResult:
             return false
         }
@@ -255,6 +282,13 @@ public final class ProtocolEngine {
                 message: payload.error?.message ?? "The app crashed.",
                 stack: payload.error?.stack
             )
+            // The error card is what the *panel* shows; the transition itself
+            // still has to be announced, because the shell reads §3.2 states as
+            // build status for the editor's Edit/Preview toggle (§8) and a crash
+            // is the one outcome that most needs saying. Every other branch here
+            // already announces — omitting this one made `appLifecycle` mean
+            // "every transition except the interesting one".
+            delegate?.appLifecycle(app: app, state: payload.state)
         case "started", "reloaded":
             // A freshly spawned or hot-reloaded worker restarts its node ids at 1
             // (spec §3.1) — so the full mount commit that follows this envelope
@@ -285,7 +319,13 @@ public final class ProtocolEngine {
         // An empty wing object carries no instruction; treat it as a release so
         // the shell never has to reason about "a wing that shows nothing".
         let wing = payload.wing.flatMap { $0.isEmpty ? nil : $0 }
-        delegate?.chromeRequest(app: envelope.app, request: payload.request, wing: wing)
+        delegate?.chromeRequest(
+            app: envelope.app,
+            request: payload.request,
+            wing: wing,
+            ms: payload.ms,
+            priority: payload.priority
+        )
     }
 
     private func handleDraw(_ envelope: Envelope) {
@@ -308,6 +348,9 @@ public final class ProtocolEngine {
 
     private func handleBuilder(_ envelope: Envelope) {
         guard let payload = try? envelope.decodePayload(BuilderPayload.self) else { return }
+        // `app` comes from the PAYLOAD, not the envelope: `builder` is a control
+        // plane frame (spec §3.6, "shell-level, `app: \"\"`"), so the envelope's
+        // app is empty and the payload names the app the events belong to.
         delegate?.builderEvent(payload)
     }
 
@@ -517,10 +560,13 @@ public final class ProtocolEngine {
         emit(app: app, type: .notifyAction, payload: .encoding(NotifyActionPayload(id: id, action: action)))
     }
 
-    /// Report a per-app panel state change (§4.2).
+    /// Report a per-app panel state change (§4.2). Every one of these also
+    /// carries the current Reduce Motion state, so an app that reads the flag
+    /// from a draw loop never has to ask for it.
     public func sendLifecycle(app: String, phase: String) {
         emit(app: app, type: .lifecycle, payload: .object([
             "phase": .string(phase),
+            "reduceMotion": .bool(reduceMotion),
             "screen": screenJSON(screen),
         ]))
     }
@@ -547,6 +593,35 @@ public final class ProtocolEngine {
 
     /// Ask the host for a fresh full commit for one app (§4.3). Sent with the
     /// shell-level app id `""` and the target app in the payload.
+    /// **Stop a session** (spec §4.3 extension) — the ledge's ✕, the only ✕ in
+    /// the product (flow.md, "The strip").
+    ///
+    /// The host already knows how to do this: it is the same path Settings'
+    /// switch takes (`ctx.platform.disable`), which tears the worker down and
+    /// leaves the app installed. This is a second *trigger* for that one path
+    /// rather than a second mechanism, so "this app is not running" cannot end
+    /// up with two answers.
+    public func sendAppControl(app: String, action: String) {
+        emit(app: "", type: .appControl, payload: .object([
+            "app": .string(app),
+            "action": .string(action),
+        ]))
+    }
+
+    /// One turned control in the Settings window (G4): the same control-plane
+    /// envelope as the ✕ and the switch, with the `setting` verb. The host
+    /// validates against the app's declared spec, persists, delivers to the
+    /// worker, and answers with a full catalog — so the control confirms from
+    /// truth, never from optimism.
+    public func sendAppSetting(app: String, key: String, value: JSONValue) {
+        emit(app: "", type: .appControl, payload: .object([
+            "app": .string(app),
+            "action": .string("setting"),
+            "key": .string(key),
+            "value": value,
+        ]))
+    }
+
     public func sendResyncRequest(app: String) {
         emit(app: "", type: .resyncRequest, payload: .object(["app": .string(app)]))
     }

@@ -148,6 +148,94 @@ final class FakeSpeech: SpeechSynthesizing {
     var isSpeaking: Bool { !pending.isEmpty }
 }
 
+/// The quit seam. The shipping one is `NSApp.terminate`, which would take the
+/// test runner with it — which is precisely why it is a seam.
+@MainActor
+final class FakeQuit: ShellQuitting {
+    private(set) var asked = 0
+    func requestQuit() { asked += 1 }
+}
+
+/// The recorder seam (G3). The shipping one is `SystemRecorder`, which opens
+/// AVFoundation devices and a Core Audio process tap — it would raise a real mic
+/// prompt on the machine running the suite and record whatever was said near it.
+/// **This is the entire reason `AudioRecording` lives in Core**: every rule worth
+/// asserting about `ctx.record` is ownership policy in the executor, and none of
+/// it needs a microphone.
+///
+/// `start` deliberately holds its completion open by default, because that is
+/// what an unanswered TCC prompt looks like from the executor's side — and the
+/// claim-before-consent rule only has a case to answer during that window.
+@MainActor
+final class FakeRecorder: AudioRecording {
+    var unavailableReason: String?
+    /// The honest answer on every machine this build runs on.
+    var transcriptionUnavailableReason: String? = "transcription needs macOS 26"
+    var rootBase = "/tmp/ledge-test-recordings"
+    var levelsValue: RecordingLevels?
+
+    /// What `start` should answer, or nil to hold the call open (the prompt is
+    /// on screen and the user has not touched it). `finishStart` settles it.
+    var startResult: Result<RecordingSession, CapabilityError>?
+    var stopResult: Result<RecordingStopResult, CapabilityError>?
+
+    private(set) var starts: [(app: String, sources: [RecordingSource], format: RecordingFormat)] = []
+    private(set) var stops = 0
+    private var pendingStart: (@MainActor (Result<RecordingSession, CapabilityError>) -> Void)?
+
+    var isStartPending: Bool { pendingStart != nil }
+
+    func root(for app: String) -> URL {
+        URL(fileURLWithPath: rootBase).appendingPathComponent(app)
+    }
+
+    func start(
+        app: String,
+        sources: [RecordingSource],
+        format: RecordingFormat,
+        completion: @escaping @MainActor (Result<RecordingSession, CapabilityError>) -> Void
+    ) {
+        starts.append((app, sources, format))
+        guard let startResult else {
+            pendingStart = completion
+            return
+        }
+        completion(startResult)
+    }
+
+    /// The user answered the prompt (or the device opened). `session` nil builds
+    /// one from the call that is waiting, so a test only names what it cares about.
+    func finishStart(_ result: Result<RecordingSession, CapabilityError>? = nil) {
+        guard let completion = pendingStart else { return }
+        pendingStart = nil
+        let call = starts.last
+        completion(result ?? .success(RecordingSession(
+            id: "s1",
+            dir: root(for: call?.app ?? "?").appendingPathComponent("s1").path,
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: call?.sources ?? [.mic, .system],
+            format: call?.format ?? .aac
+        )))
+    }
+
+    func stop(completion: @escaping @MainActor (Result<RecordingStopResult, CapabilityError>) -> Void) {
+        stops += 1
+        completion(stopResult ?? .success(RecordingStopResult(
+            session: RecordingSession(
+                id: "s1",
+                dir: "\(rootBase)/scribe/s1",
+                startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                sources: [.mic, .system],
+                format: .aac
+            ),
+            seconds: 12.5,
+            files: [.mic: "\(rootBase)/scribe/s1/mic.m4a", .system: "\(rootBase)/scribe/s1/system.m4a"]
+        )))
+    }
+
+    func levels() -> RecordingLevels? { levelsValue }
+}
+
 // MARK: - Tests
 
 /// The request/reply half of `ctx.platform` (spec §6 extension).
@@ -351,8 +439,18 @@ struct PlatformExecutorTests {
         executor.run(.location, completion: results.completion)
         #expect(results.count == 0)
 
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
         #expect(results.error?.contains("timed out") == true)
     }
 
@@ -366,8 +464,18 @@ struct PlatformExecutorTests {
         )
         let results = PlatformResults()
         executor.run(.location, completion: results.completion)
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
 
         // Settling a Promise twice is worse than settling it late.
         provider.result = .success(LocationFix(latitude: 1, longitude: 2, accuracyMeters: 3, timestamp: epoch))
@@ -415,8 +523,18 @@ struct PlatformExecutorTests {
         let executor = PlatformExecutor(spotlight: FakeSpotlight(), spotlightTimeout: 0.05)
         let results = PlatformResults()
         executor.run(.spotlight(query: "kMDItemFSName == \"x\"", scopes: ["/tmp"]), completion: results.completion)
-        try? await Task.sleep(nanoseconds: 300_000_000)
-        #expect(results.count == 1)
+        // Poll for the deadline to fire rather than sleeping a fixed 300 ms.
+        // A fixed sleep is a race — the executor's timeout lands on a queue, and
+        // under a parallel test run the sleep could finish first, which is why
+        // this test failed ~50% of runs. Written inline rather than as a helper
+        // because handing a non-Sendable result holder to an async function
+        // trips Swift 6 isolation checking.
+        var settled = false
+        for _ in 0..<600 {
+            if results.count == 1 { settled = true; break }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        #expect(settled)
         #expect(results.error?.contains("timed out") == true)
     }
 
@@ -515,6 +633,285 @@ struct PlatformExecutorTests {
             completion: results.completion
         )
         #expect(speech.spoken.count == 1, "exactly at the limit is allowed")
+    }
+
+    // MARK: record (ctx.record, G3)
+
+    /// `status` is the call an app makes before it draws anything, so every
+    /// field it carries is one the app is about to branch on. The interesting
+    /// ones are the honest negatives: `available` with a reason when the shell
+    /// cannot record at all, and a transcription gate that says why rather than
+    /// half-transcribing.
+    @Test("status() answers availability, this app's own root, and the transcription gate")
+    func recordStatusShape() throws {
+        let recorder = FakeRecorder()
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+        executor.run(.recordStatus, app: "scribe", completion: results.completion)
+
+        let object = try #require(results.object)
+        #expect(object["available"]?.asBool == true)
+        #expect(object["reason"] == nil, "an available recorder gives no reason")
+        #expect(object["recording"]?.asBool == false)
+        #expect(object["mine"]?.asBool == false)
+        // Sessions are per-app: the root is the *asking* app's folder, which is
+        // what makes one app's recordings invisible to another's session list.
+        #expect(object["root"]?.asString == "/tmp/ledge-test-recordings/scribe")
+        #expect(object["session"] == nil, "nothing is recording, so there is no session to describe")
+        let transcription = try #require(object["transcription"]?.asObject)
+        #expect(transcription["available"]?.asBool == false)
+        #expect(transcription["reason"]?.asString == "transcription needs macOS 26")
+
+        // A shell that cannot record says so in the same shape rather than
+        // failing the call: the app still has a root to list past sessions from.
+        recorder.unavailableReason = "microphone access was denied"
+        executor.run(.recordStatus, app: "scribe", completion: results.completion)
+        #expect(results.object?["available"]?.asBool == false)
+        #expect(results.object?["reason"]?.asString == "microphone access was denied")
+    }
+
+    /// **The claim happens before the facade answers**, and this is the case it
+    /// exists for: `start` blocks on the mic's TCC prompt, which can sit on
+    /// screen for as long as the user ignores it. A second app asking during
+    /// that window must be refused by name, not raced into a second stream on
+    /// hardware that only has one.
+    @Test("A start claims the recorder before the prompt is answered, so a second app is refused")
+    func recordStartClaimsBeforeConsent() {
+        let recorder = FakeRecorder()      // holds `start` open: the prompt is up
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+
+        executor.run(.recordStart(sources: [.mic, .system], format: .aac), app: "scribe", completion: results.completion)
+        #expect(results.count == 0, "the call is still waiting on the user")
+        #expect(recorder.isStartPending)
+        #expect(executor.recordingOwner == "scribe", "claimed on the way in, not on the way back")
+
+        executor.run(.recordStart(sources: [.mic], format: .wav), app: "dictaphone", completion: results.completion)
+        #expect(results.error == "already recording for 'scribe'")
+        #expect(recorder.starts.count == 1, "the second ask never reached the hardware")
+
+        // And when the user finally says yes, the first call — and only it —
+        // settles, in the documented shape.
+        recorder.finishStart()
+        #expect(results.count == 2)
+        let session = results.object
+        #expect(session?["id"]?.asString == "s1")
+        #expect(session?["dir"]?.asString == "/tmp/ledge-test-recordings/scribe/s1")
+        #expect(session?["startedAt"]?.asString == "2027-01-15T08:00:00Z")
+        #expect(session?["sources"]?.asArray?.compactMap(\.asString) == ["mic", "system"])
+        #expect(session?["format"]?.asString == "aac")
+    }
+
+    /// A refused prompt has to give the claim back. Otherwise one denial locks
+    /// the recorder for the life of the process and every later start — from any
+    /// app — reports a recording that is not happening.
+    @Test("A facade start that fails releases the claim rather than wedging the recorder")
+    func recordStartFailureReleasesTheClaim() {
+        let recorder = FakeRecorder()
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+
+        executor.run(.recordStart(sources: [.mic], format: .aac), app: "scribe", completion: results.completion)
+        #expect(executor.recordingOwner == "scribe")
+        recorder.finishStart(.failure(CapabilityError("microphone access was denied")))
+        #expect(results.error == "microphone access was denied")
+        #expect(executor.recordingOwner == nil, "a denial must not hold the recorder hostage")
+
+        // Proof that it is genuinely free: the next start goes through.
+        recorder.startResult = .success(RecordingSession(
+            id: "s2",
+            dir: "/tmp/ledge-test-recordings/scribe/s2",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: [.mic],
+            format: .aac
+        ))
+        executor.run(.recordStart(sources: [.mic], format: .aac), app: "scribe", completion: results.completion)
+        #expect(results.object?["id"]?.asString == "s2")
+        #expect(executor.recordingOwner == "scribe")
+    }
+
+    /// Only the owner may stop, and the refusal names the holder — an app that
+    /// cannot stop the tape can at least tell the user who can.
+    @Test("Another app cannot stop this app's recording, and is told whose it is")
+    func recordStopIsOwnerOnly() {
+        let recorder = FakeRecorder()
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+
+        // Nothing running at all is its own sentence, not an ownership error.
+        executor.run(.recordStop, app: "scribe", completion: results.completion)
+        #expect(results.error == "nothing is recording")
+
+        recorder.startResult = .success(RecordingSession(
+            id: "s1",
+            dir: "/tmp/ledge-test-recordings/scribe/s1",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: [.mic, .system],
+            format: .aac
+        ))
+        executor.run(.recordStart(sources: [.mic, .system], format: .aac), app: "scribe", completion: results.completion)
+
+        executor.run(.recordStop, app: "dictaphone", completion: results.completion)
+        #expect(results.error == "only 'scribe' may stop this recording")
+        #expect(recorder.stops == 0, "a refused stop must not close the files")
+        #expect(executor.recordingOwner == "scribe")
+    }
+
+    /// The stop shape, and the fact the app depends on afterwards: the recorder
+    /// is free again, so the same app can start the next session immediately.
+    @Test("The owner's stop reports the files and the seconds, and frees the recorder")
+    func recordStopShapeAndRelease() throws {
+        let recorder = FakeRecorder()
+        recorder.startResult = .success(RecordingSession(
+            id: "s1",
+            dir: "/tmp/ledge-test-recordings/scribe/s1",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: [.mic, .system],
+            format: .aac
+        ))
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+        executor.run(.recordStart(sources: [.mic, .system], format: .aac), app: "scribe", completion: results.completion)
+
+        // While it runs, the owner's status carries the live session.
+        executor.run(.recordStatus, app: "scribe", completion: results.completion)
+        #expect(results.object?["recording"]?.asBool == true)
+        #expect(results.object?["mine"]?.asBool == true)
+        #expect(results.object?["session"]?.asObject?["id"]?.asString == "s1")
+
+        executor.run(.recordStop, app: "scribe", completion: results.completion)
+        let stopped = try #require(results.object)
+        #expect(stopped["id"]?.asString == "s1")
+        #expect(stopped["dir"]?.asString == "/tmp/ledge-test-recordings/scribe/s1")
+        #expect(stopped["seconds"]?.asDouble == 12.5)
+        // Absolute paths, keyed by source. A source that was never requested has
+        // no key at all — the app reads presence, not an empty string.
+        let files = try #require(stopped["files"]?.asObject)
+        #expect(files["mic"]?.asString == "/tmp/ledge-test-recordings/scribe/s1/mic.m4a")
+        #expect(files["system"]?.asString == "/tmp/ledge-test-recordings/scribe/s1/system.m4a")
+        #expect(recorder.stops == 1)
+        #expect(executor.recordingOwner == nil)
+
+        // Free means free: the next session starts without a restart.
+        executor.run(.recordStart(sources: [.mic], format: .wav), app: "scribe", completion: results.completion)
+        #expect(executor.recordingOwner == "scribe")
+        #expect(recorder.starts.count == 2)
+    }
+
+    /// A second app asking for status while someone else records learns that a
+    /// recording is happening — enough to say "Scribe is recording" — and
+    /// nothing about it. `mine` false means no session object, so one app's
+    /// session directory never reaches another's process.
+    @Test("A bystander app sees `recording` but never the session itself")
+    func recordStatusForABystander() throws {
+        let recorder = FakeRecorder()
+        recorder.startResult = .success(RecordingSession(
+            id: "s1",
+            dir: "/tmp/ledge-test-recordings/scribe/s1",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: [.mic],
+            format: .aac
+        ))
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+        executor.run(.recordStart(sources: [.mic], format: .aac), app: "scribe", completion: results.completion)
+
+        executor.run(.recordStatus, app: "notes", completion: results.completion)
+        let object = try #require(results.object)
+        #expect(object["recording"]?.asBool == true)
+        #expect(object["mine"]?.asBool == false)
+        #expect(object["session"] == nil, "another app's session dir is not this app's business")
+        #expect(object["root"]?.asString == "/tmp/ledge-test-recordings/notes")
+    }
+
+    /// The meters are the owner's, for the same reason the stop is: `levels` is
+    /// a live read of what the microphone is hearing right now, which is the
+    /// single most sensitive thing this capability produces.
+    @Test("levels() answers the owner and refuses everyone else")
+    func recordLevelsAreOwnerOnly() throws {
+        let recorder = FakeRecorder()
+        recorder.startResult = .success(RecordingSession(
+            id: "s1",
+            dir: "/tmp/ledge-test-recordings/scribe/s1",
+            startedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            sources: [.mic],
+            format: .aac
+        ))
+        recorder.levelsValue = RecordingLevels(mic: 0.42, system: nil, seconds: 7.25)
+        let executor = PlatformExecutor(recorder: recorder)
+        let results = PlatformResults()
+
+        // Before anything runs there is nothing to meter.
+        executor.run(.recordLevels, app: "scribe", completion: results.completion)
+        #expect(results.error == "nothing is recording")
+
+        executor.run(.recordStart(sources: [.mic], format: .aac), app: "scribe", completion: results.completion)
+        executor.run(.recordLevels, app: "scribe", completion: results.completion)
+        let levels = try #require(results.object)
+        #expect(levels["mic"]?.asDouble == 0.42)
+        #expect(levels["system"] == nil, "a source not in the session has no key")
+        // `seconds` rides along so the app's elapsed clock is the recorder's,
+        // not its own drifting copy between polls.
+        #expect(levels["seconds"]?.asDouble == 7.25)
+
+        executor.run(.recordLevels, app: "notes", completion: results.completion)
+        #expect(results.error == "nothing is recording", "a bystander is told nothing about the meters")
+    }
+
+    /// The snapshot replay and any build without `SystemRecorder` behind it. An
+    /// app awaiting `ctx.record.status()` there gets a sentence, not a timeout.
+    @Test("A shell with no recorder answers all four verbs instead of hanging")
+    func recordWithoutAFacade() {
+        let executor = PlatformExecutor()
+        let results = PlatformResults()
+        for call in [PlatformCall.recordStatus, .recordStart(sources: [.mic], format: .aac),
+                     .recordStop, .recordLevels] {
+            executor.run(call, app: "scribe", completion: results.completion)
+        }
+        #expect(results.count == 4)
+        #expect(results.settled.allSatisfy { result in
+            guard case let .failure(error) = result else { return false }
+            return error.message == "this shell has no recording capability"
+        })
+        #expect(executor.recordingOwner == nil)
+    }
+
+    /// The runaway bound, stated once. Six hours is longer than any meeting and
+    /// short enough that a worker that died with the tape rolling cannot fill a
+    /// disk overnight — the cap is not a timeout on the *call*, it is a ceiling
+    /// on the session.
+    @Test("The runaway cap is six hours")
+    func recordCap() {
+        #expect(PlatformExecutor.maxRecordingSeconds == 6 * 3600)
+    }
+
+    // MARK: quit
+
+    @Test("Quit answers before it ends the process, so the reply gets out")
+    func quitAnswersFirst() {
+        let quit = FakeQuit()
+        let executor = PlatformExecutor(quit: quit)
+        let results = PlatformResults()
+        executor.run(.quit, completion: results.completion)
+
+        // Order is the whole point: the app is awaiting a Promise, and the
+        // socket that carries the reply dies with the process. The facade's
+        // contract is to terminate on a later run-loop turn; the executor's is
+        // to have answered by then.
+        #expect(results.count == 1)
+        #expect(results.settled.first?.isSuccess == true)
+        #expect(results.data == nil, "a call with no answer carries no data")
+        #expect(quit.asked == 1)
+    }
+
+    @Test("A shell that cannot quit says so instead of hanging")
+    func quitWithoutAFacade() {
+        // The snapshot replay runs a real engine with no NSApp behind it. An app
+        // awaiting `ctx.platform.quit()` there gets a sentence, not a timeout.
+        let executor = PlatformExecutor()
+        let results = PlatformResults()
+        executor.run(.quit, completion: results.completion)
+        #expect(results.error?.contains("cannot quit itself") == true)
     }
 
     // MARK: routing

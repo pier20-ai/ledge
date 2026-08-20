@@ -16,6 +16,7 @@ import type {
   HostToWorker,
   NotifyRequest,
   WingSpec,
+  WorkerBoot,
 } from "../src/worker/messages";
 
 // AppSupervisor in isolation (spec §6 rule 2, §7): a FAKE worker (no thread) and
@@ -73,14 +74,20 @@ class FakeWorker {
   }
 }
 
-function fakeFactory(): { factory: WorkerFactory; instances: FakeWorker[] } {
+function fakeFactory(): {
+  factory: WorkerFactory;
+  instances: FakeWorker[];
+  boots: WorkerBoot[];
+} {
   const instances: FakeWorker[] = [];
-  const factory: WorkerFactory = (_boot, hooks) => {
+  const boots: WorkerBoot[] = [];
+  const factory: WorkerFactory = (boot, hooks) => {
+    boots.push(boot);
     const worker = new FakeWorker(hooks);
     instances.push(worker);
     return worker.handle;
   };
-  return { factory, instances };
+  return { factory, instances, boots };
 }
 
 class RecordingSink implements SupervisorSink {
@@ -354,5 +361,60 @@ describe("AppSupervisor", () => {
     instances[0]!.hooks.onMessage({ type: "crash", phase: "monitor", message: "late", stack: null });
     await settle();
     expect(sched.hasPending()).toBe(false);
+  });
+
+  // Where React lives is resolved ONCE, on the host thread, and handed to every
+  // worker (src/render/runtime.ts, ReactPaths). A worker that resolves it itself
+  // walks node_modules through a process-global cache, and several doing that at
+  // once segfaults Bun 1.3.9. The invariant is boring and easy to lose in a
+  // refactor, so it is asserted where the boot is actually built.
+  test("every boot carries the react paths it was given, including after a reload", async () => {
+    const dir = await appDir();
+    const { factory, boots } = fakeFactory();
+    const sink = new RecordingSink();
+    const reactPaths = {
+      react: "/apps/node_modules/react/index.js",
+      reconciler: "/apps/node_modules/react-reconciler/index.js",
+      constants: "/apps/node_modules/react-reconciler/constants.js",
+    };
+    const sup = new AppSupervisor({
+      appId: "x",
+      appDir: dir,
+      sink,
+      factory,
+      reactPaths,
+      transpile: async () => null,
+    });
+    await sup.start();
+    await sup.reload();
+    expect(boots).toHaveLength(2);
+    expect(boots.every((boot) => boot.reactPaths === reactPaths)).toBe(true);
+  });
+
+  // `console.log` in the app's folder (src/console-log.ts). The ring buffer that
+  // feeds crash.log only reaches disk when something crashes, which meant a
+  // working app's output — the output an agent reads to find out whether its
+  // change did anything — was thrown away.
+  test("console output reaches the app's folder, with a marker per run", async () => {
+    const dir = await appDir();
+    const sink = new RecordingSink();
+    const { factory, instances } = fakeFactory();
+    const sup = new AppSupervisor({ appId: "x", appDir: dir, sink, factory, transpile: async () => null });
+
+    await sup.start();
+    instances[0]!.hooks.onMessage({ type: "console", level: "log", text: "fetched 12 flights" });
+    await sup.reload();
+    instances[1]!.hooks.onMessage({ type: "console", level: "error", text: "BA117 has no gate" });
+    // The debounce is short; the flush is what is being waited on, not a clock.
+    await Bun.sleep(250);
+
+    const written = await Bun.file(join(dir, "console.log")).text();
+    expect(written).toContain("fetched 12 flights");
+    expect(written).toContain("BA117 has no gate");
+    // A reload is the boundary "did my change do anything" is asked against.
+    expect(written).toContain("--- started");
+    expect(written).toContain("--- reloaded");
+    expect(written.indexOf("fetched 12")).toBeLessThan(written.indexOf("--- reloaded"));
+    sup.stop();
   });
 });

@@ -81,7 +81,8 @@ struct PlatformKindsTests {
     @Test("Every ratified kind has a source in the shipping factory's vocabulary")
     func kindVocabulary() {
         #expect(PlatformObserveKind.all == [
-            "distributedNotification", "workspace", "pasteboard", "power", "reachability", "audio",
+            "distributedNotification", "workspace", "pasteboard", "power", "reachability",
+            "audio", "focus",
         ])
         // The state-shaped kinds share one name, and the payload says what
         // changed — an app that cares about volume nearly always also cares

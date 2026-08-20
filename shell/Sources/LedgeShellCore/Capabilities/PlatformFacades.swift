@@ -180,6 +180,29 @@ public protocol AudioControlling: AnyObject {
     func setVolume(_ value: Double) -> Result<Void, CapabilityError>
 }
 
+// MARK: - Quit (NSApplication)
+
+/// Ending the process — the one `ctx.platform` call whose answer is that there
+/// is no longer anything to answer.
+///
+/// It is a seam for the same reason every other one here is: the shipping
+/// implementation is `NSApp.terminate`, and a test runner that ran it would take
+/// the test runner with it.
+///
+/// Why it is a *platform* call at all: only the shell can do this. The host is a
+/// child process that exits when the shell's pipe closes, and a worker is a
+/// thread inside that child. With no menu-bar item and no Dock icon
+/// (`LSUIElement`), the Settings panel is the only quit the user has, so this
+/// path is load-bearing rather than a convenience.
+@MainActor
+public protocol ShellQuitting: AnyObject {
+    /// Ask the application to terminate. Implementations must return
+    /// immediately and terminate on a **later** turn of the run loop, so the
+    /// `ok` reply the app is awaiting is written to the socket before the socket
+    /// goes away with the process.
+    func requestQuit()
+}
+
 // MARK: - Speech (AVSpeechSynthesizer)
 
 @MainActor

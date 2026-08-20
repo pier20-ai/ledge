@@ -8,7 +8,10 @@
   },
   "scripts": {
     "start": "bun src/host.ts",
+    "//build": "Two entrypoints: the worker entry must be embedded under its own name or `new Worker(…)` cannot resolve it inside the binary (src/worker-entry.ts). The signature bun emits does not validate, so the bundle script strips and re-signs it (scripts/bundle-app.sh).",
+    "build": "bun build --compile src/host.ts src/worker-entry.ts --outfile dist/ledge",
     "fake-shell": "bun src/fakes/fake-shell.ts",
+    "ledge": "bun src/cli.ts",
     "test": "bash scripts/test-stable.sh",
     "start:demos": "bun src/host.ts --apps-root ../protocol/demo-apps",
     "test:fast": "bun test"

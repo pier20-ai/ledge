@@ -8,13 +8,15 @@ import type { HostToWorker, WorkerToHost } from "../src/worker/messages";
 // postMessage, and assert the worker↔host contract end to end.
 
 const entryUrl = new URL("../src/worker/entry.ts", import.meta.url);
+// Workers resolve react from the host package (src/render/runtime.ts).
+const HOST_ROOT = new URL("..", import.meta.url).pathname;
 const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url).href;
 
 /** A tiny async queue over the worker's messages: `take` yields them in arrival
  * order; `until` drains until one matches (discarding earlier ones). */
 function bootWorker(modulePath: string, opts: { privileged?: boolean } = {}) {
   const worker = new Worker(entryUrl, {
-    workerData: { modulePath, privileged: opts.privileged },
+    workerData: { modulePath, modulesRoot: HOST_ROOT, privileged: opts.privileged },
   });
   const buffer: WorkerToHost[] = [];
   const waiters: ((msg: WorkerToHost) => void)[] = [];

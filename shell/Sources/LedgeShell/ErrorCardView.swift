@@ -1,57 +1,46 @@
 import AppKit
 import LedgeShellCore
 
-/// Built-in panel shown when an app crashes (spec §3.2 / §7): the message plus a
-/// stack snippet, styled to match the dark glass theme. No app cooperation
-/// required — the shell renders this itself.
+/// **The** error card. There is one, it is generic, and it is everywhere
+/// (flow.md, Edges → Errors).
+///
+/// No raw error ever reaches the glass. Not a stack trace, not an error code,
+/// not even the app's name — a card that says which app died asks the reader to
+/// do triage they cannot act on, on a surface the width of a notch. What they
+/// can act on is one button, and the button restarts the whole host: worst case
+/// is a fresh visit.
+///
+/// The diagnosis is not lost, only relocated. The message and the trace go to
+/// `~/.ledge/host.log` and `crash.log`, which is where a person debugging an app
+/// is already looking.
 final class ErrorCardView: FlippedView {
-    init(app: String, message: String, stack: String?) {
-        super.init(frame: .zero)
+    /// One line. It is deliberately not a description of what happened.
+    static let line = "Something broke."
+    /// The only action, and the only one there will ever be.
+    static let actionTitle = "Reload Ledge"
 
-        let header = AppHeaderView(title: app.isEmpty ? "App" : app, status: "crashed")
-        header.frame = CGRect(x: 0, y: 0, width: 440, height: 34)
-        addSubview(header)
+    private let empty: LedgeEmptyState
 
-        // The badge is a pill like any other: the red tint/stroke/ink triple from
-        // the theme, at the pill tier's capsule radius (D6, law L9).
-        let badge = LedgePill(text: "CRASHED", tone: .red)
-        badge.frame = CGRect(
-            x: LedgeMetrics.errorCardPad,
-            y: 44,
-            width: 74,
-            height: LedgeMetrics.pillHeight
+    /// - Parameter onReload: restarts the host process. Wired in
+    ///   `LedgeShellApp` → `HostSession` → `ProtocolRenderer`; nil leaves the
+    ///   button inert, which is what a snapshot render wants.
+    init(onReload: (() -> Void)? = nil) {
+        empty = LedgeEmptyState(
+            symbol: "exclamationmark.triangle",
+            line: Self.line,
+            actionTitle: Self.actionTitle,
+            onAction: onReload ?? {}
         )
-        addSubview(badge)
-
-        let messageLabel = NSTextField(wrappingLabelWithString: message)
-        messageLabel.font = LedgeTheme.systemFont(12.5, weight: .semibold)
-        messageLabel.textColor = LedgeTheme.primary
-        messageLabel.isSelectable = true
-        messageLabel.maximumNumberOfLines = 3
-        messageLabel.lineBreakMode = .byTruncatingTail
-        messageLabel.frame = CGRect(x: 16, y: 74, width: 408, height: 40)
-        addSubview(messageLabel)
-
-        if let stack, !stack.isEmpty {
-            let box = RoundedBoxView(
-                fill: LedgeTheme.sunken,
-                stroke: LedgeTheme.hairline,
-                radius: LedgeMetrics.rCard
-            )
-            box.frame = CGRect(x: LedgeMetrics.errorCardPad, y: 120, width: 408, height: 132)
-
-            let snippet = NSTextField(wrappingLabelWithString: Self.snippet(from: stack))
-            snippet.font = LedgeTheme.monoFont(10)
-            // Hue is meaning and the theme owns the value (L9/L1): a stack trace
-            // is the error's own red, not a bespoke salmon.
-            snippet.textColor = LedgeTheme.red
-            snippet.isSelectable = true
-            snippet.maximumNumberOfLines = 8
-            snippet.lineBreakMode = .byTruncatingTail
-            snippet.frame = CGRect(x: 12, y: 10, width: 384, height: 112)
-            box.addSubview(snippet)
-            addSubview(box)
-        }
+        super.init(frame: .zero)
+        empty.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(empty)
+        // Pinned on all four edges — the panel measures this view to size itself.
+        NSLayoutConstraint.activate([
+            empty.leadingAnchor.constraint(equalTo: leadingAnchor),
+            empty.trailingAnchor.constraint(equalTo: trailingAnchor),
+            empty.topAnchor.constraint(equalTo: topAnchor),
+            empty.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
     @available(*, unavailable)
@@ -59,13 +48,9 @@ final class ErrorCardView: FlippedView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    /// First few stack lines; the full trace lands in `crash.log` (§7).
-    private static func snippet(from stack: String) -> String {
-        stack
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .prefix(8)
-            .joined(separator: "\n")
-    }
+    /// Test/introspection accessors.
+    var reloadButton: LedgeButton? { empty.actionButton }
+    var messageLine: String { empty.line }
 }
 
 /// Shown when the panel is expanded but there is nothing to draw. Deliberately
@@ -79,8 +64,10 @@ final class HostPlaceholderView: FlippedView {
 
     /// What is actually missing, most specific first.
     enum Phase: Equatable {
-        /// No host connection on the socket.
-        case noHost
+        /// No host connection on the socket. `detail` is why, in words the
+        /// reader can act on — the dev command in a dev build, the actual fault
+        /// in a shipped one (see `HostStatus`).
+        case noHost(detail: String)
         /// A host is connected but its catalog is empty.
         case noApps
         /// The app exists in the catalog but has not committed a tree yet.
@@ -95,11 +82,11 @@ final class HostPlaceholderView: FlippedView {
         let titleText: String
         let detailText: String
         switch phase {
-        case .noHost:
+        case .noHost(let detail):
             headerTitle = "Ledge"
             status = "no host"
             titleText = "Waiting for host…"
-            detailText = "cd host && bun run start"
+            detailText = detail
         case .noApps:
             headerTitle = "Ledge"
             status = "0 apps"
@@ -126,7 +113,7 @@ final class HostPlaceholderView: FlippedView {
 
         let title = makeLabel(
             titleText,
-            font: LedgeTheme.systemFont(12.5, weight: .semibold),
+            font: LedgeTheme.systemFont(LedgeMetrics.TypeSize.m.pointSize, weight: .semibold),
             color: LedgeTheme.secondary
         )
         title.frame = CGRect(x: 14, y: 12, width: 380, height: 18)

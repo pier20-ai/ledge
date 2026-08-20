@@ -1,4 +1,5 @@
 { "v": 1, "app": "nowplaying", "seq": 2, "type": "commit", "payload": { "mutations": [
   { "op": "update", "id": 2, "props": { "value": 67, "rate": 0 } },
-  { "op": "update", "id": 3, "props": { "rate": null } }
+  { "op": "update", "id": 3, "props": { "rate": null, "color": null } },
+  { "op": "update", "id": 5, "props": { "color": "green" } }
 ] } }

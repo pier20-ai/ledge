@@ -6,6 +6,7 @@
 // tests exercise backoff with a fake clock and no real sleeps.
 
 import { join } from "node:path";
+import { ConsoleLog } from "./console-log";
 import { pathToFileURL } from "node:url";
 import type {
   AgentRequest,
@@ -13,10 +14,13 @@ import type {
   AppleRequest,
   CaptureRequest,
   ChromeRequest,
+  NotificationClass,
   CrashPhase,
   HostToWorker,
   NotifyRequest,
   PlatformRequest,
+  ReactPaths,
+  SettingValue,
   WingSpec,
   WorkerToHost,
 } from "./worker/messages";
@@ -76,7 +80,13 @@ export interface SupervisorSink {
   /** ctx.wing — the collapsed-notch surface this app wants, or null (§3.3). */
   wing(app: string, wing: WingSpec | null): void;
   /** ctx.expand/ctx.collapse — a presentation request (spec §3.3). */
-  chrome(app: string, request: ChromeRequest): void;
+  /** `ms` is the peek dwell; absent for every other request. */
+  chrome(
+    app: string,
+    request: ChromeRequest,
+    ms?: number,
+    cls?: NotificationClass,
+  ): void;
   /** ctx.notify (spec §6): a shell-posted notification + optional glow. */
   notify(app: string, notification: NotifyRequest): void;
   /** ctx.attention (spec §6, chrome §3.3): notch glow, no notification. */
@@ -99,8 +109,19 @@ export interface AppSupervisorOptions {
   appId: string;
   /** The app's folder (contains app.jsx + crash.log). */
   appDir: string;
+  /** Where the worker resolves `react` from — normally the apps root, so the
+   * reconciler walks up to the very same node_modules the app does (one React
+   * instance, or hooks break; see render/runtime.ts). Defaults to the app's own
+   * folder, which resolves identically for a repo checkout. */
+  modulesRoot?: string;
+  /** Resolved once by the host and handed to every worker (see ReactPaths). */
+  reactPaths?: ReactPaths;
   /** Grants ctx.platform — Settings only (spec §8). */
   privileged?: boolean;
+  /** This app's stored settings (spec §2), read at every spawn rather than
+   * captured once: a worker respawned after a crash must boot with the values
+   * the user has NOW, not the ones from whenever this supervisor was made. */
+  storedSettings?: () => Record<string, SettingValue>;
   sink: SupervisorSink;
   factory?: WorkerFactory;
   scheduler?: RestartScheduler;
@@ -120,7 +141,10 @@ export class AppSupervisor {
   private readonly appId: string;
   private readonly appDir: string;
   private readonly modulePath: string;
+  private readonly modulesRoot: string;
+  private readonly reactPaths?: ReactPaths;
   private readonly privileged: boolean;
+  private readonly storedSettings: () => Record<string, SettingValue>;
   private readonly sink: SupervisorSink;
   private readonly factory: WorkerFactory;
   private readonly scheduler: RestartScheduler;
@@ -133,6 +157,8 @@ export class AppSupervisor {
   private spawnAt = 0;
   private cancelRestart: (() => void) | null = null;
   private consoleRing: string[] = [];
+  /** The same lines, on disk and unbounded by a crash — see console-log.ts. */
+  private readonly consoleFile: ConsoleLog;
   /** Set once the app is disabled/removed — no further restarts. */
   private stopped = false;
 
@@ -140,13 +166,20 @@ export class AppSupervisor {
     this.appId = options.appId;
     this.appDir = options.appDir;
     this.modulePath = join(options.appDir, "app.jsx");
+    this.modulesRoot = options.modulesRoot ?? options.appDir;
+    this.reactPaths = options.reactPaths;
     this.privileged = options.privileged ?? false;
+    this.storedSettings = options.storedSettings ?? (() => ({}));
     this.sink = options.sink;
     this.factory = options.factory ?? realWorkerFactory;
     this.scheduler = options.scheduler ?? realScheduler;
     this.transpile = options.transpile ?? transpileCheck;
     this.backoff = { ...DEFAULT_BACKOFF, ...options.backoff };
     this.consoleRingSize = options.consoleRingSize ?? 100;
+    this.consoleFile = new ConsoleLog({
+      path: join(this.appDir, "console.log"),
+      onError: (error) => this.sink.log(this.appId, `could not write console.log: ${String(error)}`),
+    });
   }
 
   /** The app's folder — the working directory for anything run on its behalf
@@ -200,6 +233,10 @@ export class AppSupervisor {
   private async spawn(state: AppState): Promise<void> {
     if (this.stopped) return;
     this.consoleRing = []; // crash.log reflects this run's console only
+    // The FILE keeps its history and gets a boundary instead: "did my change do
+    // anything" is a question about what happened after the reload, and an agent
+    // reading the tail needs to see where that was.
+    this.consoleFile.mark(`${state} ${new Date().toISOString()}`);
 
     // Syntax-check first: a parse error is a crash report + crash.log, no spawn.
     const parseError = await this.transpile(this.modulePath);
@@ -210,7 +247,10 @@ export class AppSupervisor {
 
     const boot = {
       modulePath: pathToFileURL(this.modulePath).href,
+      modulesRoot: this.modulesRoot,
+      reactPaths: this.reactPaths,
       privileged: this.privileged,
+      settings: this.storedSettings(),
     };
     const handle = this.factory(boot, {
       onMessage: (msg) => this.onMessage(handle, msg),
@@ -257,7 +297,7 @@ export class AppSupervisor {
         this.sink.wing(this.appId, msg.wing);
         break;
       case "chrome":
-        this.sink.chrome(this.appId, msg.request);
+        this.sink.chrome(this.appId, msg.request, msg.ms, msg.cls);
         break;
       case "notify": {
         const { type: _type, ...notification } = msg;
@@ -282,6 +322,7 @@ export class AppSupervisor {
       case "console": {
         const line = `${msg.level}: ${msg.text}`;
         this.pushConsole(line);
+        this.consoleFile.write(line);
         this.sink.log(this.appId, line);
         break;
       }

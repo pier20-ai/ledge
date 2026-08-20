@@ -1,0 +1,12 @@
+{ "v": 1, "app": "music", "seq": 7, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack",
+    "props": { "axis": "v", "pad": 14, "gap": 10, "gradient": "violet" } },
+  { "op": "create", "id": 2, "kind": "stack",
+    "props": { "axis": "h", "gap": 8, "pad": 8, "radius": 12, "fill": "raised", "gradient": "cyan" } },
+  { "op": "create", "id": 3, "kind": "text", "props": { "content": "Miles Davis" } },
+  { "op": "create", "id": 4, "kind": "stack", "props": { "axis": "h", "gradient": "sepia" } },
+  { "op": "insert", "parent": 2, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

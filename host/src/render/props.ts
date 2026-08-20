@@ -10,6 +10,9 @@ export const HANDLER_PROPS = new Set([
   "onSubmit",
   "onHover",
   "onKey",
+  // `canvas` press-drag-release (spec §4.1 `drag`): the handler receives
+  // `{ phase, x, y }`, with `move` already throttled shell-side.
+  "onDrag",
 ]);
 
 /** click ← onClick etc. — the wire event name for a handler prop. */

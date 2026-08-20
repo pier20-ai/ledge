@@ -1,0 +1,3 @@
+{ "v": 1, "app": "music", "seq": 18, "type": "event", "payload": {
+  "id": 0, "name": "swipe", "data": { "direction": "left" }
+} }

@@ -4,11 +4,13 @@
   "private": true,
   "type": "module",
   "//": "The apps root's shared dependency set — the repo analogue of ~/.ledge/node_modules (spec §6). Apps import these bare; nothing here is a build tool. Versions are pinned exactly and bun.lock is committed, per spec §6 ('always ship the lockfile').",
-  "//react": "React is deliberately linked to the host's copy rather than pinned by version. Hooks live in module-level state (ReactCurrentDispatcher), so an app's `react` and the host reconciler's `react` must be the SAME module instance — two identical 18.3.1 copies is a `dispatcher.useState of null` crash on the app's first useState. The old node_modules symlink satisfied this by accident; this states it on purpose. See host/README.md.",
+  "//react": "react AND react-reconciler are pinned HERE, at the apps root, because the apps root is what both sides resolve against: an app's `import react` and the worker's reconciler (host/src/render/runtime.ts) each walk up from here and find this one copy. Hooks live in module-level state (ReactCurrentDispatcher), so two copies is `dispatcher.useState of null` on an app's first useState. This was `react: file:../../host/node_modules/react`, which made the HOST's copy authoritative — that inverts the real relationship and cannot survive compilation, since `bun build --compile` produces a host with no node_modules at all. react-reconciler must be here too, so that ITS own `require(react)` lands on this same copy. Keep both versions in lockstep with host/package.json, which needs its own copies for the tests.",
+  "//pruned": "cheerio left with the apps that used it (protocol/demo-apps-archive, the pre-design-reset set). The archive is reference, not a package: nothing installs it.",
+  "//chess": "chess.js is legality and SAN — 784 KB, unremarkable. `stockfish` is 239 MB, and all but 7 MB of that is builds this app never loads: the package ships asm.js plus full and lite WASM, and the two full ones carry a ~100 MB NNUE net apiece. D4 re-added it because chess came back to the apps root, and restored the prune in scripts/bundle-app.sh that keeps only `bin/stockfish-18-lite-single.*` in the shipped seed. Chess degrades honestly without it (a built-in 2-ply search, and no eval in the summary), so removing the dependency is a supported choice, not a break.",
   "dependencies": {
-    "cheerio": "1.2.0",
     "chess.js": "1.4.0",
-    "react": "file:../../host/node_modules/react",
+    "react": "18.3.1",
+    "react-reconciler": "0.29.2",
     "stockfish": "18.0.8"
   }
 }

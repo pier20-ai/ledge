@@ -1,0 +1,8 @@
+{ "v": 1, "app": "gallery", "seq": 6, "type": "commit", "payload": { "mutations": [
+  { "op": "update", "id": 2, "props": { "stroke": null } },
+  { "op": "update", "id": 3, "props": { "src": "sf:waveform.badge.mic" } },
+  { "op": "update", "id": 4, "props": { "stroke": "hairline" } },
+  { "op": "update", "id": 5, "props": { "icon": "sf:pause.fill" } },
+  { "op": "update", "id": 6, "props": { "variant": "plain" } },
+  { "op": "update", "id": 7, "props": { "variant": "ghost" } }
+] } }

@@ -27,6 +27,10 @@ enum LedgeMetrics {
     static let rContent: CGFloat = 14
     /// The expanded panel's bottom corners.
     static let rPanel: CGFloat = 26
+    /// **The parked window** (design.html §04 `.window`). Between the card and
+    /// the panel: it is the same body as the panel, but it has left the wall, so
+    /// it is rounded on all four corners instead of tucking under the menu bar.
+    static let rWindow: CGFloat = 16
 
     /// The capsule rule. Pass a control's height, get its corner radius.
     static func capsule(_ height: CGFloat) -> CGFloat { max(0, height) / 2 }
@@ -87,7 +91,19 @@ enum LedgeMetrics {
     /// Icon *alone*: 14 pt medium, matching the app strip (D8/Q3) — transport
     /// glyphs have to read at arm's length.
     static let iconOnlyPointSize: CGFloat = 14
+    /// …except a **ghost**, which is the app tier: design.html §06 says an
+    /// app-content glyph is larger than chrome, and 14 pt does not hold its own
+    /// beside a 36 pt `display` numeral (D3's PNGs). The two-tier control law is
+    /// a size law as well as a colour one, and this is the size half of it.
+    static let ghostIconPointSize: CGFloat = 18
     static let iconOnlyWeight: NSFont.Weight = .medium
+
+    /// The point size an icon-only button's glyph is built at. Per-variant
+    /// rather than one number, because the chrome tier and the app tier are
+    /// deliberately different weights of presence (design.html §06).
+    static func iconOnlyPointSize(variant: LedgeButtonVariant) -> CGFloat {
+        variant == .ghost ? ghostIconPointSize : iconOnlyPointSize
+    }
     /// Disabled content alpha (D6). The background does not dim — the control is
     /// still there, it just has nothing to say yet.
     static let disabledAlpha: CGFloat = 0.35
@@ -98,8 +114,10 @@ enum LedgeMetrics {
     static let pressScaleIcon: CGFloat = 0.92
     static let pressDurationIn: TimeInterval = 0.08
     static let pressDurationOut: TimeInterval = 0.12
-    /// Hover washes and other state changes (D5). Layout ticks animate never.
-    static let hoverDuration: TimeInterval = 0.12
+    /// Hover washes and other state changes: `LedgeMotion.fast` (Theme.swift).
+    /// It used to be a 0.12 declared here and consumed by nobody — two duration
+    /// tables where the principle allows one. Layout ticks animate never.
+    static let hoverDuration: TimeInterval = LedgeMotion.fast
 
     // MARK: - Input
 
@@ -122,26 +140,23 @@ enum LedgeMetrics {
     static let pillWeight: NSFont.Weight = .semibold
     static let dot: CGFloat = 5
     static let hairline: CGFloat = 1
-    static let sendDisc: CGFloat = 24
-    /// App-strip icon button: a 34 pt circle with a tint-only hover.
+    /// Icon button: a 34 pt circle with a tint-only hover. Named for the app
+    /// strip it was born in; the strip is gone (flow.md has no bottom bar) but
+    /// the control survives it in the chrome surfaces.
     static let stripIcon: CGFloat = 34
     static let stripIconPointSize: CGFloat = 14
     static let stripIconWeight: NSFont.Weight = .medium
     static let stripActiveDot: CGFloat = 4
     static let stripActiveDotInset: CGFloat = 3
-    /// The cell one strip icon occupies: the 34 pt circle plus 3 pt of air each
-    /// side, which is the 40 pt pitch the strip has always been laid out on.
-    static let stripIconCell: CGFloat = 40
-    /// Leading inset of the first strip icon.
-    static let stripLeadingPad: CGFloat = 10
-    /// Distance from the strip's right edge to the Settings icon's left edge,
-    /// and to the hairline that separates it from everything else.
-    static let stripSettingsInset: CGFloat = 50
-    static let stripSettingsDividerInset: CGFloat = 61
-    /// The gap that keeps **[+]** off the Settings divider however crowded the
-    /// strip gets. A minimum, never a target: the scrolling icon area gives back
-    /// whatever it doesn't need, so an uncrowded strip looks exactly as it did.
-    static let stripSafeGap: CGFloat = 12
+
+    // MARK: - Collapsed-wing meter (spec §3.3 extension, flow.md's "meter")
+
+    /// The stock bar an app gets from `wing: { meter: { value } }`. Every number
+    /// is the shell's — design.html §02's meter chip is 64 × 3, rounded — which
+    /// is the whole point of the form: two apps' meters are the same object,
+    /// where two hand-drawn canvases never were.
+    static let wingMeterWidth: CGFloat = 64
+    static let wingMeterHeight: CGFloat = 3
 
     // MARK: - Panel wings (the hardware-cutout exclusion row)
 
@@ -150,14 +165,117 @@ enum LedgeMetrics {
     /// content flush against them reads as content that is *slightly* clipped —
     /// which is worse than content that is obviously inset.
     static let panelWingCutoutMargin: CGFloat = 8
-    /// Inset from the panel's own edges to a zone's content.
-    static let panelWingPad: CGFloat = 12
+    /// Inset from the **bar's** own ends to a zone's content (design.html §01
+    /// `.bar { padding: 0 10px }`). Not the panel's ends: the bar is a fixed
+    /// width and the controls hang off *its* outer edges, so this number is
+    /// measured from something that never moves.
+    static let panelWingPad: CGFloat = 10
+    /// How far the visit bar reaches past the hardware cutout on **each** side.
+    ///
+    /// The bar is a *fixed* width — the same on every session, every screen,
+    /// every panel (principle 8: persistent controls are notch-anchored, never
+    /// panel-anchored; principle 15: the number is stated once).
+    ///
+    /// **Derived, not chosen** (G2.5, widened at G2.7 for the tear bead): the
+    /// islands hug the cutout, so the reach is exactly what they need — the
+    /// cutout margin (8), the widest island run (the walker's 67, a 6 pt gap,
+    /// the 28 pt tear bead: 101), and a fillet's worth of breathing (15) so a
+    /// bead never sits on the silhouette's rounded corner. The old 150 was the
+    /// retired bar band's proportion, and it left the islands floating past a
+    /// narrow panel's glass — over bare wallpaper.
+    ///
+    /// The consequence is the silhouette's **floor**: a visit is never narrower
+    /// than `cutout + 2 × visitBarWing`, so the islands always stand on glass
+    /// and the shape stays one uniform width top to bottom
+    /// (`ShellSurfaceView.shapeSize`).
+    static let visitBarWing: CGFloat = 124
     /// Gap between items an app puts in its left wing.
     static let panelWingGap: CGFloat = 6
     /// The default left-zone content: the app's catalog name, in the same face
     /// the collapsed wing label uses (D3 `s`/semibold, secondary ink).
     static let panelWingNamePointSize: CGFloat = 11.5
     static let panelWingNameWeight: NSFont.Weight = .semibold
+    // MARK: - Parked (the torn-off window — design.html §04)
+
+    /// How far the surface has to travel downward, from a drag that started on
+    /// Ledge's own glass, before it **tears off** the notch. Long enough that a
+    /// slipped click never parks the panel; short enough that the gesture is one
+    /// deliberate pull rather than a haul across the screen.
+    static let parkTearThreshold: CGFloat = 40
+    /// Air around the ⌃ bead in the parked window's chrome row.
+    static let parkedHomeInset: CGFloat = 8
+
+    /// The `|` lane inside `‹|›` (`WingWalkerView`): the hairline is one point,
+    /// but the thing you can hit is this wide. A one-point target is not a
+    /// control, and this one opens the ledge overview.
+    static let walkerDividerLane: CGFloat = 11
+
+    // MARK: - The ledge (the overview — a grid of cards, G2.5)
+
+    /// A card: one session, one square (G2.5: "each card should be a square",
+    /// "don't truncate the bottom … make it rounded as before"). The shelf
+    /// metaphor — slabs standing on a hairline, panning sideways — is retired:
+    /// the ledge is a grid that shows the whole strip at once.
+    static let cardSize: CGFloat = 76
+    static let cardGap: CGFloat = 16
+    /// Fully rounded, all four corners: the card floats in the grid, it does
+    /// not stand on anything. The card rung (D4).
+    static let cardRadius: CGFloat = rCard
+    /// Most cards per row. Four keeps a default-width panel's grid centred with
+    /// the mockup's side air; fewer sessions than columns just centre.
+    static let gridColumns: Int = 4
+    /// Air above the first row and below the last. Enough for a zoomed card's
+    /// growth (`cardSize · cardMagnify / 2`) plus the ✕ bead's half that rides
+    /// above the card's corner — derived the way `shelfTopPad` was.
+    static var gridPad: CGFloat {
+        (cardSize * cardMagnify) / 2 + Size.s.height / 2 + 4
+    }
+
+    /// **Cards swell toward the cursor** (G2.5: "when i mouse over, let the
+    /// cards zoom; make the interaction a lot of fun!"): each card scales by
+    /// `1 + magnify · f` about its own centre, where `f` is a gaussian of the
+    /// pointer's 2-D distance from it — the Dock's magnification, in two axes,
+    /// so the whole neighbourhood leans toward the hand.
+    static let cardMagnify: CGFloat = 0.18
+    /// σ of that gaussian, in points. About one card-and-gap: the hovered card
+    /// swells fully, its neighbours visibly, the far corner not at all.
+    static let cardFalloff: CGFloat = 84
+
+    /// The app's catalog glyph: big, white, and the only thing on the card.
+    static let cardGlyphPointSize: CGFloat = 24
+    static let cardGlyphWeight: NSFont.Weight = .regular
+
+    /// The gaussian itself, so the falloff is one function rather than a formula
+    /// copied into a view and a test.
+    static func cardMagnification(distance: CGFloat) -> CGFloat {
+        exp(-(distance * distance) / (2 * cardFalloff * cardFalloff))
+    }
+
+    // MARK: - The swell (notification + summary)
+
+    /// The chevron the shell draws on every summary, and the gap before it.
+    /// It is the promise that another click opens the full thing (flow.md: "The
+    /// summary always shows a quiet open affordance"), which is why the app
+    /// cannot remove it — it is drawn by the surface, outside the app's node.
+    ///
+    /// It was a bare 10 pt glyph at `ink-3`, and on device nobody found it: at
+    /// notch scale, 32% of white with no ground under it is a smudge rather than
+    /// a control. "Quiet" was reading as "absent", and a summary you cannot tell
+    /// is openable is a summary that ends the interaction.
+    ///
+    /// So it is a **bead** now: the glyph a step larger at `ink-2`, on the same
+    /// raised capsule every other convex control in the product is made of
+    /// (`LedgeTheme.bead*`). Still quiet — no accent, no border, no motion — but
+    /// it has an edge, and an edge is what makes something read as pressable.
+    static let swellChevronPointSize: CGFloat = 11
+    static let swellChevronWeight: NSFont.Weight = .semibold
+    static let swellChevronGap: CGFloat = 8
+    /// The glyph's own box, inside the bead.
+    static let swellChevronBox: CGFloat = 12
+    /// The bead the chevron sits in — a circle at the capsule rule, sized so the
+    /// glyph has a point of air all round and the whole thing still fits inside
+    /// a 34 pt swell with its padding.
+    static let swellBeadSize: CGFloat = 18
 
     // MARK: - Self-advancing controls (`rate`, §5)
 
@@ -218,12 +336,127 @@ enum LedgeMetrics {
     static let chartInsetY: CGFloat = 3
     static let chartFillAlpha: CGFloat = 0.25
 
+    // MARK: - Type ramp (D3, spec §5 `text.size` / `text.weight`)
+
+    /// The one type ramp (principle 15). It lived inside `ProtocolRenderer.font`
+    /// as a `switch` over five string literals, which meant every other surface
+    /// that wanted "the `l` size" wrote `15` — the exact fork the principle
+    /// names. Sizes are point sizes; nothing here is a scale factor, because a
+    /// notch-scale ramp is chosen, not computed.
+    enum TypeSize: String, CaseIterable {
+        case xs
+        case s
+        case m
+        case l
+        case xl
+        /// A single number that *is* the content — a temperature, a score, a
+        /// clock. Bigger than `xl`, which is already the headline price.
+        case display
+        /// The largest thing Ledge draws: one numeral or glyph owning the whole
+        /// well. Rationed to one per surface.
+        case hero
+
+        static let `default`: TypeSize = .m
+
+        init(token: String?) {
+            self = TypeSize(rawValue: token ?? "") ?? .default
+        }
+
+        var pointSize: CGFloat {
+            switch self {
+            case .xs: 10
+            case .s: 11.5
+            case .m: 12.5
+            case .l: 15
+            // The spec's own §3.1 example is `"$214.62"` at `xl`/`bold` — xl is
+            // the headline price, not merely "a bit bigger".
+            case .xl: 30
+            case .display: 36
+            case .hero: 48
+            }
+        }
+    }
+
+    /// The weight ramp. `light` joins it for the display/hero tier: a 48 pt
+    /// numeral at `regular` is a wall, and the mockups' big numerals are all
+    /// drawn at 300 (design.html `.numeral`, `.thesis`).
+    enum TypeWeight: String, CaseIterable {
+        case light
+        case regular
+        case medium
+        case semibold
+        case bold
+
+        static let `default`: TypeWeight = .regular
+
+        init(token: String?) {
+            self = TypeWeight(rawValue: token ?? "") ?? .default
+        }
+
+        var fontWeight: NSFont.Weight {
+            switch self {
+            case .light: .light
+            case .regular: .regular
+            case .medium: .medium
+            case .semibold: .semibold
+            case .bold: .bold
+            }
+        }
+    }
+
+    /// `text.caps` tracking, as a fraction of the point size. Uppercase letters
+    /// set at their natural spacing read as a jam; +6% is the eyebrow tracking
+    /// design.html already uses (`.sec-eyebrow`, `.mark`), stated once so a
+    /// label and a section header can never disagree.
+    static let capsTracking: CGFloat = 0.06
+
     // MARK: - Text
 
-    static let textDefaultPointSize: CGFloat = 12.5
+    static let textDefaultPointSize: CGFloat = TypeSize.default.pointSize
     /// Extra width over the measured string: a truncating NSTextField
     /// under-reports its own intrinsic width, so "$214.62" arrives as "$214…".
     static let textMeasureSlack: CGFloat = 6
+
+    // MARK: - Wash (`stack.gradient`, spec §5 proposal)
+
+    /// Where the wash has faded to nothing, as a fraction of the container's
+    /// height. Stated once, here, for the same reason every other number is:
+    /// the geometry of a wash is the shell's, so every app's looks alike and a
+    /// change to the recipe is a change in one place.
+    static let washEnd: CGFloat = 0.6
+
+    // MARK: - Bead (the convex control — `LedgeTheme.bead*` owns its colors)
+
+    /// The inset edge that makes a bead convex: one point, top and bottom.
+    static let beadEdgeWidth: CGFloat = 1
+    /// How far a pressed bead sinks. Half a point is deliberately almost
+    /// nothing — the deepening inset does the talking, and a control that
+    /// *moves* a full point on the notch reads as a wobble.
+    static let beadPressSink: CGFloat = 0.5
+
+    // MARK: - List row (`LedgeRowView`)
+
+    /// A row is full-bleed: the fill and the divider run edge to edge, and only
+    /// the *content* is inset. That is what makes a list read as one column
+    /// rather than a stack of cards.
+    static let rowHeight: CGFloat = 34
+    static let rowPadX: CGFloat = padCard
+    /// Minimum air between a row's leading text and its trailing value.
+    static let rowGap: CGFloat = gap
+    /// The chevron: small, tertiary, and the last thing in the row.
+    static let rowChevronPointSize: CGFloat = 10
+    static let rowChevronWeight: NSFont.Weight = .semibold
+
+    // MARK: - Empty state (`LedgeEmptyState`)
+
+    /// The glyph sits at the display tier — big enough to be the thing you see,
+    /// small enough that it is still furniture.
+    static let emptyGlyphPointSize: CGFloat = TypeSize.display.pointSize
+    static let emptyGlyphWeight: NSFont.Weight = .light
+    /// Glyph → line, and line → action.
+    static let emptyGlyphGap: CGFloat = 14
+    static let emptyActionGap: CGFloat = 16
+    static let emptyPad: CGFloat = 24
 
     // MARK: - Cards & canvases
 

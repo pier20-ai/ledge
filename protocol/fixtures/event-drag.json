@@ -1,0 +1,3 @@
+{ "v": 1, "app": "worldclock", "seq": 12, "type": "event", "payload": {
+  "id": 3, "name": "drag", "data": { "phase": "move", "x": 214.5, "y": 22 }
+} }

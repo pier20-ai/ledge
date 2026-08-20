@@ -1,0 +1,14 @@
+{ "v": 1, "app": "chess", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 8, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "summary", "props": {} },
+  { "op": "create", "id": 3, "kind": "stack", "props": { "axis": "h", "gap": 8, "align": "center" } },
+  { "op": "create", "id": 4, "kind": "image", "props": { "src": "sf:square.grid.2x2", "w": 13, "h": 13 } },
+  { "op": "create", "id": 5, "kind": "text", "props": { "content": "White +0.8 · your move", "size": "s" } },
+  { "op": "create", "id": 6, "kind": "canvas", "props": { "w": 416, "h": 416, "focusable": true } },
+  { "op": "insert", "parent": 3, "id": 4, "before": null },
+  { "op": "insert", "parent": 3, "id": 5, "before": null },
+  { "op": "insert", "parent": 2, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

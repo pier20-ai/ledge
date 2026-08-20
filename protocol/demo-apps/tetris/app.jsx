@@ -1,30 +1,61 @@
 /** @jsxImportSource react */
-// Tetris — the imperative-draw demo (docs/design/app-ideas.md, wave 1). It is
-// the app `ctx.draw` (§3.4) and `focusable` + `onKey` (§5, §4.1) exist for:
-// the well is a `canvas` whose pixels never go through the reconciler, and the
-// side column beside it is ordinary §5 vocabulary that only re-commits when the
-// score actually changes.
+// Tetris — the well, and one number.
+//
+// SIGNATURE: the bare score. Principle 5's own worked example is this app —
+// "a score is a number, not a labeled box around a number" — and the archive
+// was the box: three `SCORE` / `LINES` / `LEVEL` cards, each a labelled,
+// stroked, filled slab wrapped around a numeral, plus a fourth for the B2B
+// chain. They are gone. What is left is a 36 pt tabular numeral sitting
+// directly on the glass, the level as four quiet characters beside it, and one
+// ghost. The well is the identity (law 12); the numeral is the datum (law 5).
+//
+// Laws: 1 (one ghost, one hairline slab, nothing filled) · 2 (the shell names
+// the app; this app owns a well, a number and one control) · 3 (ink at rest —
+// the tetromino colours are *content*, inside the well, and no hue escapes it) ·
+// 4 (the key legend is gone: a game teaches its own arrow keys, and a sentence
+// under a well is a design failure) · 5 (see above) · 12 (the well).
+//
+// Diet, against protocol/demo-apps-archive/tetris:
+//   CUT   the left wing (a dot and the phase word) · the `NEXT` card and its
+//         second framed canvas · the SCORE / LINES / LEVEL stat boxes · the
+//         B2B / combo box · the labelled Start/Pause/Resume button · the
+//         "↑ rotate  space drop  p pause" legend · the whole side column.
+//   KEPT  the game loop, the 7-bag, the kick table, the guideline scoring
+//         (back-to-back and combo still pay, they just no longer have a box) —
+//         all verbatim. The loop was never the problem.
+//   NEW   the next piece is drawn *inside* the well, top-right, at half scale
+//         and half alpha. §09 allows one framed region for drawn content, so
+//         the preview stops being a second well and becomes what it always
+//         was: content. And a `<summary>`, so a hover reads the game instead
+//         of opening it.
+//
+// Surfaces:
+//   SUMMARY  "12,480 · lv 6" / "paused" / "ready". Declaring it makes the
+//            session heavy, which is the right answer for a game: resting the
+//            pointer on the notch should tell you the score, not drop you into
+//            a live well you did not mean to be responsible for.
+//   WING     none. A game you are not looking at is a game you are losing.
+//   MINI     none. Tetris never interrupts.
+//   REDUCE MOTION  audited, and there is nothing to switch off. Every moving
+//            pixel here is the user's own input or the gravity they started —
+//            REFERENCE.md's rule is about *decoration*, and this app has none:
+//            no pulse on a line clear, no flash on a Tetris, no shake, no
+//            animated banner. The one thing that was ambient — the archive's
+//            wing — is cut. So `ctx.reduceMotion` is deliberately unread, and
+//            the honest fix if a clear ever gets a flash is to gate the flash,
+//            not the fall.
+//   SF SYMBOLS  the ghost swaps ▶ / ‖ on every state change and updates in
+//            place: a `<button icon>` goes through `button.apply(symbol:)`.
+//            An `<image src="sf:…">` does too since G3 (`LedgeSymbolView`
+//            gained the same partial-update entry point). No React `key`
+//            workaround is needed for a glyph swap anywhere — do not add one.
 //
 // The loop is an ordinary worker `setInterval` — the platform's, not Ledge's
-// (spec §6: nothing the platform already does gets wrapped). It ticks at 120 ms
-// and gravity drops the piece every N ticks, N falling with the level. A frame
-// is pushed only when something moved, so a paused or finished game costs the
+// (nothing the platform already does gets wrapped). It ticks at 120 ms and
+// gravity drops the piece every N ticks, N falling with the level. A frame is
+// pushed only when something moved, so a paused or finished game costs the
 // socket nothing at all, and the interval is not even running. Collapsing the
-// panel pauses the game outright (`onLifecycle`, §4.2).
-//
-// The well is 10 × 20 cells of 24 pt — 240 × 480 — which asks for a 620 pt panel
-// and gets it: the shell's cap is a fraction of the screen (~707 pt on a 16"),
-// and a game the size of a business card is not a game.
-//
-// Draw batches stay small on purpose: one `clear`, one well rect, one rect per
-// *occupied* cell, four for the piece and four hairline ghosts. A full well is
-// ~110 rects; a normal one is nearer 40.
-//
-// The canvas node id comes from a ref, per host/README.md — `<canvas ref={n =>
-// well = n} />` yields the node instance and `well.id` is exactly what the
-// reconciler allocated. `ctx` is the monitor's argument but lives as long as the
-// worker, so the tick and the key handler both draw with the reference the
-// monitor was handed.
+// panel pauses the game outright (`onLifecycle`).
 //
 // Scoring is the Tetris Guideline table (https://tetris.wiki/Scoring, "Recent
 // guideline compatible games") — see the Scoring section below for the exact
@@ -33,20 +64,32 @@
 export const meta = {
   name: "Tetris",
   icon: "sf:square.grid.3x3.fill",
-  panel: { maxHeight: 620 },
+  // The well wants 368: 336 pt of canvas (14 columns since G2.9 — Manu asked
+  // for two more each side of the guideline ten; the panel was reading narrow
+  // on device) + the slab's 2 pt inset each side + the root's 14 pt padding.
+  panel: { width: 368, maxHeight: 640 },
 };
 
 // ---------------------------------------------------------------------------
 // Geometry
 // ---------------------------------------------------------------------------
 
-const COLS = 10;
+// 14, not the guideline's 10: G2.9 widened the playfield by two columns each
+// side. Everything else — spawns, preview, centring — derives from this.
+const COLS = 14;
 const ROWS = 20;
 const CELL = 24;
-const WELL_W = COLS * CELL; // 240
+const WELL_W = COLS * CELL; // 336
 const WELL_H = ROWS * CELL; // 480
-const NEXT_SIZE = 84;
 const TICK_MS = 120;
+
+/** The in-well preview: half a cell, half alpha, hugging the top-right corner.
+ * Pieces spawn centred (columns 5–8 on the 14-wide well), so it never sits
+ * under a falling piece; the only thing it can ever overlap is a stack that
+ * has already reached row 0, at which point the game is over anyway. */
+const PREVIEW_CELL = CELL / 2;
+const PREVIEW_INSET = 8;
+const PREVIEW_ALPHA = "8C"; // ~55%
 
 // Cells for rotation 0, inside a box of `n` × `n`; rotation is the usual
 // (x, y) → (n − 1 − y, x) quarter turn, which is why O lives in a 2-box (it
@@ -95,6 +138,11 @@ const KINDS = Object.keys(PIECES);
 // count would award T-spins for rotations that are not T-spins, which is worse
 // than not having them. So: no T-spins, and `cleared === 4` is the only
 // "difficult" action here.
+//
+// The chain and the combo lost their box in D4, not their effect: they are two
+// multipliers on a number the panel already shows, and a number is the honest
+// display of a number (principle 5). If you want to know whether the chain is
+// live, clear four rows and watch the score jump by half again.
 const CLEAR_POINTS = [0, 100, 300, 500, 800]; // index = lines cleared at once
 const B2B_MULTIPLIER = 1.5;
 const COMBO_POINTS = 50;
@@ -115,7 +163,6 @@ function rotated(kind, rotation) {
 // ---------------------------------------------------------------------------
 
 let well = null; // the playfield canvas node (from a ref)
-let preview = null; // the next-piece canvas node
 let bridge = null; // ctx, kept for the tick and the key handler
 let timer = null;
 
@@ -269,11 +316,36 @@ function stopLoop() {
 }
 
 // ---------------------------------------------------------------------------
-// Drawing (spec §3.4 ops: clear / rect / line / text)
+// Drawing — one canvas, one frame. Draw ops take hex, never a palette token.
 // ---------------------------------------------------------------------------
 
 function block(ops, x, y, color) {
   ops.push({ op: "rect", x: x * CELL + 1, y: y * CELL + 1, w: CELL - 2, h: CELL - 2, fill: color, radius: 3 });
+}
+
+/** The next piece, half scale and half alpha, hugging the well's top-right.
+ * Placed by the piece's *occupied* bounds rather than its rotation box, so an
+ * O and an I both sit against the same corner instead of drifting with the
+ * box they happen to live in. */
+function pushPreview(ops) {
+  if (!nextKind) return;
+  const { color } = PIECES[nextKind];
+  const cells = rotated(nextKind, 0);
+  const right = Math.max(...cells.map(([x]) => x));
+  const top = Math.min(...cells.map(([, y]) => y));
+  const originX = WELL_W - PREVIEW_INSET - (right + 1) * PREVIEW_CELL;
+  const originY = PREVIEW_INSET - top * PREVIEW_CELL;
+  for (const [cx, cy] of cells) {
+    ops.push({
+      op: "rect",
+      x: originX + cx * PREVIEW_CELL + 1,
+      y: originY + cy * PREVIEW_CELL + 1,
+      w: PREVIEW_CELL - 2,
+      h: PREVIEW_CELL - 2,
+      fill: color + PREVIEW_ALPHA,
+      radius: 2,
+    });
+  }
 }
 
 function draw() {
@@ -299,52 +371,50 @@ function draw() {
     }
   }
 
+  // Only while there is a game to be next *in*: a preview over the ready well
+  // would be a piece you cannot do anything with yet.
+  if (phase === "playing" || phase === "paused") pushPreview(ops);
+
   if (phase !== "playing") {
-    ops.push({ op: "rect", x: 0, y: WELL_H / 2 - 34, w: WELL_W, h: 68, fill: "#000000D8" });
-    const banner =
-      phase === "over" ? "GAME OVER" : phase === "paused" ? "PAUSED" : "READY";
-    const hint =
-      phase === "over"
-        ? `${score} points`
-        : phase === "paused"
-          ? "p to resume"
-          : "↵ or Start to play";
-    ops.push({ op: "text", x: 16, y: WELL_H / 2 - 26, content: banner, size: 20, color: "#FFFFFF" });
-    ops.push({ op: "text", x: 16, y: WELL_H / 2 + 6, content: hint, size: 12, color: "#FFFFFF99" });
+    // §09's empty state, inside the well where it belongs: one line, never
+    // "no data", never an apology. No banner word above it and no second line
+    // of hints — the score below already says how it went, and the ghost beside
+    // it already says what to press.
+    const word = phase === "over" ? "game over" : phase === "paused" ? "paused" : "↵ to play";
+    ops.push({ op: "rect", x: 0, y: 0, w: WELL_W, h: WELL_H, fill: "#000000B0", radius: 6 });
+    ops.push({
+      op: "text",
+      // Draw ops cannot measure text, so the centring is arithmetic on an
+      // average advance — close enough for two words at 14 pt, and it is the
+      // same estimate the archive's banner used, just centred instead of inset.
+      x: Math.round((WELL_W - word.length * 7) / 2),
+      y: WELL_H / 2 - 9,
+      content: word,
+      size: 14,
+      color: "#FFFFFFCC",
+    });
   }
 
   bridge.draw(well.id, ops);
-  drawPreview();
-}
-
-function drawPreview() {
-  if (!bridge || !preview || !nextKind) return;
-  const { box, color } = PIECES[nextKind];
-  const cells = rotated(nextKind, 0);
-  const size = 18;
-  const originX = (NEXT_SIZE - box * size) / 2;
-  const originY = (NEXT_SIZE - box * size) / 2;
-  const ops = [{ op: "clear" }];
-  for (const [cx, cy] of cells) {
-    ops.push({
-      op: "rect",
-      x: originX + cx * size + 1,
-      y: originY + cy * size + 1,
-      w: size - 2,
-      h: size - 2,
-      fill: color,
-      radius: 3,
-    });
-  }
-  bridge.draw(preview.id, ops);
 }
 
 // ---------------------------------------------------------------------------
-// Commands (shared by the key handler and the buttons)
+// Commands (shared by the key handler and the one control)
 // ---------------------------------------------------------------------------
 
+let lastProps = "";
+
+/** The panel is three strings; sending them again on every soft-drop point is
+ * a commit the shell has to reconcile for nothing, so the signature is checked
+ * first. Everything here is an integer or a word — there is no float to
+ * quantise, which is the other half of the same rule (REFERENCE.md, Reduce
+ * Motion: a raw fraction differs on every tick and commits on each). */
 function publish() {
-  bridge?.update({ score, lines, level, phase, b2b, combo });
+  const props = { score, level, phase };
+  const signature = JSON.stringify(props);
+  if (signature === lastProps) return;
+  lastProps = signature;
+  bridge?.update(props);
 }
 
 function reset() {
@@ -372,6 +442,9 @@ function start() {
   publish();
 }
 
+/** ▶ / ‖ — the only visible control. It starts, pauses, resumes and restarts,
+ * because those are one question ("is the well running?") and law 2 gives an
+ * app two controls at most; this app needs one. */
 function togglePause() {
   if (phase === "playing") {
     phase = "paused";
@@ -389,7 +462,7 @@ function togglePause() {
 }
 
 function onKey(data) {
-  if (!data.down) return; // key-up is the other half of every press (§4.1)
+  if (!data.down) return; // key-up is the other half of every press
   const key = data.key;
 
   if (key === "Enter" || (phase !== "playing" && key === " ")) {
@@ -433,10 +506,10 @@ function onKey(data) {
 }
 
 /**
- * Panel phase (spec §4.2). Collapsing the panel over a live game pauses it: the
- * well is not on screen, so continuing would only be a game you lose without
- * watching — and it stops the tick pushing frames at a canvas nobody can see.
- * Expanding repaints at once rather than waiting for the next state change.
+ * Panel phase. Collapsing the panel over a live game pauses it: the well is not
+ * on screen, so continuing would only be a game you lose without watching — and
+ * it stops the tick pushing frames at a canvas nobody can see. Expanding
+ * repaints at once rather than waiting for the next state change.
  */
 export function onLifecycle(panelPhase) {
   if (panelPhase === "expanded") {
@@ -464,45 +537,33 @@ export async function monitor(ctx) {
 }
 
 // ---------------------------------------------------------------------------
-// View
+// View — a well, a number, a glyph
 // ---------------------------------------------------------------------------
 
-function Stat({ label, value, color = "primary" }) {
-  return (
-    <stack axis="v" gap={1} pad={7} fill="raised" stroke="hairline" radius={9}>
-      <text content={label} size="xs" weight="bold" color="tertiary" mono />
-      <text content={value} size="l" weight="bold" color={color} mono />
-    </stack>
-  );
-}
+/** Grouped, because a score is read at a glance and 12480 is not. */
+const points = (n) => n.toLocaleString("en-US");
 
-export default function Tetris({
-  score: points = 0,
-  lines: cleared = 0,
-  level: tier = 1,
-  phase: state = "ready",
-  b2b: chain = false,
-  combo: streak = -1,
-}) {
+export default function Tetris({ score: value = 0, level: tier = 1, phase: state = "ready" }) {
   const live = state === "playing";
-  return (
-    <stack axis="v" pad={8} gap={6}>
-      {/* The title row is gone (the shell names the app), and the key hints have
-          moved to the bottom of the panel rather than into the left wing: the
-          wing is ~95 pt on a 440 pt panel and the hints are a full sentence, so
-          up there they would be an ellipsis. The wing carries the one word that
-          fits — whether the well is live. */}
-      <wing side="left">
-        <text content={live ? "●" : "○"} size="xs" color={live ? "green" : "secondary"} />
-        <text content={state} size="s" weight="semibold" color="secondary" />
-      </wing>
 
-      <stack axis="h" gap={12} align="start">
-        {/* focusable + onKey: the shell gives the presented app's first
-            focusable canvas first responder, which is what makes the arrow keys
-            arrive here instead of in whatever the user was typing in. */}
-        {/* The frame is a `stack`, not pixels: a canvas with no frames yet (a
-            fresh mount, a collapsed panel) still reads as a well. */}
+  return (
+    // `align="center"` places the column at its own width instead of stretching
+    // it, which is what keeps the well 240 pt wide inside a 320 pt panel. The
+    // inner column has no `align`, so *its* children stretch to the widest of
+    // them — the slab — and the score row lines up with the well's edges
+    // exactly. Alignment is the whole reason for the extra stack.
+    <stack axis="v" pad={14} align="center">
+      {/* Heavy on purpose: a rested pointer should read the score, not open a
+          well that is about to start dropping pieces at you. */}
+      {/* Summary UX deferred by ruling (2026-08-15) — no app declares one. */}
+
+      <stack axis="v" gap={10}>
+        {/* The well — the one framed region for drawn content (§09). `focusable`
+            + `onKey`: the shell gives the presented app's first focusable canvas
+            first responder, which is what makes the arrow keys arrive here
+            rather than in whatever the user was typing in. The frame is a
+            `stack`, not pixels, so a canvas with no frames yet still reads as a
+            well. */}
         <stack axis="v" pad={2} fill="black" stroke="hairline" radius={8}>
           <canvas
             ref={(node) => {
@@ -515,66 +576,19 @@ export default function Tetris({
           />
         </stack>
 
-        <stack axis="v" gap={8}>
-          <stack axis="v" gap={4} pad={7} fill="raised" stroke="hairline" radius={9}>
-            <stack axis="h" gap={4}>
-              <text content="NEXT" size="xs" weight="bold" color="tertiary" mono />
-              <spacer min={80} />
-            </stack>
-            <canvas
-              ref={(node) => {
-                preview = node;
-              }}
-              w={NEXT_SIZE}
-              h={NEXT_SIZE}
-            />
-          </stack>
-
-          <Stat label="SCORE" value={String(points)} color="accent" />
-          <Stat label="LINES" value={String(cleared)} />
-          <Stat label="LEVEL" value={String(tier)} color="violet" />
-
-          {/* The two score modifiers, kept deliberately quiet: B2B lights when
-              the next Tetris is worth × 1.5, and the combo count is what the
-              next clear multiplies 50 × level by. Both are always drawn so the
-              column never changes height mid-game. */}
-          <stack
-            axis="h"
-            gap={4}
-            pad={6}
-            fill={chain ? "accentTint" : "raised"}
-            stroke={chain ? "accent" : "hairline"}
-            radius={9}
-          >
-            <text content="B2B" size="xs" weight="bold" mono color={chain ? "accent" : "tertiary"} />
-            <spacer />
-            <text
-              content={streak > 0 ? `${streak}×` : "–"}
-              size="xs"
-              weight="bold"
-              mono
-              color={streak > 0 ? "violet" : "tertiary"}
-            />
-          </stack>
-
+        {/* Principle 5, literally. The numeral is not in anything: no fill, no
+            stroke, no radius, no eyebrow, no caps label. The level is the one
+            secondary datum allowed beside it, and it is four characters. */}
+        <stack axis="h" gap={8} align="center">
+          <text content={points(value)} size="display" weight="light" />
+          <text content={`lv ${tier}`} size="s" color="tertiary" />
           <spacer />
-
           <button
-            label={state === "playing" ? "Pause" : state === "paused" ? "Resume" : "Start"}
-            icon={state === "playing" ? "sf:pause.fill" : "sf:play.fill"}
-            variant={live ? "glass" : "accent"}
+            icon={live ? "sf:pause.fill" : "sf:play.fill"}
+            variant="ghost"
             onClick={togglePause}
           />
         </stack>
-
-        <spacer />
-      </stack>
-
-      {/* Below the well, where a full-width line of key hints reads as a legend
-          rather than as a truncated status. */}
-      <stack axis="h">
-        <text content="↑ rotate  space drop  p pause" size="xs" weight="medium" color="tertiary" mono />
-        <spacer />
       </stack>
     </stack>
   );

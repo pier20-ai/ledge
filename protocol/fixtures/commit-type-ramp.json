@@ -1,0 +1,19 @@
+{ "v": 1, "app": "type", "seq": 1, "type": "commit", "payload": { "mutations": [
+  { "op": "create", "id": 1, "kind": "stack", "props": { "axis": "v", "gap": 6, "pad": 12 } },
+  { "op": "create", "id": 2, "kind": "text",
+    "props": { "content": "72°", "size": "hero", "weight": "light" } },
+  { "op": "create", "id": 3, "kind": "text",
+    "props": { "content": "18.4", "size": "display", "weight": "light" } },
+  { "op": "create", "id": 4, "kind": "text",
+    "props": { "content": "Feels like", "size": "xs", "weight": "semibold", "color": "secondary", "caps": true } },
+  { "op": "create", "id": 5, "kind": "text",
+    "props": { "content": "$214.62", "size": "xl", "weight": "bold" } },
+  { "op": "create", "id": 6, "kind": "text",
+    "props": { "content": "steady", "size": "m" } },
+  { "op": "insert", "parent": 1, "id": 2, "before": null },
+  { "op": "insert", "parent": 1, "id": 3, "before": null },
+  { "op": "insert", "parent": 1, "id": 4, "before": null },
+  { "op": "insert", "parent": 1, "id": 5, "before": null },
+  { "op": "insert", "parent": 1, "id": 6, "before": null },
+  { "op": "setRoot", "id": 1 }
+] } }

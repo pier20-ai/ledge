@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "app": "settings",
+  "seq": 33,
+  "type": "platformResult",
+  "payload": {
+    "id": 4,
+    "ok": false,
+    "error": "this shell cannot quit itself"
+  }
+}

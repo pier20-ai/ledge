@@ -1,0 +1,535 @@
+/* Chat mode — the transcript pane (design.html §01 "Chat" + §08).
+ *
+ * Three rules govern everything here:
+ *
+ *   1. The page is TRANSPARENT, end to end. The black glass, the gradient that
+ *      runs it from opaque at the top to clear at the bottom, the rounded
+ *      corners and the rim light are the Swift surface's (`ShellSurfaceView`,
+ *      `ChatSurfaceView`). This page draws bubbles and a pill on top of them and
+ *      nothing else. Any opaque background — including the browser default —
+ *      does not tint that glass, it replaces it, and the notch stops looking
+ *      like hardware.
+ *   2. Nothing is fetched. No web fonts, no images, no remote anything: the page
+ *      loads from file:// under a strict CSP, so a font-face URL is not a slow
+ *      render, it is a blocked request and a fallback nobody chose.
+ *   3. Every value below is design.html's, copied whole (principle 15). The
+ *      duplication is deliberate and tracked: the tokens cannot be imported
+ *      across the file:// boundary without a fetch, so they are transcribed —
+ *      and a value that disagrees with design.html is a defect here, not a
+ *      local decision.
+ */
+
+:root {
+  /* product · material (design.html --glass* / --raised / --hairline-d) */
+  --glass-solid: #050506;
+  --raised: rgba(255, 255, 255, 0.055);
+  --raised-hover: rgba(255, 255, 255, 0.085);
+  --hairline-d: rgba(255, 255, 255, 0.09);
+  --track: rgba(255, 255, 255, 0.14);
+  /* product · ink */
+  --ink-1: rgba(255, 255, 255, 0.94);
+  --ink-2: rgba(255, 255, 255, 0.56);
+  --ink-3: rgba(255, 255, 255, 0.32);
+  /* product · hue (rationed — principle 3). Violet is you, cyan is the agent,
+     and in this surface those two appear nowhere else. */
+  --accent: #ffb454;
+  --red: #ff453a;
+  --violet: #8f61ff;
+  --cyan: #2ed1f0;
+  /* product · geometry */
+  --r-chip: 8px;
+  --r-content: 14px;
+  --r-pill: 999px;
+  /* product · the bead: a Ledge control is the glass swelling */
+  --bead-fill: linear-gradient(180deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.05));
+  --bead-fill-hover: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.09));
+  --bead-edge: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 1px rgba(0, 0, 0, 0.5);
+  /* product · motion (design.html §07: two eases, three durations) */
+  --ease-pop: cubic-bezier(0.34, 1.45, 0.4, 1);
+  --ease-settle: cubic-bezier(0.33, 1, 0.45, 1);
+  --dur-fast: 180ms;
+  --dur-move: 380ms;
+
+  --sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: transparent;
+  color: var(--ink-1);
+  font: 12.5px/1.45 var(--sys);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  /* The panel owns every gesture that moves it; a rubber-band scroll of the
+     document would slide the whole surface off its own shape. */
+  overscroll-behavior: none;
+  /* This is chrome, not a document: dragging should move nothing and a
+     double-click should not select a paragraph. Re-enabled below wherever text
+     is genuinely worth copying. */
+  user-select: none;
+  cursor: default;
+}
+
+#root {
+  height: 100%;
+}
+
+/* ------------------------------------------------------------------- the pane
+   design.html `.glasspanel` padding, minus the gradient — the gradient is the
+   panel body itself, painted in Swift, because it has to fade the *silhouette*
+   (fillets, bottom radius and all) and not a rectangle inside it. */
+.pane {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  /* padding-top mirrors ChatSurfaceView.stagePad — the two must agree. */
+  padding: 32px 12px 12px;
+}
+
+/* --------------------------------------------------------------- the scroller
+   The transcript OVERLAYS the stage (G2.3 ruling): bubbles occlude the app —
+   that is why the pill's ⌄ exists. At rest the last exchange lingers at the
+   bottom; everything older is a scroll away, under the top fade. */
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22px);
+  mask-image: linear-gradient(180deg, transparent 0, #000 22px);
+}
+
+.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Bottom-anchored without `justify-content` on the scroll box itself, which in
+   WebKit makes the overflowing top unreachable. */
+.bubbles {
+  position: relative;
+  z-index: 2;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  /* Headroom above the first exchange: scrolled to the top, the oldest
+     bubble clears the pane edge and the fade instead of being sliced by
+     them (G2.6). */
+  padding: 26px 6px 0;
+}
+
+/* ------------------------------------------------------------------- bubbles */
+
+.bubble {
+  max-width: 76%;
+  padding: 8px 13px;
+  border-radius: 16px;
+  font: 400 12.5px/1.45 var(--sys);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* You. Violet, lit from inside — the one place in the product this hue appears
+   besides the pill's own draft. */
+.bubble.you {
+  align-self: flex-end;
+  color: #fff;
+  background: linear-gradient(160deg, #a47cff, #7e4ff2);
+  box-shadow:
+    0 0 26px rgba(143, 97, 255, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+  border-bottom-right-radius: 5px;
+}
+
+/* The agent. Cyan-tinted glass over an OPAQUE base (G2.6: "the chat bubbles
+   are transparent! They must be fully opaque") — the tint is the same wash it
+   always was, but the stage behind can no longer read through the words. */
+.bubble.agent {
+  align-self: flex-start;
+  color: var(--ink-1);
+  background:
+    linear-gradient(160deg, rgba(46, 209, 240, 0.32), rgba(46, 209, 240, 0.15)),
+    #0d1417;
+  border: 1px solid rgba(46, 209, 240, 0.38);
+  box-shadow:
+    0 0 24px rgba(46, 209, 240, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+  border-bottom-left-radius: 5px;
+}
+
+/* Trouble is the same bubble in the alert hue: urgency is ink, never geometry
+   (flow.md, Edges). No card, no code, no stack trace — the agent's own sentence
+   in red glass. */
+.bubble.agent.trouble {
+  background:
+    linear-gradient(160deg, rgba(255, 69, 58, 0.28), rgba(255, 69, 58, 0.13)),
+    #17100f;
+  border-color: rgba(255, 69, 58, 0.38);
+  box-shadow:
+    0 0 24px rgba(255, 69, 58, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.bubble p {
+  margin: 0 0 6px;
+}
+
+.bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.bubble strong {
+  font-weight: 600;
+}
+
+.bubble em {
+  font-style: italic;
+}
+
+.bubble ul,
+.bubble ol {
+  margin: 0 0 6px;
+  padding-left: 16px;
+}
+
+.bubble li {
+  margin-bottom: 2px;
+}
+
+/* A link's target is never shown and nothing here can navigate; the label is
+   styled only enough to read as the name of a thing. */
+.bubble .link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+  text-underline-offset: 2px;
+}
+
+.turn {
+  display: contents;
+}
+
+/* ------------------------------------------------------------------- the gap
+   The only timestamp in the product: shown when a turn arrives long after the
+   one above it, because that is the only moment the hour is information. */
+.gap {
+  align-self: center;
+  padding: 4px 0 2px;
+  font: 400 10px/1 var(--mono);
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ shimmer
+   Tool activity, and the only thing that ever reports it. One line, swept, and
+   gone the moment the work is: no status rows, no expansion, no build log. */
+.shimmer {
+  align-self: flex-start;
+  padding-left: 6px;
+  max-width: 92%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 400 10.5px/1.6 var(--mono);
+  background: linear-gradient(90deg, var(--ink-3) 30%, var(--ink-1) 50%, var(--ink-3) 70%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sweep 1.6s linear infinite;
+}
+
+@keyframes sweep {
+  from {
+    background-position: 180% 0;
+  }
+  to {
+    background-position: -20% 0;
+  }
+}
+
+/* -------------------------------------------------------------- empty state
+   One line, never an apology and never a button: the pill below is the action
+   (design.html §08, "First launch"). Blank slot only since G2.7 — an app's
+   empty chat is just glass. */
+.empty {
+  margin: auto 0;
+  text-align: center;
+  padding: 18px 20px 22px;
+}
+
+.empty .eline {
+  font: 400 12.5px/1.5 var(--sys);
+  color: var(--ink-2);
+}
+
+/* ------------------------------------------------------------- jump to latest
+   A bead, and it exists only while the past is on screen. */
+.jump {
+  position: absolute;
+  left: 50%;
+  bottom: 60px;
+  transform: translateX(-50%);
+  width: 23px;
+  height: 23px;
+  border: none;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-1);
+  background: var(--bead-fill);
+  box-shadow: var(--bead-edge);
+  z-index: 3;
+  animation: bead-in var(--dur-fast) var(--ease-pop) both;
+}
+
+.jump:hover {
+  background: var(--bead-fill-hover);
+}
+
+@keyframes bead-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+}
+
+/* ----------------------------------------------------------------- the pill
+   Capsule at rest, 20 pt corners while composing, and it sits on the clearest
+   glass the pane has. */
+.pill {
+  flex: none;
+  position: relative;
+  z-index: 3;
+  margin-top: 10px;
+  min-height: 40px;
+  border-radius: var(--r-pill);
+  /* Glass, not a flat wash (G2.7): lit from the top the way every bead is,
+     with the blur beneath doing the texture. */
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.06));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 5px;
+  transition:
+    border-radius var(--dur-fast) var(--ease-settle),
+    background var(--dur-fast) linear;
+}
+
+/* Grown: the draft is two or three lines, the corners relax to 20, and the
+   controls sit at the bottom of the box beside the last line. */
+.pill.grown {
+  align-items: flex-end;
+  border-radius: 20px;
+  padding: 8px 8px 8px 5px;
+}
+
+.pill textarea {
+  align-self: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  max-height: 54px; /* three lines at 18 */
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  resize: none;
+  overflow-y: auto;
+  color: var(--ink-1);
+  font: 400 12.5px/18px var(--sys);
+  user-select: text;
+}
+
+.pill.grown textarea {
+  padding-bottom: 3px;
+}
+
+.pill textarea::-webkit-scrollbar {
+  display: none;
+}
+
+.pill textarea::placeholder {
+  color: var(--ink-2);
+}
+
+.pill textarea:disabled {
+  opacity: 0.55;
+}
+
+/* ⊕ attach — an app-tier bare glyph, not a bead: it opens something outside
+   Ledge rather than changing Ledge's own state. */
+.icosm {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--ink-1);
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur-fast) linear;
+}
+
+.icosm:hover {
+  background: var(--raised-hover);
+}
+
+.icosm svg {
+  display: block;
+  /* Optical centring (G2.6): the glyph's visual mass sits high in the
+     circle; one point down is the difference between measured and centred. */
+  transform: translateY(1px);
+}
+
+/* The transcript toggle — the ONE coloured control on this surface, and it
+   wears the conversation's hue in both directions. */
+.toggle {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #04353d;
+  background: linear-gradient(180deg, #5fe4f8, var(--cyan));
+  box-shadow:
+    0 0 16px rgba(46, 209, 240, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  transition: box-shadow var(--dur-fast) linear;
+}
+
+.toggle:hover {
+  box-shadow:
+    0 0 22px rgba(46, 209, 240, 0.65),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.toggle svg {
+  display: block;
+  /* Same optical centring as .icosm: the chevron reads high without it. */
+  transform: translateY(1px);
+}
+
+.toggle svg {
+  display: block;
+}
+
+/* Send: the only bead inside the pill. While a turn runs the same bead becomes
+   stop — one control, because there is only ever one thing to do to a turn. */
+.bead {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--r-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-1);
+  background: var(--bead-fill);
+  box-shadow: var(--bead-edge);
+  transition:
+    background var(--dur-fast) linear,
+    transform 0.1s linear;
+}
+
+.bead:hover {
+  background: var(--bead-fill-hover);
+}
+
+.bead:active {
+  transform: translateY(0.5px);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+.bead:disabled {
+  color: var(--ink-3);
+}
+
+.bead svg {
+  display: block;
+}
+
+/* ------------------------------------------------------------------ collapsed
+   ⌄ clears the pane to watch the stage. The bubbles and the shimmer go; the
+   pill stays exactly where it was, because it is the way back. */
+.pane.collapsed .scroll,
+.pane.collapsed .jump {
+  display: none;
+}
+
+.pane.collapsed .pill {
+  margin-top: auto;
+}
+
+/* -------------------------------------------------------------- the banner
+   Ledge builds with the user's own agent and never talks to a model itself, so
+   "it isn't installed" is a condition of the whole surface rather than a failed
+   turn. One line and the one command that fixes it. */
+.banner {
+  flex: none;
+  margin-bottom: 8px;
+  padding: 8px 11px;
+  border: 1px solid rgba(255, 180, 84, 0.3);
+  border-radius: var(--r-content);
+  background: rgba(255, 180, 84, 0.09);
+  font: 400 11.5px/1.4 var(--sys);
+  color: var(--ink-2);
+}
+
+.banner b {
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+.banner code {
+  display: block;
+  margin-top: 6px;
+  font: 400 11px/1.4 var(--mono);
+  color: var(--accent);
+  user-select: text;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+/* Reduce Motion: swap motion for fades, never skip the change itself
+   (principle 10). The shimmer becomes a still quiet line rather than
+   disappearing — it is carrying information, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition-duration: 1ms !important;
+  }
+  .shimmer {
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    background: none;
+    color: var(--ink-3);
+  }
+}

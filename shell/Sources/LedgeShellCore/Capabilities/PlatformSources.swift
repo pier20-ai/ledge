@@ -18,9 +18,18 @@ public enum PlatformObserveKind {
     public static let reachability = "reachability"
     /// Default output device and its volume/mute.
     public static let audio = "audio"
+    /// Do Not Disturb / Focus: whether a mode is on, and which one.
+    ///
+    /// Read from the user's own Focus database (`~/Library/DoNotDisturb/DB`),
+    /// which is a **file read** — the same mechanism every third-party menu-bar
+    /// tool uses, and deliberately not a private framework. The format is
+    /// undocumented but has been stable for years; the source is written so a
+    /// shape change makes it go *quiet* rather than confidently wrong (see
+    /// `FocusSource`).
+    public static let focus = "focus"
 
     public static let all: Set<String> = [
-        distributedNotification, workspace, pasteboard, power, reachability, audio,
+        distributedNotification, workspace, pasteboard, power, reachability, audio, focus,
     ]
 }
 
@@ -52,8 +61,8 @@ public enum PlatformSignalName {
         screensDidSleep, screensDidWake, screenLocked, screenUnlocked,
     ]
 
-    /// The one-name vocabulary shared by `pasteboard`, `power`, `reachability`
-    /// and `audio`.
+    /// The one-name vocabulary shared by `pasteboard`, `power`, `reachability`,
+    /// `audio` and `focus`.
     public static let snapshot: Set<String> = [changed]
 }
 

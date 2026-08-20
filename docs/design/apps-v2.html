@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ledge · Showcase apps v2</title>
+<style>
+  :root{
+    --page:#141417; --panel:#030304; --sunken:rgba(0,0,0,.35);
+    --raised:rgba(255,255,255,.055); --raised-hover:rgba(255,255,255,.085);
+    --selected:rgba(255,255,255,.12); --track:rgba(255,255,255,.14); --ink-fill:rgba(255,255,255,.85);
+    --hairline:rgba(255,255,255,.09); --hairline-hover:rgba(255,255,255,.14);
+    --primary:rgba(255,255,255,.94); --secondary:rgba(255,255,255,.56); --tertiary:rgba(255,255,255,.32);
+    --accent:#FFB454; --green:#30D158; --red:#FF453A; --violet:#8F61FF; --cyan:#2ED1F0; --blue:#3D8AFF;
+    --font:-apple-system,"SF Pro Display","Helvetica Neue",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--page);color:var(--primary);font-family:var(--font);
+       -webkit-font-smoothing:antialiased;padding:56px 24px 140px}
+  .rail{max-width:1000px;margin:0 auto}
+  h1{font-size:21px;font-weight:600;letter-spacing:-.01em}
+  .lede{color:var(--secondary);font-size:13px;margin-top:6px;max-width:72ch;line-height:1.6}
+  .lede b{color:var(--primary)}
+  .sect{margin-top:92px}
+  .note{color:var(--secondary);font-size:12.5px;margin:6px 0 22px;max-width:76ch;line-height:1.6}
+  .note b{color:var(--primary)}
+  .note code{font-family:var(--mono);font-size:11px;color:var(--primary)}
+  .spec{font-family:var(--mono);font-size:10px;color:var(--tertiary);letter-spacing:.04em;line-height:1.75;margin-top:11px}
+  .spec b{color:var(--primary)}
+  .tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;color:var(--tertiary);
+       border:1px solid var(--hairline);border-radius:99px;padding:3px 9px;margin:0 6px 10px 0;text-transform:uppercase}
+  .tag.sig{color:var(--accent);border-color:rgba(255,180,84,.32)}
+  .tag.live{color:var(--green);border-color:rgba(48,209,88,.32)}
+  .pair{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .eyebrow{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.07em;
+           text-transform:uppercase;color:var(--secondary)}
+  .eyebrow.dim{color:var(--tertiary)}
+  kbd{font-family:var(--mono);font-size:10px;border:1px solid var(--hairline);border-radius:5px;
+      padding:1px 5px;color:var(--primary)}
+
+  /* the bar */
+  .bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:11px;margin-top:20px}
+  .bar div{border:1px solid var(--hairline);border-radius:12px;padding:13px 14px;background:rgba(0,0,0,.25)}
+  .bar b{display:block;font-size:12.5px;margin-bottom:5px}
+  .bar span{font-size:11.5px;color:var(--secondary);line-height:1.5}
+
+  /* shell */
+  .panel{width:440px;background:var(--panel);border-radius:26px;border:1px solid var(--hairline);
+         overflow:hidden;position:relative;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+  .wingrow{display:flex;align-items:center;height:34px;padding:0 12px;position:relative;z-index:4}
+  .wingrow .name{font-size:11.5px;font-weight:600;color:var(--secondary)}
+  .editbtn{margin-left:auto;display:inline-flex;align-items:center;gap:5px;height:28px;padding:0 10px;
+           border-radius:14px;font-size:11.5px;font-weight:600;color:var(--primary)}
+  .hair{height:1px;background:var(--hairline)}
+  .strip{height:42px;display:flex;align-items:center;border-top:1px solid var(--hairline);padding-left:10px;position:relative}
+  .strip .icon{width:34px;height:34px;margin:0 3px;border-radius:50%;display:grid;place-items:center;
+               color:var(--secondary);font-size:14px;position:relative}
+  .strip .icon.active{color:var(--primary)}
+  .strip .icon.active::after{content:"";position:absolute;bottom:3px;left:50%;transform:translateX(-50%);
+               width:4px;height:4px;border-radius:50%;background:var(--primary)}
+
+  /* frosted control material (§5) */
+  .frost{background:rgba(255,255,255,.10);backdrop-filter:blur(18px) saturate(1.25);
+         -webkit-backdrop-filter:blur(18px) saturate(1.25);
+         border:1px solid rgba(255,255,255,.18);box-shadow:0 4px 14px rgba(0,0,0,.32)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;font-size:11.5px;
+       font-weight:600;color:var(--primary);border-radius:999px}
+  .btn.s{height:28px;padding:0 10px} .btn.m{height:34px;padding:0 14px}
+  .btn.glass{background:var(--raised);border:1px solid var(--hairline)}
+  .btn.accent{background:var(--accent);color:#000}
+  .lpill{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:10px;
+         font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.05em}
+  .t-hero{font-size:48px;font-weight:300;letter-spacing:-.015em;font-variant-numeric:tabular-nums;line-height:1}
+  .t-display{font-size:36px;font-weight:300;letter-spacing:-.01em;font-variant-numeric:tabular-nums;line-height:1.05}
+
+  /* menubar + mini */
+  .menubar-scene{width:660px;max-width:100%}
+  .menubar{height:26px;background:#1d1d21;border-radius:8px 8px 0 0;position:relative;
+           display:flex;align-items:center;justify-content:space-between;padding:0 14px}
+  .menubar .mi{font-family:var(--mono);font-size:9px;color:var(--tertiary);letter-spacing:.08em}
+  .pill-shape{position:absolute;left:50%;top:0;transform:translateX(-50%);height:26px;background:#000;
+              border-radius:0 0 12px 12px;display:flex;align-items:center}
+  .pill-shape .wing-l{font-size:11px;font-weight:600;color:var(--secondary);padding:0 8px 0 14px;white-space:nowrap}
+  .pill-shape .cutout{width:189px;height:100%;flex:none}
+  .pill-shape .wing-r{padding:0 14px 0 8px;font-size:11px;font-weight:600;color:var(--secondary);white-space:nowrap}
+  .notchblk{position:absolute;left:50%;top:0;transform:translateX(-50%);width:189px;height:26px;background:#000}
+  .mini{width:262px;margin:0 auto;background:#000;border-radius:0 0 18px 18px;padding:7px 16px 11px;
+        display:flex;align-items:center;justify-content:space-between;gap:10px;box-shadow:0 14px 34px rgba(0,0,0,.55)}
+  .mini.attached{margin:7px auto 0;width:306px;border-radius:16px;padding:9px 12px;border:1px solid var(--hairline-hover)}
+
+  /* 1 · now playing */
+  .np-scene{position:relative;width:440px;height:196px}
+  .np-scene canvas{display:block;width:440px;height:196px}
+  .dock{position:absolute;left:14px;right:14px;bottom:12px;border-radius:17px;padding:9px 12px 10px;z-index:2}
+  .dock .row{display:flex;align-items:center;gap:12px}
+  .dock .tbtn{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;flex:none;
+              background:rgba(255,255,255,.13);border:1px solid rgba(255,255,255,.16)}
+  .dock .scrub{flex:1;height:3px;border-radius:2px;background:rgba(255,255,255,.26);position:relative}
+  .dock .scrub i{position:absolute;left:0;top:0;height:3px;border-radius:2px;background:#fff}
+  .dock .tm{font-family:var(--mono);font-size:9.5px;color:rgba(255,255,255,.72);letter-spacing:.04em}
+  .np-head{display:flex;gap:13px;align-items:center;padding:4px 16px 10px}
+  .np-art{width:56px;height:56px;border-radius:11px;flex:none;box-shadow:0 5px 18px rgba(0,0,0,.45)}
+  .actbar{display:flex;gap:3px;margin-top:12px}
+  .actbar div{flex:1;height:3px;border-radius:2px;background:var(--raised)}
+  .actbar div.on{background:var(--accent)}
+  .actlbl{display:flex;justify-content:space-between;margin-top:6px}
+  .actlbl span{font-family:var(--mono);font-size:8.5px;letter-spacing:.07em;color:var(--tertiary);
+               text-transform:uppercase;flex:1;text-align:center}
+  .actlbl span.on{color:var(--accent)}
+
+  /* 2 · weatherglass — the panel is a wall */
+  .wall{position:relative;background:
+      radial-gradient(130% 100% at 26% 4%, #26262C 0%, #1A1A1F 52%, #121216 100%);
+    padding:16px 0 0}
+  .wall::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E")}
+  .wg-wall{display:flex;align-items:center;gap:16px;padding:0 18px;position:relative;z-index:1}
+  .wg-left{width:132px;flex:none;display:flex;flex-direction:column;align-items:center}
+  /* the thermostat: a device mounted on the wall */
+  .dial{position:relative;width:118px;height:118px;border-radius:50%;
+    background:conic-gradient(from 210deg,#3A3A42,#5A5A64 22%,#2E2E35 48%,#4C4C56 72%,#33333A 100%);
+    box-shadow:0 7px 18px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.14) inset;display:grid;place-items:center}
+  .dial .face{width:96px;height:96px;border-radius:50%;background:radial-gradient(circle at 42% 34%,#1B1D22,#0B0C0F 72%);
+    box-shadow:inset 0 2px 8px rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+  .dial .sel{font-size:31px;font-weight:300;font-variant-numeric:tabular-nums;line-height:1;letter-spacing:-.02em}
+  .dial .now{font-family:var(--mono);font-size:8.5px;color:var(--tertiary);letter-spacing:.08em}
+  .dial .tick{position:absolute;left:50%;top:5px;width:2px;height:8px;border-radius:1px;
+    background:var(--accent);transform-origin:50% 54px}
+  .wg-cond{font-size:12.5px;color:var(--secondary);margin-top:11px;text-align:center}
+  .wg-extra{margin-top:3px;text-align:center}
+  /* the window: cut into the wall, with a sill */
+  .window{position:relative;width:252px;height:172px;flex:none;border-radius:5px;
+    box-shadow:0 0 0 5px #2B2B31, 0 0 0 6px rgba(0,0,0,.6), 0 12px 26px rgba(0,0,0,.55),
+               inset 0 3px 12px rgba(0,0,0,.75)}
+  .window canvas{display:block;width:252px;height:172px;border-radius:3px}
+  .mullion{position:absolute;inset:0;pointer-events:none}
+  .mullion::before,.mullion::after{content:"";position:absolute;background:#2B2B31;
+    box-shadow:0 0 5px rgba(0,0,0,.7)}
+  .mullion::before{left:50%;top:0;bottom:0;width:5px;transform:translateX(-50%)}
+  .mullion::after{top:46%;left:0;right:0;height:5px}
+  .sill{position:absolute;left:-11px;right:-11px;bottom:-13px;height:8px;border-radius:2px;
+    background:linear-gradient(180deg,#3A3A42,#232329);box-shadow:0 4px 10px rgba(0,0,0,.6)}
+  .wg-track{position:relative;height:52px;margin:16px 20px 0;cursor:ew-resize;user-select:none;
+    touch-action:none;z-index:1}
+  .wg-track canvas{display:block;width:100%;height:52px}
+  .wg-foot{display:flex;justify-content:space-between;align-items:center;padding:2px 20px 16px;position:relative;z-index:1}
+
+  /* 3 · departures — a split-flap board */
+  .board{margin:12px 16px 8px;border-radius:9px;background:#08080A;padding:11px 12px 8px;
+    border:1px solid rgba(255,255,255,.10);
+    background-image:radial-gradient(rgba(255,255,255,.05) 0.8px, transparent 0.8px);
+    background-size:4px 4px;box-shadow:inset 0 2px 14px rgba(0,0,0,.8)}
+  .bcols{display:grid;grid-template-columns:52px 1fr 34px 26px 100px;gap:6px;align-items:center}
+  .bhead{font-family:var(--mono);font-size:7.5px;letter-spacing:.13em;color:rgba(255,255,255,.4);
+    padding:0 1px 8px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:7px}
+  .brow{padding:3px 1px;transition:opacity .5s}
+  .brow.gone{opacity:0}
+  .flaps{display:flex;gap:1px}
+  .flap{position:relative;display:inline-block;width:11px;height:17px;line-height:17px;text-align:center;
+    font-family:var(--mono);font-size:11.5px;font-weight:600;color:var(--accent);border-radius:2px;
+    background:linear-gradient(180deg,#232326 0 50%,#141416 50% 100%);
+    box-shadow:0 1px 0 rgba(0,0,0,.7)}
+  .flap::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(0,0,0,.85)}
+  .flap.sp{background:none;box-shadow:none;width:5px}
+  .flap.sp::after{display:none}
+  .flap.g{color:var(--green)} .flap.r{color:var(--red)} .flap.w{color:rgba(255,255,255,.82)}
+  .flap.flip{animation:flip .22s ease-in}
+  @keyframes flip{0%{transform:scaleY(1)}49%{transform:scaleY(.04)}50%{transform:scaleY(.04)}100%{transform:scaleY(1)}}
+  .bnow{font-family:var(--mono);font-size:7.5px;letter-spacing:.12em;color:var(--accent);
+    padding:7px 1px 0;border-top:1px solid rgba(255,255,255,.08);margin-top:5px}
+  .dep-row{display:flex;align-items:center;gap:12px;padding:10px 20px}
+  .dep-row .lnm{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:10px;font-weight:700;color:#000;flex:none}
+
+  /* 4 · night sky */
+  .sky-wrap{position:relative;width:440px;height:214px}
+  .sky-wrap canvas{display:block;width:440px;height:214px}
+  .sky-track{position:relative;height:46px;margin:0 20px;cursor:ew-resize;user-select:none;touch-action:none}
+  .sky-track canvas{display:block;width:100%;height:46px}
+  .obj-row{display:flex;align-items:center;gap:11px;padding:8px 20px}
+  .obj-row .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .obj-row .nm{font-size:12.5px;flex:1}
+  .obj-row .alt{font-family:var(--mono);font-size:10px;color:var(--secondary);letter-spacing:.04em}
+
+  /* 5 · focus garden */
+  .garden{position:relative;width:440px;height:186px}
+  .garden canvas{display:block;width:440px;height:186px}
+  .g-ctl{display:flex;align-items:center;gap:13px;padding:11px 20px 6px}
+  .g-slider{flex:1;height:20px;position:relative;display:flex;align-items:center;cursor:ew-resize;
+            user-select:none;touch-action:none}
+  .g-slider .tr{width:100%;height:4px;border-radius:2px;background:var(--track)}
+  .g-slider .tr i{display:block;height:4px;border-radius:2px;background:var(--ink-fill)}
+  .g-slider .kn{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;
+                box-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .g-stat{display:flex;padding:4px 20px 14px;gap:26px}
+  .g-stat div span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.07em;color:var(--tertiary)}
+  .g-stat div b{font-size:15px;font-weight:400;font-variant-numeric:tabular-nums}
+
+  /* 6 · chess */
+  .cboard{display:grid;grid-template-columns:repeat(8,52px);grid-auto-rows:52px;flex:none;position:relative}
+  .cboard i{position:relative;display:grid;place-items:end center;padding-bottom:4px}
+  .cboard i.lt{background:#A2A9B4} .cboard i.dk{background:#5E6878}
+  .cboard img{width:35px;height:46px;display:block}
+  .trail{position:absolute;border-radius:8px;pointer-events:none}
+  .ranks{display:flex;flex-direction:column;width:22px;flex:none}
+  .ranks span{height:52px;display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.35)}
+  .files{display:grid;grid-template-columns:repeat(8,52px);margin-left:22px;height:20px}
+  .files span{display:grid;place-items:center;font-family:var(--mono);font-size:10px;color:rgba(255,255,255,.35)}
+  .taken{display:flex;flex-wrap:wrap;gap:1px;min-height:26px;align-content:flex-start}
+  .taken img{width:17px;height:22px;opacity:.82}
+  .ribbon{display:flex;align-items:flex-end;gap:2px;height:30px;margin-top:6px}
+  .ribbon i{flex:1;background:#E8EAED;border-radius:1px;opacity:.85}
+  .ribbon i.b{background:#5E6878}
+
+  /* 7 · tetris */
+  .t-stage{display:flex;gap:9px;padding:6px 8px 8px;align-items:stretch;position:relative}
+  .bay{width:74px;flex:none;display:flex;flex-direction:column;gap:7px}
+  .bay .slot{border:1px solid var(--hairline);border-radius:9px;background:var(--sunken);padding:7px;
+             display:grid;place-items:center;height:60px}
+  .bay .lb{font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:var(--tertiary);text-align:center}
+  .wellwrap{position:relative;flex:none;border-radius:7px;overflow:hidden}
+  .wellwrap canvas.bg{position:absolute;inset:0;width:240px;height:480px}
+  .well{position:relative;display:grid;grid-template-columns:repeat(10,24px);grid-auto-rows:24px}
+  .well i{display:block;margin:1px;border-radius:3px}
+  .cI{background:#22D3EE} .cO{background:#FACC15} .cT{background:#C084FC}
+  .cS{background:#4ADE80} .cZ{background:#F87171} .cJ{background:#60A5FA} .cL{background:#FB923C}
+  .e{background:transparent}
+
+  /* 8 · shelf */
+  .counter{margin:12px 20px 0;border-radius:12px 12px 4px 4px;background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));
+           border:1px solid var(--hairline);border-bottom:2px solid rgba(255,255,255,.16);padding:11px 13px;
+           display:flex;align-items:center;gap:9px;min-height:56px}
+  .fileimg{height:40px;width:auto;display:block;flex:none;
+           filter:drop-shadow(0 3px 6px rgba(0,0,0,.5))}
+  .fileimg.sm{height:34px}
+  .chute{position:relative;height:56px;margin:0 20px}
+  .chute .rail{position:absolute;left:38px;right:38px;top:26px;height:2px;
+    background:repeating-linear-gradient(90deg,rgba(255,255,255,.22) 0 6px,transparent 6px 12px)}
+  .chute .trav{position:absolute;top:8px;animation:travel 5.2s cubic-bezier(.5,0,.5,1) infinite}
+  @keyframes travel{0%{left:30px;opacity:0}8%{opacity:1}72%{left:calc(100% - 66px);opacity:1}84%{opacity:0}100%{left:calc(100% - 66px);opacity:0}}
+  .chute .lbl{position:absolute;left:50%;transform:translateX(-50%);top:42px;font-family:var(--mono);
+              font-size:8.5px;letter-spacing:.07em;color:var(--tertiary);white-space:nowrap}
+  .drawers{display:flex;gap:9px;padding:2px 20px 8px;align-items:flex-end}
+  .drawer{flex:1;border-radius:8px;padding:6px 8px 9px;text-align:center;position:relative}
+  .drawer:hover{background:var(--raised-hover)}
+  .drawer img{width:auto;height:58px;object-fit:contain;display:block;margin:0 auto 7px;
+              filter:drop-shadow(0 4px 8px rgba(0,0,0,.5))}
+  .drawer .nm{font-size:11px;font-weight:600}
+  .drawer .ct{font-family:var(--mono);font-size:8.5px;color:var(--tertiary);letter-spacing:.06em;margin-top:3px}
+  .tray{margin:2px 20px 14px;border-radius:10px;border:1px dashed rgba(255,180,84,.4);background:rgba(255,180,84,.05);
+        padding:10px 12px;display:flex;align-items:center;gap:10px}
+
+  /* codex demos */
+  .demos{display:grid;grid-template-columns:150px 1fr;max-width:800px;border-top:1px solid var(--hairline)}
+  .demos>div{padding:13px 0;border-bottom:1px solid var(--hairline);font-size:12.5px;line-height:1.55}
+  .demos .k{font-family:var(--mono);font-size:10px;color:var(--tertiary);padding-right:20px}
+  .demos .v{color:var(--secondary)} .demos .v b{color:var(--primary)}
+
+  .lineup{border-collapse:collapse;font-size:12.5px;margin-top:10px;width:100%}
+  .lineup th{font-family:var(--mono);font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;
+             color:var(--tertiary);text-align:left;padding:8px 20px 8px 0;font-weight:500}
+  .lineup td{padding:9px 20px 9px 0;border-top:1px solid var(--hairline);color:var(--secondary);vertical-align:top}
+  .lineup td:first-child{color:var(--primary);font-weight:600;white-space:nowrap}
+
+  @media (prefers-reduced-motion:reduce){ .chute .trav{animation:none} .route{transition:none} }
+</style>
+</head>
+<body>
+<div class="rail">
+
+  <h1>Ledge · Showcase apps v2</h1>
+  <p class="lede">The eight apps that make Ledge worth leaving running, drawn against
+  <code>showcase-and-ai-demos.md</code> and the v2 design system. Every app clears the five-part bar below.
+  <b>No agent chrome anywhere</b> — the intelligence is in the authoring, not the ornament; nothing here wears a
+  badge. Two apps are live rather than illustrated: <b>Now Playing</b> generates a real performance you can scrub
+  through, and <b>Focus Garden</b> grows from a real ledger.</p>
+
+  <div class="bar">
+    <div><b>A recurring job</b><span>It helps with something already in the user's day.</span></div>
+    <div><b>A signature</b><span>One device they can describe to a friend.</span></div>
+    <div><b>Accumulation</b><span>Coming back reveals history, mastery, or a new performance.</span></div>
+    <div><b>Background value</b><span>Can notice something while another app is open.</span></div>
+    <div><b>A quiet default</b><span>Delight never costs legibility, trust, or battery.</span></div>
+  </div>
+
+  <table class="lineup">
+    <tr><th>App</th><th>Signature</th><th>What accumulates</th><th>Background</th></tr>
+    <tr><td>Now Playing</td><td>a generative performance per play</td><td>albums become visually recognisable</td><td>track change, new device</td></tr>
+    <tr><td>Weatherglass</td><td>drag the clock, not the sky</td><td>real weather, daylight, season</td><td>rain starting, threshold crossed</td></tr>
+    <tr><td>Departures</td><td>a split-flap board whose rows climb</td><td>saved stations, learned buffer</td><td>leave now, platform changed</td></tr>
+    <tr><td>Night Sky</td><td>the notch is the horizon</td><td>saved events, observation log</td><td>conjunctions, good viewing</td></tr>
+    <tr><td>Focus Garden</td><td>a landscape grown from the ledger</td><td>the whole app is accumulation</td><td>session ends</td></tr>
+    <tr><td>Chess</td><td>captures, trails, and a game ribbon</td><td>daily positions, records, replays</td><td>your move (async only)</td></tr>
+    <tr><td>Tetris</td><td>physicality around intact rules</td><td>daily seeds, records, ghosts</td><td>none — and that's the point</td></tr>
+    <tr><td>Shelf</td><td>a file visibly travels its rule</td><td>the machine you assembled</td><td>needs a decision, or failed</td></tr>
+  </table>
+
+  <!-- ═══ 1 · NOW PLAYING ═══ -->
+  <div class="sect">
+    <span class="tag live">Live — scrub it</span><span class="tag sig">Signature · the performance</span>
+    <span class="tag">scene canvas v2 · frosted dock · apple · observe</span>
+    <p class="note"><b>Now Playing.</b> Artwork yields a stable <b>track genome</b> — palette, density, flow
+    coherence, symmetry — so a song keeps a recognisable visual identity. Every play adds a fresh
+    <b>performance seed</b>, so it is never the same twice. <b>Drag the position bar below</b> to move through the
+    four acts: forms emerge, structures develop, one rule breaks near the late passage, then everything thins and
+    resolves as the track ends.</p>
+    <p class="note">The grammar is <b>flowing paths, not particles</b> — deliberately, per the op budget: forty
+    rich paths say more than a thousand loose points and cost a third as much on the wire. Nothing here pretends
+    to hear the music; the narrative is driven by position and duration, which is all we honestly have until
+    Ledge has audio features.</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Music</span><span class="editbtn">✦ Edit</span></div>
+      <div class="np-head">
+        <div class="np-art" id="np-art"></div>
+        <div style="min-width:0">
+          <div style="font-size:15px;font-weight:600;letter-spacing:-.01em">Emagination (B-Side)</div>
+          <div style="font-size:12.5px;color:var(--secondary);margin-top:2px">Miami Horror · Illumination</div>
+        </div>
+      </div>
+      <div class="np-scene">
+        <canvas id="np-canvas" width="880" height="392"></canvas>
+        <div class="dock frost">
+          <div class="row">
+            <span class="tbtn"><svg width="10" height="10" viewBox="0 0 12 12"><path d="M7.5 1v10L1 6zM9.5 1h1.6v10H9.5z" fill="#fff"/></svg></span>
+            <span class="tbtn" style="width:34px;height:34px"><svg width="10" height="11" viewBox="0 0 11 12"><path d="M1 1h2.8v10H1zM7.2 1H10v10H7.2z" fill="#fff"/></svg></span>
+            <span class="tbtn"><svg width="10" height="10" viewBox="0 0 12 12"><path d="M4.5 1v10L11 6zM.9 1h1.6v10H.9z" fill="#fff"/></svg></span>
+            <span class="tm" id="np-el">1:12</span>
+            <span class="scrub" id="np-scrub"><i id="np-fill" style="width:28%"></i></span>
+            <span class="tm" id="np-rem">−3:05</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="width:440px;margin-top:14px">
+      <div class="actbar" id="actbar"><div class="on"></div><div></div><div></div><div></div></div>
+      <div class="actlbl" id="actlbl"><span class="on">Emergence</span><span>Development</span><span>Disruption</span><span>Resolution</span></div>
+    </div>
+    <p class="spec">genome = palette + flow coherence + density + symmetry (stable per track) · seed = per play ·
+    <b>quiet band</b> under the dock is drawn by the scene, not sampled by the shell — deterministic, so the frost never shimmers</p>
+  </div>
+
+  <!-- ═══ 2 · WEATHERGLASS ═══ -->
+  <div class="sect">
+    <span class="tag live">Live — drag the handle</span><span class="tag sig">Signature · drag the clock, not the sky</span>
+    <span class="tag">canvas drag (A1) · location · notify</span>
+    <p class="note"><b>Weatherglass.</b> The panel is a wall with three physical things on it: a window onto the
+    sky, a thermostat showing the temperature at the selected hour with the real <code>NOW</code> kept beneath it,
+    and a clock handle on a track. <b>You drag the clock, not the sky</b> — moving it changes the world outside and
+    the reading together. Release snaps to the hour; <kbd>NOW</kbd> returns to the present.</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Weatherglass</span><span class="editbtn">✦ Edit</span></div>
+      <div class="wall">
+        <div class="wg-wall">
+          <div class="wg-left">
+            <div class="dial">
+              <span class="tick" id="wg-tick"></span>
+              <div class="face">
+                <span class="eyebrow dim" id="wg-when" style="font-size:8.5px">15:00</span>
+                <div class="sel" id="wg-sel">24°</div>
+                <div class="now">NOW 22°</div>
+              </div>
+            </div>
+            <div class="wg-cond" id="wg-cond">Partly cloudy</div>
+            <div class="wg-extra"><span class="eyebrow dim" id="wg-extra">Dry through 19:00</span></div>
+          </div>
+          <div class="window">
+            <canvas id="wg-canvas" width="504" height="344"></canvas>
+            <div class="mullion"></div>
+            <div class="sill"></div>
+          </div>
+        </div>
+        <div class="wg-track" id="wg-track"><canvas id="wg-tc"></canvas></div>
+        <div class="wg-foot">
+          <span class="btn glass s" id="wg-now">NOW</span>
+          <span class="eyebrow dim">drag the handle · snaps to the hour</span>
+        </div>
+      </div>
+    </div>
+    <p class="spec">handle protrudes from its track · adjacent hour ghost-peeks on first open · the "drag time" hint retires after one successful scrub</p>
+  </div>
+
+  <!-- ═══ 3 · DEPARTURES ═══ -->
+  <div class="sect">
+    <span class="tag sig">Signature · routes climb toward the notch</span>
+    <span class="tag">calendar · reachability · notify · mini</span>
+    <p class="note"><b>Departures.</b> Walking time, your usual buffer, the platform, and live disruptions become
+    one instruction. It's a <b>split-flap board</b> — and that turns out to resolve the design rather than decorate
+    it: a real board's rows <i>climb</i> as their departure nears and drop off the top when they go, so
+    "routes rise toward the notch" and the flap board are the same motion. The flaps below are live; watch a
+    row leave.</p>
+    <p class="note">One column makes it Ledge's board rather than an airport's. A departure board tells you when
+    the <i>train</i> goes; the first and largest column here is <b>LEAVE</b> — when <i>you</i> go, walking time and
+    your usual buffer already subtracted. That's the whole app in one column.</p>
+    <div class="menubar-scene" style="margin-bottom:24px">
+      <div class="menubar"><span class="mi">LEDGE</span>
+        <div class="pill-shape"><span class="wing-l">Leave in 4 min</span><span class="cutout"></span>
+          <span class="wing-r">M1 · pl. 2</span></div>
+        <span class="mi">SAT 10:18</span></div>
+    </div>
+    <div class="pair">
+      <div class="panel">
+        <div class="wingrow"><span class="name">Departures</span>
+          <span class="eyebrow dim" style="margin-left:10px">Home → Office</span><span class="editbtn">✦ Edit</span></div>
+        <div class="board">
+          <div class="bcols bhead"><span>LEAVE</span><span>DESTINATION</span><span>LINE</span><span>PL</span><span>REMARKS</span></div>
+          <div id="brows"></div>
+          <div class="bnow" id="bnow">NOW 10:18 · HOME → OFFICE</div>
+        </div>
+        <div class="hair" style="margin-top:6px"></div>
+        <div class="dep-row"><span class="lnm" style="background:#F0A03C">M1</span>
+          <div style="flex:1"><div style="font-size:12.5px">Świętokrzyska → Politechnika</div>
+            <div class="eyebrow dim" style="margin-top:2px">7 min walk · 3 min buffer · arrive 10:41</div></div>
+          <span class="lpill" style="color:var(--green);background:rgba(48,209,88,.09);border:1px solid rgba(48,209,88,.25)">ON TIME</span></div>
+        <div class="hair" style="margin:0 20px"></div>
+        <div class="dep-row"><span class="lnm" style="background:#5AC8FA">18</span>
+          <div style="flex:1"><div style="font-size:12.5px">Tram, slower but no stairs</div>
+            <div class="eyebrow dim" style="margin-top:2px">arrive 10:52</div></div>
+          <span class="eyebrow dim">+11</span></div>
+      </div>
+      <div>
+        <div class="menubar-scene" style="width:400px">
+          <div class="menubar"><span class="mi">LEDGE</span><div class="notchblk"></div><span class="mi">SAT 10:26</span></div>
+          <div class="mini">
+            <div style="display:flex;flex-direction:column;align-items:flex-start">
+              <span class="eyebrow dim">M1 · platform changed</span>
+              <div style="font-size:14px;margin-top:3px">Now platform 4 — leave now</div></div>
+            <span class="btn glass s" style="flex:none">View</span></div>
+        </div>
+        <p class="spec" style="max-width:380px">A mini only when the <b>answer changes</b> — leave now, platform
+        moved, service cancelled, connection at risk. Repeated provider updates coalesce into one human event.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 4 · NIGHT SKY ═══ -->
+  <div class="sect">
+    <span class="tag live">Live — drag the track</span><span class="tag sig">Signature · the notch is the horizon</span>
+    <span class="tag">local ephemerides · no network · optional location</span>
+    <p class="note"><b>Night Sky.</b> Everything is computed locally from ephemerides — no tracking service, no
+    API to go dark. <b>Drag the track</b> to run the night forward and watch the objects climb their arcs.</p>
+    <p class="note"><b>One thing to settle.</b> "The notch is the horizon" is literal only when collapsed: the
+    hardware cutout is the skyline, and objects rise past it into the wing — that scene is below. Once the panel
+    is open you are looking at a whole sky, so the horizon has to be at the bottom of the panel where a horizon
+    belongs. Both are true, but they are two different pictures and the phrase only describes the first.</p>
+    <div class="menubar-scene" style="margin-bottom:24px">
+      <div class="menubar"><span class="mi">LEDGE</span>
+        <div class="pill-shape"><span class="wing-l">☾ 45°</span><span class="cutout"></span>
+          <span class="wing-r">Jupiter rising</span></div>
+        <span class="mi">SAT 21:36</span></div>
+    </div>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Night Sky</span>
+        <span class="eyebrow dim" style="margin-left:10px" id="ns-when">Tonight · 21:40</span><span class="editbtn">✦ Edit</span></div>
+      <div class="sky-wrap"><canvas id="ns-canvas" width="880" height="428"></canvas></div>
+      <div class="sky-track" id="ns-track"><canvas id="ns-tc"></canvas></div>
+      <div class="hair"></div>
+      <div class="obj-row"><span class="dot" style="background:#F5E9C8"></span><span class="nm">Moon · waxing gibbous</span>
+        <span class="alt" id="ns-moon">alt 34° · sets 03:12</span></div>
+      <div class="hair" style="margin:0 20px"></div>
+      <div class="obj-row"><span class="dot" style="background:#FFE9A8"></span><span class="nm">Jupiter</span>
+        <span class="alt" id="ns-jup">alt 21° · rising</span></div>
+      <div class="hair" style="margin:0 20px"></div>
+      <div class="obj-row"><span class="dot" style="background:#FFD1A8"></span><span class="nm">Saturn</span>
+        <span class="alt" id="ns-sat">alt 12° · sets 01:48</span></div>
+    </div>
+    <p class="spec">minis are for events both visible and timely — Moon with Venus after sunset, Jupiter clearing the horizon, an eclipse beginning · the user picks which classes may interrupt</p>
+  </div>
+
+  <!-- ═══ 5 · FOCUS GARDEN ═══ -->
+  <div class="sect">
+    <span class="tag live">Live — drag the ledger</span><span class="tag sig">Signature · the landscape you grew</span>
+    <span class="tag">procedural · deterministic from the ledger</span>
+    <p class="note"><b>Focus Garden.</b> The clearest case of accumulation in the set: the landscape <i>is</i> the
+    session history. <b>Drag the slider</b> to run the ledger forward and watch barren terrain pass through
+    ecological succession — moss and ground cover spread, then shrubs, then trees where the long sessions were.</p>
+    <p class="note">The ledger is the source of truth, not a saved bitmap, so the garden regenerates deterministically
+    and survives any edit to the app. Long sessions give structural growth; many short ones give density and richness.
+    <b>Missed days never kill anything</b> — this is a record, not a streak to defend.</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Focus Garden</span>
+        <span class="eyebrow dim" style="margin-left:10px" id="fg-head">no sessions yet</span><span class="editbtn">✦ Edit</span></div>
+      <div class="garden"><canvas id="fg-canvas" width="880" height="372"></canvas></div>
+      <div class="g-ctl">
+        <span class="eyebrow dim">Ledger</span>
+        <span class="g-slider" id="fg-slider"><span class="tr"><i id="fg-fill" style="width:0%"></i></span><span class="kn" id="fg-knob" style="left:0"></span></span>
+      </div>
+      <div class="g-stat">
+        <div><span>SESSIONS</span><b id="fg-n">0</b></div>
+        <div><span>FOCUSED</span><b id="fg-h">0h</b></div>
+        <div><span>LONGEST</span><b id="fg-l">—</b></div>
+        <div><span>SPECIES</span><b id="fg-s">0</b></div>
+      </div>
+    </div>
+    <p class="spec">domain-warped noise → elevation · cellular succession → ground cover · Poisson-disc → spacing · session length → structural growth · two users never converge</p>
+  </div>
+
+  <!-- ═══ 6 · CHESS ═══ -->
+  <div class="sect">
+    <span class="tag sig">Signature · captures, trail, ribbon</span><span class="tag">640 pt · real sprites · clocks in the wings</span>
+    <p class="note"><b>Chess.</b> The rules stay orthodox; the character is physical response and memory. Captured
+    pieces collect beside the board, the previous move leaves a fading trail, check sends one restrained pulse
+    through the surface, and the clocks take the wings while a game is live. <b>No permanent evaluation bar</b> —
+    a board that grades every move continuously stops being a game. Analysis is opt-in, after the move or after
+    the game, and the compact ribbon replays the shape of what happened.</p>
+    <div class="menubar-scene" style="margin-bottom:24px">
+      <div class="menubar"><span class="mi">LEDGE</span>
+        <div class="pill-shape"><span class="wing-l">You 4:12</span><span class="cutout"></span>
+          <span class="wing-r">3:48 SF</span></div>
+        <span class="mi">SAT 10:18</span></div>
+    </div>
+    <div class="panel" style="width:640px">
+      <div class="wingrow"><span class="name">Chess</span>
+        <span class="eyebrow dim" style="margin-left:10px">Move 12 · your move</span><span class="editbtn">✦ Edit</span></div>
+      <div style="display:flex;gap:12px;padding:6px 14px 14px;align-items:flex-start">
+        <div>
+          <div style="display:flex">
+            <div class="ranks"><span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
+            <div class="cboard" id="cboard"></div>
+          </div>
+          <div class="files"><span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span></div>
+        </div>
+        <div style="flex:1;min-width:0;display:flex;flex-direction:column;height:442px">
+          <span class="eyebrow dim">Captured</span>
+          <div class="taken" id="tk-w" style="margin:6px 0 10px"></div>
+          <div class="hair"></div>
+          <div class="taken" id="tk-b" style="margin:10px 0 6px"></div>
+          <div class="hair"></div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--secondary);line-height:1.95;padding:8px 0">
+            <b style="color:var(--primary)">12. Nd4</b> Nxd4<br>11. Re1 O-O<br>10. h3 Bb7</div>
+          <div style="flex:1"></div>
+          <span class="eyebrow dim">Last game</span>
+          <div class="ribbon">
+            <i style="height:40%"></i><i class="b" style="height:52%"></i><i style="height:46%"></i><i class="b" style="height:38%"></i>
+            <i style="height:62%"></i><i class="b" style="height:44%"></i><i style="height:78%"></i><i class="b" style="height:30%"></i>
+            <i style="height:88%"></i><i class="b" style="height:22%"></i><i style="height:96%"></i><i class="b" style="height:14%"></i>
+          </div>
+          <span class="btn glass s" style="align-self:stretch;margin-top:10px">Analyse this move</span>
+        </div>
+      </div>
+    </div>
+    <p class="spec">trail fades over ~2 s · check = one pulse, never a loop · engine assistance appears only when asked</p>
+  </div>
+
+  <!-- ═══ 7 · TETRIS ═══ -->
+  <div class="sect">
+    <span class="tag sig">Signature · physicality around intact rules</span><span class="tag">240×480 well · architectural bays · daily seed</span>
+    <p class="note"><b>Tetris.</b> Guideline movement, scoring, hold, preview, daily deterministic seeds, replays,
+    records — all untouched. Ledge adds physicality <i>around</i> the game: hold and next sit in architectural bays
+    beside the well, a hard drop lands with a restrained compression, a line clear ripples through the notch
+    silhouette, and a procedural field behind the grid responds to stack pressure without ever obscuring a cell.
+    Effects confirm state; they never change timing.</p>
+    <p class="note"><b>One precision worth stating:</b> "60 Hz game" means input and timing precision, not sixty
+    draw frames a second. It already redraws only when something moved — a paused game costs the socket nothing.</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Tetris</span>
+        <span class="eyebrow dim" style="margin-left:10px">Daily seed · #2471</span><span class="editbtn">✦ Edit</span></div>
+      <div class="t-stage">
+        <div class="bay">
+          <div class="lb">HOLD</div>
+          <div class="slot"><svg width="36" height="24" viewBox="0 0 36 24"><rect x="1" y="12" width="10" height="10" rx="2.5" fill="#60A5FA"/><rect x="12" y="12" width="10" height="10" rx="2.5" fill="#60A5FA"/><rect x="23" y="12" width="10" height="10" rx="2.5" fill="#60A5FA"/><rect x="1" y="1" width="10" height="10" rx="2.5" fill="#60A5FA"/></svg></div>
+          <div class="lb" style="margin-top:4px">NEXT</div>
+          <div class="slot"><svg width="36" height="24" viewBox="0 0 36 24"><rect x="1" y="6" width="10" height="10" rx="2.5" fill="#22D3EE"/><rect x="12" y="6" width="10" height="10" rx="2.5" fill="#22D3EE"/><rect x="23" y="6" width="10" height="10" rx="2.5" fill="#22D3EE"/><rect x="34" y="6" width="1" height="10" fill="none"/></svg></div>
+          <div class="slot" style="height:44px"><svg width="24" height="24" viewBox="0 0 24 24"><rect x="1" y="7" width="10" height="10" rx="2.5" fill="#FACC15"/><rect x="12" y="7" width="10" height="10" rx="2.5" fill="#FACC15"/></svg></div>
+        </div>
+        <div class="wellwrap">
+          <canvas class="bg" id="tt-bg" width="480" height="960"></canvas>
+          <div class="well" id="well"></div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;padding-right:6px">
+          <span class="eyebrow dim">Score</span>
+          <div style="font-size:26px;font-weight:300;font-variant-numeric:tabular-nums;margin:2px 0 10px" id="tt-score">84,210</div>
+          <div class="hair"></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0">
+            <span class="eyebrow dim">Lines</span><span style="font-size:13px;font-variant-numeric:tabular-nums">31</span></div>
+          <div class="hair"></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0">
+            <span class="eyebrow dim">Level</span><span style="font-size:13px;font-variant-numeric:tabular-nums">4</span></div>
+          <div class="hair"></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 0">
+            <span class="eyebrow dim">Best</span><span style="font-size:13px;font-variant-numeric:tabular-nums;color:var(--accent)">112,400</span></div>
+          <div class="hair"></div>
+          <div style="padding:9px 0"><span class="lpill" style="color:var(--accent);background:rgba(255,180,84,.10);border:1px solid rgba(255,180,84,.25)">B2B ×3</span></div>
+          <div style="flex:1"></div>
+          <span class="eyebrow dim" style="line-height:1.7">↑ rotate<br>space drop<br>shift hold</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ 8 · SHELF ═══ -->
+  <div class="sect">
+    <span class="tag sig">Signature · a file travels its rule</span><span class="tag">folder access · agent-authored rules · undo</span>
+    <p class="note"><b>Shelf.</b> Deliberately skeuomorphic, because the physical metaphor is what makes a rule
+    legible: new files land on the <b>counter</b>, <b>drawers</b> are destinations, <b>trays</b> hold pending
+    decisions, and <b>chutes</b> perform transformations. A file <b>visibly travels</b> through the rule that
+    handled it — that journey is the whole interface. Open any container to see its matcher, action chain,
+    receipts, failures, and undo.</p>
+    <p class="note">Ambiguous files stay on the counter rather than guessing. Destructive actions ask.
+    Collisions are previewed, never silently overwritten. Undo pulls the item visibly back to the counter.
+    "Always do this" turns a completed manual action into a <i>proposed</i> rule — which you review before it
+    ever runs on its own.</p>
+    <div class="panel">
+      <div class="wingrow"><span class="name">Shelf</span>
+        <span class="eyebrow dim" style="margin-left:10px">6 containers · 214 filed</span><span class="editbtn">✦ Edit</span></div>
+      <div class="counter">
+        <span class="eyebrow dim" style="width:58px">COUNTER</span>
+        <img class="fileimg sm" src="assets/shelf/file-image.png" alt="image file">
+        <img class="fileimg sm" src="assets/shelf/file-pdf.png" alt="pdf file">
+        <span style="flex:1"></span>
+        <span class="eyebrow dim">2 waiting</span>
+      </div>
+      <div class="chute">
+        <div class="rail"></div>
+        <div class="trav"><img class="fileimg" src="assets/shelf/file-archive.png" alt="archive"></div>
+        <div class="lbl">UNZIP → RENAME → MAKE PREVIEW → FILE</div>
+      </div>
+      <div class="drawers">
+        <div class="drawer"><img src="assets/shelf/cabinet-two-drawer-front.png" alt="">
+          <div class="nm">Clients</div><div class="ct">118 ITEMS · DRAWER</div></div>
+        <div class="drawer"><img src="assets/shelf/tray-letter-slate.png" alt="">
+          <div class="nm">Receipts</div><div class="ct">64 ITEMS · TRAY</div></div>
+        <div class="drawer"><img src="assets/shelf/basket-wire.png" alt="">
+          <div class="nm">Shots</div><div class="ct">32 ITEMS · BUCKET</div></div>
+      </div>
+      <div class="tray">
+        <img src="assets/shelf/hourglass.png" alt="" style="height:30px;width:auto;flex:none">
+        <div style="flex:1"><div style="font-size:12.5px">2 files need a decision</div>
+          <div class="eyebrow dim" style="margin-top:3px">name collision in Clients/Acme</div></div>
+        <span class="btn glass s">Resolve</span>
+      </div>
+    </div>
+    <p class="spec">rules match name, type, source, size, date, or extracted metadata → rename, unzip, convert, OCR, tag, route, archive, open, share, expire · every run leaves a receipt</p>
+  </div>
+
+  <!-- ═══ HELD BACK ═══ -->
+  <div class="sect">
+    <span class="tag">Held back · Rediscover</span>
+    <p class="note">Outside the flagship eight until its trust model is as polished as its surprise loop. It
+    resurfaces one forgotten photo or document at a chosen cadence and says <i>why</i> it chose it — the same month
+    another year, a place revisited, an unfinished draft. Photos and Documents must be separate grants; prefer
+    limited-library access and user-selected folders; index on-device; show exactly what is indexed; support
+    exclusions and complete deletion; stay useful when only one grant is given. It joins the showcase once Ledge
+    has proven those flows, not before.</p>
+  </div>
+
+  <!-- ═══ CODEX DEMOS ═══ -->
+  <div class="sect">
+    <span class="tag">Codex demos — recorded / live only</span>
+    <p class="note">Not bundled products. The impressive act is turning one person's peculiar need into ordinary,
+    inspectable software and then <b>leaving it running</b>. Same five beats every time: a concrete desire, one real
+    source inspected, code written in view, hot reload into panel and wing and mini, then a time jump where the
+    monitor delivers a mini while a different app is open.</p>
+    <div class="demos">
+      <div class="k">make it observable</div><div class="v"><b>Point Codex at any command, endpoint, log, or page.</b> It builds a wing for the one ambient value, a panel for history, and a keyed mini for the condition described. Swap the source between recordings to prove it's a pattern, not a prebuilt monitor.</div>
+      <div class="k">make it controllable</div><div class="v"><b>Give it a local script or device API.</b> Safe operations become a tactile control surface with live state, confirmation for anything risky, and receipts. The before/after happens in the real room.</div>
+      <div class="k">teach a standing order</div><div class="v"><b>Do one file task, then say "always do that."</b> Codex adds a Shelf container with matcher, preview, transform chain, failure state, and undo. The next real file travels it while Chess is open.</div>
+      <div class="k">build my odd instrument</div><div class="v"><b>Combine facts no product team would prioritise.</b> "Tell me when direct sun reaches my desk" joins window orientation, solar geometry, and cloud cover into a small instrument with a live shadow diagram. Specificity is the proof.</div>
+    </div>
+    <p class="spec">observe · control · automate · synthesize — the protagonist is the platform, and the app keeps working after the recording stops</p>
+  </div>
+
+</div>
+
+<script>
+/* ─────────── shared ─────────── */
+const TAU = Math.PI * 2;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);
+  t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+function makeNoise(seed){
+  const r=mulberry32(seed), g=new Float32Array(4096);
+  for(let i=0;i<g.length;i++) g[i]=r();
+  const at=(x,y)=>g[((x&63)+((y&63)<<6))];
+  return (x,y)=>{
+    const xi=Math.floor(x), yi=Math.floor(y), xf=x-xi, yf=y-yi;
+    const u=xf*xf*(3-2*xf), v=yf*yf*(3-2*yf);
+    return (at(xi,yi)*(1-u)+at(xi+1,yi)*u)*(1-v)+(at(xi,yi+1)*(1-u)+at(xi+1,yi+1)*u)*v;
+  };
+}
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function dragify(el, cb){
+  let on=false;
+  const go=e=>{const r=el.getBoundingClientRect();cb(clamp((e.clientX-r.left)/r.width,0,1));};
+  el.addEventListener('pointerdown',e=>{on=true;el.setPointerCapture(e.pointerId);go(e);});
+  el.addEventListener('pointermove',e=>{if(on)go(e);});
+  el.addEventListener('pointerup',()=>{on=false;});
+}
+
+/* ─────────── 1 · Now Playing: the generative performance ─────────── */
+(function(){
+  // track genome — derived from artwork in the real app, fixed here
+  const GENOME = {
+    palette:['#37D6C0','#2E8FC9','#7E5CB4','#F2C266'],
+    flow:1.85,      // how coherent the field is
+    density:.62,
+    scale:.0052,
+  };
+  const SEED = 20260809;                 // a new one every play
+  const noise = makeNoise(SEED);
+  const cv = document.getElementById('np-canvas'), g = cv.getContext('2d');
+  const W = 880, H = 392;                // 2× for retina
+  const N = 46;                          // paths, not particles
+  const tracers = [];
+  const rnd = mulberry32(SEED ^ 0x9E37);
+  for(let i=0;i<N;i++){
+    tracers.push({
+      x: rnd()*W, y: rnd()*H*0.9 + H*0.05,
+      birth: (i/N)*0.74,                 // births spread across the first three acts
+      col: GENOME.palette[i % GENOME.palette.length],
+      w: 0.7 + rnd()*2.4,
+      jitter: rnd()*TAU,
+    });
+  }
+  document.getElementById('np-art').style.background =
+    `radial-gradient(120% 120% at 22% 16%, ${GENOME.palette[0]} 0%, ${GENOME.palette[1]} 42%, ${GENOME.palette[2]} 74%, #0B1220 100%)`;
+
+  function field(x,y,pos){
+    let a = noise(x*GENOME.scale, y*GENOME.scale) * TAU * GENOME.flow;
+    // ACT 3 — one rule changes: the field takes a hard turn
+    if(pos > 0.60) a += ((pos-0.60)/0.25) * 2.4;
+    return a;
+  }
+  function render(pos){
+    g.clearRect(0,0,W,H);
+    // ground: a low wash from the genome, darkening toward the dock
+    const bg = g.createRadialGradient(W*0.32,H*0.34,10, W*0.32,H*0.34, W*0.78);
+    bg.addColorStop(0, GENOME.palette[0]+'26');
+    bg.addColorStop(0.55, GENOME.palette[2]+'14');
+    bg.addColorStop(1, '#00000000');
+    g.fillStyle='#050608'; g.fillRect(0,0,W,H);
+    g.fillStyle=bg; g.fillRect(0,0,W,H);
+
+    const resolve = pos>0.85 ? (pos-0.85)/0.15 : 0;     // ACT 4
+    g.lineCap='round'; g.lineJoin='round';
+    for(const t of tracers){
+      const age = pos - t.birth;
+      if(age <= 0) continue;
+      const grown = clamp(age/0.20, 0, 1);
+      const steps = Math.round(14 + grown*54);
+      let x = t.x, y = t.y;
+      g.beginPath(); g.moveTo(x,y);
+      for(let s=0;s<steps;s++){
+        const a = field(x,y,pos) + Math.sin(t.jitter + s*0.09)*0.14;
+        let nx = x + Math.cos(a)*5.2, ny = y + Math.sin(a)*5.2;
+        if(resolve > 0){                                  // converge and thin
+          nx += (W*0.5 - nx) * resolve * 0.055;
+          ny += (H*0.52 - ny) * resolve * 0.055;
+        }
+        x = nx; y = ny;
+        if(x<-40||x>W+40||y<-40||y>H+40) break;
+        g.lineTo(x,y);
+      }
+      const alpha = (0.10 + grown*0.42*GENOME.density) * (1 - resolve*0.85);
+      g.strokeStyle = t.col;
+      g.globalAlpha = clamp(alpha,0,1);
+      g.lineWidth = t.w * (1 + grown*1.5) * (1 - resolve*0.6);
+      g.stroke();
+    }
+    g.globalAlpha = 1;
+
+    // THE QUIET BAND — drawn by the scene, deterministic, so the frost never shimmers
+    const qb = g.createLinearGradient(0, H-116, 0, H);
+    qb.addColorStop(0,'rgba(4,5,8,0)'); qb.addColorStop(1,'rgba(4,5,8,.72)');
+    g.fillStyle = qb; g.fillRect(0, H-116, W, 116);
+  }
+
+  const acts = [...document.querySelectorAll('#actbar div')];
+  const lbls = [...document.querySelectorAll('#actlbl span')];
+  const DUR = 257;
+  function setPos(p){
+    render(p);
+    document.getElementById('np-fill').style.width = (p*100)+'%';
+    const el = Math.round(p*DUR), rm = DUR-el;
+    const f=s=>`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+    document.getElementById('np-el').textContent = f(el);
+    document.getElementById('np-rem').textContent = '−'+f(rm);
+    const act = p<0.25?0 : p<0.60?1 : p<0.85?2 : 3;
+    acts.forEach((d,i)=>d.classList.toggle('on', i<=act));
+    lbls.forEach((s,i)=>s.classList.toggle('on', i===act));
+  }
+  dragify(document.getElementById('np-scrub'), setPos);
+  let auto = 0.06, playing = true;
+  document.getElementById('np-scrub').addEventListener('pointerdown',()=>{playing=false;});
+  setInterval(()=>{ if(!playing) return; auto += 0.0016; if(auto>1) auto=0; setPos(auto); }, 90);
+  setPos(auto);
+})();
+
+/* ─────────── 2 · Weatherglass ─────────── */
+(function(){
+  const SUNRISE=5.4, SUNSET=20.2, NOWH=15.0;
+  const noise = makeNoise(7731);
+  const fc=[]; for(let h=0;h<48;h++){
+    const tod=(h+NOWH)%24;
+    const cloud=clamp(0.42+Math.sin(h/5.9)*0.42+Math.sin(h/13)*0.22,0,1);
+    const precip=Math.max(0,(cloud-0.70))*3.0;
+    const temp=19+5.4*Math.sin((tod-9)/24*TAU)+2.2*Math.sin(h/8);
+    fc.push({cloud,precip,temp});
+  }
+  const smp=t=>{const i=clamp(t,0,46.99),a=fc[Math.floor(i)],b=fc[Math.floor(i)+1],f=i-Math.floor(i);
+    return{cloud:a.cloud+(b.cloud-a.cloud)*f,precip:a.precip+(b.precip-a.precip)*f,temp:a.temp+(b.temp-a.temp)*f};};
+  const hex=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const rgbs=c=>`rgb(${c.map(v=>Math.round(v)).join(',')})`;
+  const lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
+  function ramp(st,t){for(let i=0;i<st.length-1;i++){const[p0,c0]=st[i],[p1,c1]=st[i+1];
+    if(t<=p1||i===st.length-2){const f=clamp((t-p0)/(p1-p0),0,1);return lerp(hex(c0),hex(c1),f);}}}
+  const TOP=[[-0.4,"#060A1A"],[-0.04,"#131A38"],[0.07,"#3C3263"],[0.2,"#5B72AB"],[0.5,"#3D87D1"],[1,"#2E79C9"]];
+  const BOT=[[-0.4,"#0A1130"],[-0.04,"#2A2444"],[0.07,"#CA663B"],[0.2,"#E09A5E"],[0.5,"#7FB8E4"],[1,"#93C9EC"]];
+
+  const cv=document.getElementById('wg-canvas'), g=cv.getContext('2d');
+  const W=504,H=344;
+  const tc=document.getElementById('wg-tc'), tg=tc.getContext('2d');
+  let t=0;
+
+  function sky(pos){
+    const s=smp(pos), tod=(pos+NOWH)%24;
+    const d=(tod-SUNRISE)/(SUNSET-SUNRISE);
+    const elev=Math.sin(clamp(d,-0.35,1.35)*Math.PI);
+    let top=ramp(TOP,elev), bot=ramp(BOT,elev);
+    const grey=[92,98,110];
+    top=lerp(top,grey,s.cloud*0.5); bot=lerp(bot,grey,s.cloud*0.42);
+    const grad=g.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0,rgbs(top)); grad.addColorStop(1,rgbs(bot));
+    g.fillStyle=grad; g.fillRect(0,0,W,H);
+
+    // sun / moon on the arc
+    const ax=40+clamp(d,-0.08,1.08)*(W-80), ay=H*0.74-Math.max(0,elev)*H*0.58;
+    if(elev>-0.05){
+      const a=clamp((elev+0.06)*5,0,1)*(1-s.cloud*0.7);
+      const sg=g.createRadialGradient(ax,ay,2,ax,ay,52);
+      sg.addColorStop(0,`rgba(255,244,206,${a})`); sg.addColorStop(.42,`rgba(255,208,90,${a*.7})`);
+      sg.addColorStop(1,'rgba(255,190,60,0)');
+      g.fillStyle=sg; g.beginPath(); g.arc(ax,ay,52,0,TAU); g.fill();
+    } else {
+      const mx=40+((d+0.5)%1)*(W-80), my=H*0.36;
+      const a=clamp((-elev)*5,0,1)*(1-s.cloud*0.75);
+      const mg=g.createRadialGradient(mx,my,1,mx,my,30);
+      mg.addColorStop(0,`rgba(238,242,255,${a})`); mg.addColorStop(1,'rgba(200,215,255,0)');
+      g.fillStyle=mg; g.beginPath(); g.arc(mx,my,30,0,TAU); g.fill();
+    }
+    // cloud layers
+    g.globalAlpha=clamp(s.cloud*1.1,0,1);
+    for(let L=0;L<3;L++){
+      const yy=30+L*40, sc=0.5+L*0.35;
+      g.fillStyle=`rgba(${240-L*30},${242-L*28},${248-L*26},${0.34-L*0.07})`;
+      g.beginPath();
+      for(let x=-40;x<W+40;x+=6){
+        const n=noise((x+pos*26+L*140)*0.009, L*3.1);
+        g.lineTo(x, yy + n*44*sc - 18);
+      }
+      g.lineTo(W+40,-30); g.lineTo(-40,-30); g.closePath(); g.fill();
+    }
+    g.globalAlpha=1;
+    // rain
+    const rain=clamp(s.precip/1.8,0,1);
+    if(rain>0.03){
+      g.strokeStyle=`rgba(198,222,255,${0.16+rain*0.5})`; g.lineWidth=1.3;
+      const n=Math.round(rain*90);
+      for(let i=0;i<n;i++){
+        const x=(i*97+pos*130)%W, y=(i*173+pos*420)%H;
+        g.beginPath(); g.moveTo(x,y); g.lineTo(x-3,y+13); g.stroke();
+      }
+    }
+    // ground
+    const gg=g.createLinearGradient(0,H-64,0,H);
+    gg.addColorStop(0,rgbs(lerp(bot,[46,62,48],.66))); gg.addColorStop(1,rgbs(lerp(bot,[20,30,24],.84)));
+    g.fillStyle=gg; g.fillRect(0,H-64,W,64);
+  }
+  function track(){
+    const dpr=devicePixelRatio||1, w=tc.clientWidth, h=52;
+    if(!w) return;
+    tc.width=w*dpr; tc.height=h*dpr; tg.setTransform(dpr,0,0,dpr,0,0);
+    tg.clearRect(0,0,w,h);
+    const pad=16, iw=w-pad*2;
+    // day/night bands
+    for(let i=0;i<=iw;i+=2){
+      const tod=((i/iw*24)+NOWH)%24, night=tod<SUNRISE||tod>SUNSET;
+      tg.fillStyle=night?'rgba(120,150,220,.10)':'rgba(255,205,120,.13)';
+      tg.fillRect(pad+i,20,2,12);
+    }
+    tg.fillStyle='rgba(255,255,255,.14)'; tg.fillRect(pad,32,iw,1);
+    for(let hr=0;hr<=24;hr+=3){
+      const x=pad+(hr/24)*iw;
+      tg.fillStyle='rgba(255,255,255,.34)'; tg.fillRect(x,26,1,6);
+      tg.font='9px ui-monospace, SF Mono, Menlo, monospace'; tg.fillStyle='rgba(255,255,255,.34)';
+      tg.fillText(String(Math.round((hr+NOWH)%24)).padStart(2,'0'), x-6, 46);
+    }
+    // NOW marker
+    tg.fillStyle='rgba(255,255,255,.30)'; tg.fillRect(pad,14,1,22);
+    // the handle — protrudes from the track
+    const hx=pad+(t/24)*iw;
+    tg.fillStyle='#FFB454'; tg.beginPath();
+    tg.roundRect(hx-5,6,10,30,5); tg.fill();
+    tg.fillStyle='rgba(0,0,0,.35)'; tg.fillRect(hx-1.5,14,3,14);
+  }
+  function paint(){
+    sky(t); track();
+    const s=smp(t), tod=Math.floor((t+NOWH)%24);
+    const rain=clamp(s.precip/1.8,0,1);
+    document.getElementById('wg-sel').textContent=Math.round(s.temp)+'°';
+    document.getElementById('wg-when').textContent=t<0.4?'NOW':String(tod).padStart(2,'0')+':00';
+    document.getElementById('wg-tick').style.transform=`translateX(-50%) rotate(${(t/24)*360}deg)`;
+    document.getElementById('wg-cond').textContent=rain>0.45?'Rain':rain>0.1?'Light rain':s.cloud>0.7?'Overcast':s.cloud>0.38?'Partly cloudy':'Clear';
+    document.getElementById('wg-extra').textContent=rain>0.1?'Rain easing after '+String((tod+2)%24).padStart(2,'0')+':00':'Dry through '+String((tod+4)%24).padStart(2,'0')+':00';
+  }
+  dragify(document.getElementById('wg-track'), f=>{ t=f*24; paint(); });
+  document.getElementById('wg-now').addEventListener('click',()=>{ t=0; paint(); });
+  addEventListener('resize',()=>{track();});
+  paint();
+})();
+
+/* ─────────── 3 · Departures: a live split-flap board ─────────── */
+(function(){
+  const host=document.getElementById('brows');
+  // LEAVE is when *you* go — walk + buffer already subtracted from the departure
+  const BASE=[
+    {leave:4,  dest:'POLITECHNIKA', line:'M1', pl:'2', rem:'ON TIME',  tone:'g'},
+    {leave:11, dest:'CENTRUM',      line:'18', pl:'—', rem:'ON TIME',  tone:'g'},
+    {leave:19, dest:'RATUSZ ARS.',  line:'M2', pl:'1', rem:'+3 MIN',   tone:'r'},
+    {leave:27, dest:'DW. GDANSKI',  line:'M1', pl:'2', rem:'ON TIME',  tone:'g'},
+  ];
+  let rows=BASE.map(r=>({...r}));
+
+  function tiles(text, cls){
+    const wrap=document.createElement('span'); wrap.className='flaps';
+    for(const ch of text){
+      const s=document.createElement('span');
+      s.className='flap'+(ch===' '?' sp':'')+(cls?' '+cls:'');
+      s.textContent=ch===' '?'':ch;
+      wrap.appendChild(s);
+    }
+    return wrap;
+  }
+  function cell(text, cls){ const d=document.createElement('span'); d.appendChild(tiles(text,cls)); return d; }
+
+  function paint(flipAll){
+    host.innerHTML='';
+    rows.forEach((r,i)=>{
+      const el=document.createElement('div'); el.className='bcols brow';
+      el.appendChild(cell((r.leave+'M').padStart(3,' ')));
+      el.appendChild(cell(r.dest.slice(0,13)));
+      el.appendChild(cell(r.line,'w'));
+      el.appendChild(cell(r.pl,'w'));
+      const urgent = r.leave<=5;
+      el.appendChild(cell((urgent?'LEAVE NOW':r.rem).padEnd(9,' ').slice(0,9), urgent?'r':r.tone));
+      host.appendChild(el);
+      if(flipAll){
+        [...el.querySelectorAll('.flap')].forEach((f,k)=>{
+          f.style.animationDelay=(i*40+k*11)+'ms'; f.classList.add('flip');
+        });
+      }
+    });
+  }
+  paint(false);
+
+  let tick=0;
+  setInterval(()=>{
+    tick++;
+    if(tick%5===0){
+      // the top row departs; everything climbs, a new one flaps in at the bottom
+      const gone=rows.shift();
+      rows.push({...gone, leave:gone.leave+32});
+      rows=rows.map(r=>({...r}));
+      paint(true);
+    } else {
+      rows.forEach(r=>r.leave=Math.max(0,r.leave-1));
+      paint(true);
+    }
+  }, 2200);
+})();
+
+/* ─────────── 4 · Night Sky ─────────── */
+(function(){
+  const cv=document.getElementById('ns-canvas'), g=cv.getContext('2d');
+  const W=880,H=428;
+  const tc=document.getElementById('ns-tc'), tg=tc.getContext('2d');
+  const stars=[]; const r=mulberry32(4242);
+  for(let i=0;i<170;i++) stars.push({x:r()*W,y:r()*H*0.92,m:r()});
+  // hours from 18:00 across the night
+  let t=3.6;                     // 21:36
+  const OBJ=[
+    {n:'Moon', c:'#F5E9C8', rise:19.2, set:27.2, peak:56, sz:9},
+    {n:'Jupiter', c:'#FFE9A8', rise:20.9, set:30.5, peak:44, sz:5},
+    {n:'Saturn', c:'#FFD1A8', rise:18.1, set:25.8, peak:34, sz:4},
+  ];
+  function paint(){
+    const hour=18+t;
+    const dawn=clamp((hour-28)/2,0,1), dusk=clamp((20.5-hour)/2.2,0,1);
+    const twil=Math.max(dawn,dusk);
+    const grad=g.createLinearGradient(0,0,0,H);
+    grad.addColorStop(0, twil>0?`rgb(${10+twil*40},${14+twil*30},${34+twil*46})`:'#070B1C');
+    grad.addColorStop(1, twil>0?`rgb(${40+twil*120},${44+twil*80},${74+twil*60})`:'#101838');
+    g.fillStyle=grad; g.fillRect(0,0,W,H);
+    // stars fade with twilight
+    for(const s of stars){
+      const a=(0.25+s.m*0.75)*(1-twil*0.85);
+      g.fillStyle=`rgba(255,255,255,${a})`;
+      g.fillRect(s.x, s.y, s.m>0.93?2:1.3, s.m>0.93?2:1.3);
+    }
+    // horizon
+    g.fillStyle='#05070E'; g.fillRect(0,H-52,W,52);
+    g.strokeStyle='rgba(255,255,255,.16)'; g.lineWidth=1;
+    g.beginPath(); g.moveTo(0,H-52); g.lineTo(W,H-52); g.stroke();
+    // objects on their arcs — they set BEHIND the notch, above the panel
+    for(const o of OBJ){
+      if(hour<o.rise||hour>o.set) continue;
+      const f=(hour-o.rise)/(o.set-o.rise);
+      const x=40+f*(W-80);
+      const alt=Math.sin(f*Math.PI)*o.peak;
+      const y=(H-52)-(alt/90)*(H-92);
+      const gl=g.createRadialGradient(x,y,0,x,y,o.sz*4.5);
+      gl.addColorStop(0,o.c); gl.addColorStop(.28,o.c+'88'); gl.addColorStop(1,o.c+'00');
+      g.fillStyle=gl; g.beginPath(); g.arc(x,y,o.sz*4.5,0,TAU); g.fill();
+      g.fillStyle=o.c; g.beginPath(); g.arc(x,y,o.sz,0,TAU); g.fill();
+      g.font='11px -apple-system, sans-serif'; g.fillStyle='rgba(255,255,255,.55)';
+      g.fillText(o.n, x+o.sz*2+4, y+4);
+    }
+    // arc guide
+    g.strokeStyle='rgba(255,255,255,.07)'; g.setLineDash([4,7]);
+    g.beginPath();
+    for(let i=0;i<=60;i++){const f=i/60,x=40+f*(W-80),y=(H-52)-(Math.sin(f*Math.PI)*56/90)*(H-92);
+      i?g.lineTo(x,y):g.moveTo(x,y);}
+    g.stroke(); g.setLineDash([]);
+
+    const hh=Math.floor(hour)%24, mm=Math.round((hour%1)*60);
+    document.getElementById('ns-when').textContent=`Tonight · ${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+    const altOf=o=>{const f=(hour-o.rise)/(o.set-o.rise);return (f<0||f>1)?null:Math.round(Math.sin(f*Math.PI)*o.peak);};
+    const fmt=(o,id)=>{const a=altOf(o);document.getElementById(id).textContent=
+      a===null?'below the horizon':`alt ${a}° · ${hour<(o.rise+o.set)/2?'rising':'setting'}`;};
+    fmt(OBJ[0],'ns-moon'); fmt(OBJ[1],'ns-jup'); fmt(OBJ[2],'ns-sat');
+    track();
+  }
+  function track(){
+    const dpr=devicePixelRatio||1, w=tc.clientWidth, h=46;
+    if(!w) return;
+    tc.width=w*dpr; tc.height=h*dpr; tg.setTransform(dpr,0,0,dpr,0,0);
+    tg.clearRect(0,0,w,h);
+    const pad=14, iw=w-pad*2;
+    tg.fillStyle='rgba(255,255,255,.12)'; tg.fillRect(pad,26,iw,1);
+    for(let i=0;i<=12;i++){
+      const x=pad+(i/12)*iw, hr=(18+i)%24;
+      tg.fillStyle=i%3===0?'rgba(255,255,255,.38)':'rgba(255,255,255,.16)';
+      tg.fillRect(x,20,1,6);
+      if(i%3===0){tg.font='9px ui-monospace, SF Mono, Menlo, monospace';
+        tg.fillStyle='rgba(255,255,255,.32)';tg.fillText(String(hr).padStart(2,'0'),x-6,40);}
+    }
+    const hx=pad+(t/12)*iw;
+    tg.fillStyle='#FFB454'; tg.beginPath(); tg.roundRect(hx-4,6,8,26,4); tg.fill();
+  }
+  dragify(document.getElementById('ns-track'), f=>{ t=f*12; paint(); });
+  addEventListener('resize',paint);
+  paint();
+})();
+
+/* ─────────── 5 · Focus Garden: grown from the ledger ─────────── */
+(function(){
+  const cv=document.getElementById('fg-canvas'), g=cv.getContext('2d');
+  const W=880,H=372;
+  const noise=makeNoise(90210);
+  // a real ledger: 130 sessions of varying length
+  const LEDGER=[]; const r=mulberry32(31337);
+  for(let i=0;i<130;i++){
+    const long=r()<0.22;
+    LEDGER.push({ mins: long ? 50+Math.round(r()*40) : 15+Math.round(r()*20), x:r(), j:r() });
+  }
+  // terrain: domain-warped noise
+  const ground=[], ridge=[];
+  for(let x=0;x<=W;x+=4){
+    const wx=noise(x*0.010, 11)*70;                 // domain warp
+    const h=H*0.60 + noise((x+wx)*0.014, 3)*74 + noise(x*0.045, 7)*16;
+    ground.push(h);
+    ridge.push(H*0.50 + noise(x*0.009, 41)*44);     // a far hill line, for depth
+  }
+  const gAt=x=>ground[clamp(Math.round(x/4),0,ground.length-1)];
+
+  // foliage brushes — stamped onto procedural skeletons, never whole plants,
+  // or "no two gardens converge" breaks the first time you see the same tree twice
+  const NAMES={
+    crown:['leaf-broad-cluster','shrub-leafy','frond-upright'],
+    shrub:['shrub-round','shrub-mossy','sprig-slender'],
+    small:['grass-tuft','clover-sprigs','groundcover-dense'],
+    detail:['rock-mossy','boulder','log-mossy','mushroom-cluster','moss-mound','sapling-fern'],
+  };
+  const SPR={};
+  const dr=mulberry32(5150);
+  const DETAIL=Array.from({length:14},()=>{
+    const nm=NAMES.detail[Math.floor(dr()*NAMES.detail.length)];
+    return {nm, x:0.04+dr()*0.92, h:14+dr()*20};
+  });
+  function stamp(im,x,groundY,h){
+    if(!im||!im.naturalWidth) return;
+    const w=h*(im.naturalWidth/im.naturalHeight);
+    g.drawImage(im, x-w/2, groundY-h, w, h);
+  }
+  let cur=0, pending=0;
+  Object.values(NAMES).flat().forEach(nm=>{
+    const im=new Image(); pending++;
+    const done=()=>{ if(--pending===0) draw(cur); };
+    im.onload=done; im.onerror=done;
+    im.src='assets/focus-garden/'+nm+'.png';
+    SPR[nm]=im;
+  });
+
+  function draw(n){
+    cur=n;
+    const used=LEDGER.slice(0,n);
+    const total=used.reduce((a,s)=>a+s.mins,0);
+    // sky
+    const sky=g.createLinearGradient(0,0,0,H);
+    sky.addColorStop(0,'#0A111C'); sky.addColorStop(0.62,'#1B2836'); sky.addColorStop(1,'#243343');
+    g.fillStyle=sky; g.fillRect(0,0,W,H);
+    // distant ridge, hazed back so the near ground reads as near
+    g.beginPath(); g.moveTo(0,H);
+    for(let i=0;i<ridge.length;i++) g.lineTo(i*4, ridge[i]);
+    g.lineTo(W,H); g.closePath();
+    g.fillStyle='rgba(38,54,64,.72)'; g.fill();
+    // soil
+    g.beginPath(); g.moveTo(0,H);
+    for(let i=0;i<ground.length;i++) g.lineTo(i*4, ground[i]);
+    g.lineTo(W,H); g.closePath();
+    const soil=g.createLinearGradient(0,H*0.5,0,H);
+    const lush=clamp(n/70,0,1);
+    soil.addColorStop(0, `rgb(${Math.round(58-lush*22)},${Math.round(50+lush*38)},${Math.round(42+lush*10)})`);
+    soil.addColorStop(1, '#131A17');
+    g.fillStyle=soil; g.fill();
+
+    // cellular succession — ground cover spreads with the ledger
+    const cover=clamp(n/44,0,1);
+    for(let x=0;x<W;x+=5){
+      const nv=noise(x*0.021, 21);
+      if(nv < cover*0.92){
+        const y=gAt(x);
+        const hgt=2+nv*7*cover;
+        g.strokeStyle=`rgba(${86-nv*30},${140+nv*70},${70+nv*30},${0.30+cover*0.5})`;
+        g.lineWidth=1.1;
+        g.beginPath(); g.moveTo(x,y); g.lineTo(x+ (nv-0.5)*4, y-hgt); g.stroke();
+      }
+    }
+    // scattered ground detail — appears as the place matures, seeded so it never moves
+    const dn=Math.min(DETAIL.length, Math.floor(n/9));
+    for(let i=0;i<dn;i++){
+      const d=DETAIL[i], x=d.x*W, y=gAt(x);
+      stamp(SPR[d.nm], x, y+3, d.h);
+    }
+
+    // plants — procedural skeleton, sprite foliage (never a whole-plant sprite)
+    const placed=[], put=[];
+    for(const s of used){
+      const x=28+s.x*(W-56);
+      if(placed.some(p=>Math.abs(p-x)<15)) continue;
+      placed.push(x);
+      put.push({s, x, y:gAt(x)});
+    }
+    put.sort((a,b)=>a.y-b.y);                   // far (higher) first, so near plants overlap
+    const gy=ground.filter(Boolean), gMin=Math.min(...gy), gMax=Math.max(...gy);
+    for(const {s,x,y} of put){
+      // atmospheric perspective: distance costs contrast and size, which is most
+      // of why a landscape reads as a place rather than a sticker sheet
+      const depth=clamp((y-gMin)/Math.max(1,gMax-gMin),0,1);
+      g.globalAlpha=0.66+depth*0.34;
+      const dz=0.78+depth*0.22;
+      const scale=clamp(s.mins/90,0.16,1);
+      const pick=arr=>arr[Math.floor(s.j*arr.length)%arr.length];
+      if(s.mins>=50){                            // a long session: structural growth
+        const hh=(22+scale*54)*dz, lean=(s.j-0.5)*8;
+        g.strokeStyle='#3B2F24'; g.lineWidth=(1.8+scale*2.6)*dz; g.lineCap='round';
+        g.beginPath(); g.moveTo(x,y+1);
+        g.quadraticCurveTo(x+lean*0.4, y-hh*0.55, x+lean, y-hh);
+        g.stroke();
+        stamp(SPR[pick(NAMES.crown)], x+lean, y-hh+(10+scale*10)*dz, (30+scale*44)*dz);
+      } else if(s.mins>=26){                     // a normal session: a shrub
+        stamp(SPR[pick(NAMES.shrub)], x, y+2, (16+scale*26)*dz);
+      } else {                                   // a short session: ground richness
+        stamp(SPR[pick(NAMES.small)], x, y+2, (11+scale*15)*dz);
+      }
+    }
+    g.globalAlpha=1;
+    // cool haze settling into the middle distance
+    const hz2=g.createLinearGradient(0,gMin-40,0,gMin+52);
+    hz2.addColorStop(0,'rgba(96,132,158,.15)'); hz2.addColorStop(1,'rgba(96,132,158,0)');
+    g.fillStyle=hz2; g.fillRect(0,gMin-40,W,92);
+    // a little haze so it reads as a place, not a chart
+    const hz=g.createLinearGradient(0,H*0.42,0,H*0.78);
+    hz.addColorStop(0,'rgba(120,150,170,.055)'); hz.addColorStop(1,'rgba(120,150,170,0)');
+    g.fillStyle=hz; g.fillRect(0,H*0.42,W,H*0.36);
+
+    const hrs=Math.floor(total/60);
+    const longest=used.reduce((a,s)=>Math.max(a,s.mins),0);
+    document.getElementById('fg-n').textContent=n;
+    document.getElementById('fg-h').textContent=hrs+'h';
+    document.getElementById('fg-l').textContent=longest?longest+'m':'—';
+    document.getElementById('fg-s').textContent=Math.min(9,Math.floor(n/16));
+    document.getElementById('fg-head').textContent =
+      n===0 ? 'no sessions yet' : n<20 ? 'taking root' : n<60 ? 'filling in' : 'established';
+    document.getElementById('fg-fill').style.width=(n/130*100)+'%';
+    document.getElementById('fg-knob').style.left=`calc(${n/130*100}% - 7px)`;
+  }
+  dragify(document.getElementById('fg-slider'), f=>draw(Math.round(f*130)));
+  draw(0);
+  let grow=0;
+  const iv=setInterval(()=>{ grow+=2; if(grow>130){clearInterval(iv);return;} draw(grow); }, 46);
+})();
+
+/* ─────────── 6 · Chess ─────────── */
+(function(){
+  const POS=["r.bqkb.r","ppp..ppp","..n..n..","...pp...","...NP...","..N..P..","PPPP..PP","R.BQKB.R"];
+  const NAME={p:'P',n:'N',b:'B',r:'R',q:'Q',k:'K'};
+  const src=(w,t)=>`../../protocol/demo-apps/chess/assets/${w?'w':'b'}${t}.png`;
+  const b=document.getElementById('cboard');
+  for(let rk=0;rk<8;rk++) for(let f=0;f<8;f++){
+    const c=document.createElement('i');
+    c.className=((rk+f)%2===0)?'lt':'dk';
+    const ch=POS[rk][f];
+    if(ch!=='.'){
+      const im=document.createElement('img');
+      im.src=src(ch===ch.toUpperCase(), NAME[ch.toLowerCase()]); im.alt='';
+      c.appendChild(im);
+    }
+    b.appendChild(c);
+  }
+  // fading move trail: e2→e4 style path laid over the squares
+  [[4,4,.34],[4,5,.20],[4,6,.10]].forEach(([f,rk,a])=>{
+    const d=document.createElement('div');
+    d.className='trail';
+    d.style.cssText=`left:${f*52+6}px;top:${rk*52+6}px;width:40px;height:40px;background:rgba(143,93,255,${a})`;
+    b.appendChild(d);
+  });
+  const wt=document.getElementById('tk-w'), bt=document.getElementById('tk-b');
+  ['P','P','N'].forEach(t=>{const i=document.createElement('img');i.src=src(false,t);wt.appendChild(i);});
+  ['P','P'].forEach(t=>{const i=document.createElement('img');i.src=src(true,t);bt.appendChild(i);});
+})();
+
+/* ─────────── 7 · Tetris ─────────── */
+(function(){
+  const W=10,H=20, well=document.getElementById('well');
+  const grid=Array.from({length:H},()=>Array(W).fill(''));
+  [[17,0,'cJ'],[18,0,'cJ'],[18,1,'cJ'],[18,2,'cJ'],
+   [16,3,'cZ'],[17,3,'cZ'],[17,4,'cZ'],[18,3,'cZ'],[18,4,'cZ'],
+   [18,5,'cT'],[18,6,'cT'],[17,6,'cT'],
+   [16,7,'cL'],[17,7,'cL'],[18,7,'cL'],[18,8,'cL'],
+   [19,0,'cS'],[19,1,'cS'],[19,2,'cS'],[19,3,'cS'],[19,4,'cS'],[19,5,'cS'],[19,6,'cS'],[19,7,'cS'],[19,8,'cS'],
+   [18,9,'cO'],[17,9,'cO']
+  ].forEach(([r,c,k])=>grid[r][c]=k);
+  [[3,4],[4,4],[4,5],[3,5]].forEach(([r,c])=>grid[r][c]='cO');
+  for(let r=0;r<H;r++) for(let c=0;c<W;c++){
+    const i=document.createElement('i'); i.className=grid[r][c]||'e'; well.appendChild(i);
+  }
+  // procedural field behind the grid — responds to stack pressure, never hides a cell
+  const cv=document.getElementById('tt-bg'), g=cv.getContext('2d');
+  const n=makeNoise(515), CW=480, CH=960;
+  g.fillStyle='#0B0B0E'; g.fillRect(0,0,CW,CH);
+  const pressure=0.62;
+  // ambient, never legible as shapes — it must not compete with an occupied cell
+  for(let y=0;y<CH;y+=6) for(let x=0;x<CW;x+=6){
+    const v=n(x*0.007,y*0.007);
+    const near=clamp((y/CH-(1-pressure))*2.6,0,1);
+    if(v>0.55){
+      g.fillStyle=`rgba(${96+near*64},${116+near*36},${196+near*24},${(0.010+v*0.026*near).toFixed(4)})`;
+      g.fillRect(x,y,6,6);
+    }
+  }
+})();
+</script>
+</body>
+</html>

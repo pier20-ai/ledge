@@ -35,12 +35,19 @@ public final class PlatformExecutor {
     public static let maxSpotlightResults = 50
     public static let maxSpeechCharacters = 500
 
+    /// The runaway bound on one recording (G3). Long enough for any meeting,
+    /// short enough that a worker that died with the tape rolling cannot fill
+    /// a disk overnight: past it the shell finalizes the session on its own.
+    public static let maxRecordingSeconds: TimeInterval = 6 * 3600
+
     private let calendar: CalendarProviding?
     private let workspace: WorkspaceProbing?
     private let location: LocationProviding?
     private let spotlight: SpotlightSearching?
     private let audio: AudioControlling?
     private let speech: SpeechSynthesizing?
+    private let quit: ShellQuitting?
+    private let recorder: AudioRecording?
 
     private let spotlightTimeout: TimeInterval
     private let locationTimeout: TimeInterval
@@ -64,6 +71,8 @@ public final class PlatformExecutor {
         spotlight: SpotlightSearching? = nil,
         audio: AudioControlling? = nil,
         speech: SpeechSynthesizing? = nil,
+        quit: ShellQuitting? = nil,
+        recorder: AudioRecording? = nil,
         spotlightTimeout: TimeInterval = 5,
         locationTimeout: TimeInterval = 8,
         locationCacheSeconds: TimeInterval = 60,
@@ -75,6 +84,8 @@ public final class PlatformExecutor {
         self.spotlight = spotlight
         self.audio = audio
         self.speech = speech
+        self.quit = quit
+        self.recorder = recorder
         self.spotlightTimeout = spotlightTimeout
         self.locationTimeout = locationTimeout
         self.locationCacheSeconds = locationCacheSeconds
@@ -83,7 +94,12 @@ public final class PlatformExecutor {
 
     /// Run one call. `observe`/`unobserve` never arrive here — they are registry
     /// verbs, answered synchronously by `PlatformObserver`.
-    public func run(_ call: PlatformCall, completion: @escaping PlatformCompletion) {
+    ///
+    /// `app` is who is asking. Only the record family reads it — recording is
+    /// the first call with *ownership* (one recording, stoppable only by the
+    /// app that started it), and ownership needs to know whose hand is on the
+    /// button. Everything else stays app-blind on purpose.
+    public func run(_ call: PlatformCall, app: String = "", completion: @escaping PlatformCompletion) {
         switch call {
         case .observe, .unobserve:
             completion(.failure(CapabilityError("observe verbs are handled by the observer registry")))
@@ -101,6 +117,16 @@ public final class PlatformExecutor {
             runSetVolume(value, completion: completion)
         case let .speak(text, voice, rate):
             runSpeak(text: text, voice: voice, rate: rate, completion: completion)
+        case .recordStatus:
+            runRecordStatus(app: app, completion: completion)
+        case let .recordStart(sources, format):
+            runRecordStart(app: app, sources: sources, format: format, completion: completion)
+        case .recordStop:
+            runRecordStop(app: app, completion: completion)
+        case .recordLevels:
+            runRecordLevels(app: app, completion: completion)
+        case .quit:
+            runQuit(completion: completion)
         }
     }
 
@@ -308,6 +334,180 @@ public final class PlatformExecutor {
             case let .failure(error): completion(.failure(error))
             }
         }
+    }
+
+    // MARK: - record (ctx.record, G3)
+
+    /// Who holds the live recording, or nil. Public because the shell's global
+    /// hotkey wants to land on the app whose tape is rolling.
+    public private(set) var recordingOwner: String?
+    /// The live session, kept here so `status` can describe it without asking
+    /// the facade to remember anything but its files.
+    private var recordingSession: RecordingSession?
+    /// Bumped on every stop so the runaway-cap task from an old session can
+    /// recognize itself as stale instead of stopping the next one.
+    private var recordingGeneration = 0
+
+    private func runRecordStatus(app: String, completion: @escaping PlatformCompletion) {
+        guard let recorder else {
+            completion(.failure(CapabilityError("this shell has no recording capability")))
+            return
+        }
+        let mine = recordingOwner == app && recordingSession != nil
+        var object: [String: JSONValue] = [
+            "available": .bool(recorder.unavailableReason == nil),
+            "recording": .bool(recordingOwner != nil),
+            "mine": .bool(mine),
+            "root": .string(recorder.root(for: app).path),
+        ]
+        if let reason = recorder.unavailableReason {
+            object["reason"] = .string(reason)
+        }
+        if mine, let session = recordingSession {
+            object["session"] = Self.json(session: session)
+        }
+        var transcription: [String: JSONValue] = [
+            "available": .bool(recorder.transcriptionUnavailableReason == nil),
+        ]
+        if let reason = recorder.transcriptionUnavailableReason {
+            transcription["reason"] = .string(reason)
+        }
+        object["transcription"] = .object(transcription)
+        completion(.success(.object(object)))
+    }
+
+    private func runRecordStart(
+        app: String,
+        sources: [RecordingSource],
+        format: RecordingFormat,
+        completion: @escaping PlatformCompletion
+    ) {
+        guard let recorder else {
+            completion(.failure(CapabilityError("this shell has no recording capability")))
+            return
+        }
+        if let reason = recorder.unavailableReason {
+            completion(.failure(CapabilityError(reason)))
+            return
+        }
+        // One recording at a time, globally: the microphone and the system tap
+        // are hardware, and two owners would be two apps believing they own
+        // one stream. The refusal names the holder so the app can say so.
+        guard recordingOwner == nil else {
+            completion(.failure(CapabilityError("already recording for '\(recordingOwner ?? "?")'")))
+            return
+        }
+        // Claim BEFORE the facade answers: start waits on a TCC prompt, and a
+        // second app asking during the prompt must be refused, not raced.
+        recordingOwner = app
+        recorder.start(app: app, sources: sources, format: format) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case let .success(session):
+                recordingSession = session
+                armRecordingCap()
+                completion(.success(Self.json(session: session)))
+            case let .failure(error):
+                recordingOwner = nil
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func runRecordStop(app: String, completion: @escaping PlatformCompletion) {
+        guard let recorder else {
+            completion(.failure(CapabilityError("this shell has no recording capability")))
+            return
+        }
+        guard let owner = recordingOwner else {
+            completion(.failure(CapabilityError("nothing is recording")))
+            return
+        }
+        guard owner == app else {
+            completion(.failure(CapabilityError("only '\(owner)' may stop this recording")))
+            return
+        }
+        finalizeRecording(with: recorder) { result in
+            switch result {
+            case let .success(stopped):
+                var files: [String: JSONValue] = [:]
+                for (source, path) in stopped.files { files[source.rawValue] = .string(path) }
+                completion(.success(.object([
+                    "id": .string(stopped.session.id),
+                    "dir": .string(stopped.session.dir),
+                    "seconds": .double(stopped.seconds),
+                    "files": .object(files),
+                ])))
+            case let .failure(error):
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private func runRecordLevels(app: String, completion: @escaping PlatformCompletion) {
+        guard let recorder else {
+            completion(.failure(CapabilityError("this shell has no recording capability")))
+            return
+        }
+        guard recordingOwner == app, let levels = recorder.levels() else {
+            completion(.failure(CapabilityError("nothing is recording")))
+            return
+        }
+        var object: [String: JSONValue] = ["seconds": .double(levels.seconds)]
+        if let mic = levels.mic { object["mic"] = .double(mic) }
+        if let system = levels.system { object["system"] = .double(system) }
+        completion(.success(.object(object)))
+    }
+
+    /// Stop through one door, whoever asked: the app, or the runaway cap.
+    private func finalizeRecording(
+        with recorder: AudioRecording,
+        completion: @escaping @MainActor (Result<RecordingStopResult, CapabilityError>) -> Void
+    ) {
+        recordingOwner = nil
+        recordingSession = nil
+        recordingGeneration += 1
+        recorder.stop(completion: completion)
+    }
+
+    /// A worker can die with the tape rolling — deliberately, the shell keeps
+    /// recording so a crashed recorder loses nothing and re-adopts on restart
+    /// (`status` answers `mine: true`). The cap is what bounds the case where
+    /// nothing ever comes back.
+    private func armRecordingCap() {
+        let generation = recordingGeneration
+        after(Self.maxRecordingSeconds) { [weak self] in
+            guard let self, recordingGeneration == generation, let recorder else { return }
+            finalizeRecording(with: recorder) { _ in }
+        }
+    }
+
+    static func json(session: RecordingSession) -> JSONValue {
+        .object([
+            "id": .string(session.id),
+            "dir": .string(session.dir),
+            "startedAt": .string(formatISO(session.startedAt)),
+            "sources": .array(session.sources.map { .string($0.rawValue) }),
+            "format": .string(session.format.rawValue),
+        ])
+    }
+
+    // MARK: - quit
+
+    /// Answer FIRST, then end the process.
+    ///
+    /// The completion is what puts the `ok` on the socket, and the app on the
+    /// other end is awaiting it. Terminating inside this call would tear the
+    /// socket down with a reply still in a buffer, so the facade is required to
+    /// terminate on a later run-loop turn — which also makes "did the button
+    /// work" observable in a test that never actually quits.
+    private func runQuit(completion: @escaping PlatformCompletion) {
+        guard let quit else {
+            completion(.failure(CapabilityError("this shell cannot quit itself")))
+            return
+        }
+        completion(.success(nil))
+        quit.requestQuit()
     }
 
     // MARK: - One-shot settlement
