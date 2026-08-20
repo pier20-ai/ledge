@@ -280,9 +280,11 @@ enum SnapshotRenderer {
         )
         settings.loadForTesting()
         if let content = settings.windowForTesting?.contentView {
-            content.layoutSubtreeIfNeeded()
             for page in settings.pagesForTesting {
                 settings.selectForTesting(page)
+                // SwiftUI commits on the runloop, not on assignment: without
+                // this beat every page renders as the first one selected.
+                RunLoop.main.run(until: Date().addingTimeInterval(0.08))
                 content.layoutSubtreeIfNeeded()
                 content.displayIfNeeded()
                 try write(content, named: "settings-\(page)", to: directory)

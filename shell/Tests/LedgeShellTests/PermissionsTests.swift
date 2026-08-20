@@ -174,159 +174,67 @@ struct PermissionsTests {
         #expect(LedgePermission.microphone.unreadableReason == nil)
     }
 
-    // MARK: - The surface
+    // MARK: - The surface (the model behind the Onboarding pane)
 
-    @Test("The card measures itself, and grows when a row gains a line")
-    func cardMeasuresItself() {
-        let quiet = FakePermissionProbe(
-            Dictionary(uniqueKeysWithValues: LedgePermission.allCases.map { ($0, .granted) })
-        )
-        let quietCard = PermissionsCardView(probe: quiet)
-        let noisy = FakePermissionProbe(
-            Dictionary(uniqueKeysWithValues: LedgePermission.allCases.map { ($0, .denied) })
-        )
-        let noisyCard = PermissionsCardView(probe: noisy)
+    /// The card this section used to exercise is gone — the Onboarding pane
+    /// is plain SwiftUI over `SettingsModel` (G4's boring-settings ruling) —
+    /// but the two behaviors worth keeping were never about the card:
 
-        #expect(quietCard.panelHeight > 0)
-        // Every denied row carries the "macOS will not ask again" line, so the
-        // noisy panel is exactly one footnote-height per row taller.
-        #expect(noisyCard.panelHeight > quietCard.panelHeight)
-
-        // **Seven rows outgrew every screen, and the card now clamps.**
-        //
-        // Until G3 the card was five rows and its natural height stayed under
-        // every cap on its own. `ctx.record` added Microphone and System Audio
-        // — and System Audio's second line is permanent (unreadable by
-        // design), so the natural card is 711 pt fresh and 809 pt worst-case,
-        // against a ~661 pt ceiling on the smallest notched Mac. The fix is
-        // `maxPanelHeight`: the controller hands the card the screen's
-        // allowance, `panelHeight` clamps to it, and the rows scroll behind
-        // the glass while Done stays on it. Three facts pinned here: the
-        // scroller is genuinely earning its place, the clamp holds at both
-        // historic caps, and the natural height keeps its growth ratchet.
-        let fresh = PermissionsCardView(probe: FakePermissionProbe())
-        #expect(
-            fresh.measuredHeight > PanelLimits.fallback.maxHeight,
-            "the natural card fits every screen again — the scroller could go back to being a plain view"
-        )
-        fresh.maxPanelHeight = 560
-        #expect(fresh.panelHeight == 560)
-        noisyCard.maxPanelHeight = 660 - NotchMetrics.fallback.closedHeight
-        #expect(noisyCard.panelHeight + NotchMetrics.fallback.closedHeight <= 660)
-        // The growth ratchet, kept from the interregnum: the NATURAL height
-        // may not quietly grow another row's worth either — a taller card is
-        // more scrolling on every machine, and a new permission row should
-        // come with this number consciously re-cut.
-        #expect(fresh.measuredHeight <= 711)
-        #expect(
-            noisyCard.measuredHeight + NotchMetrics.fallback.closedHeight <= 809
-        )
-    }
-
-    @Test("Pressing a row's button does the one thing that row offers")
-    func rowActions() {
-        let probe = FakePermissionProbe([
-            .calendar: .notDetermined,
-            .location: .denied,
-            .notifications: .granted,
-        ])
-        let card = PermissionsCardView(probe: probe)
-        card.frame = CGRect(x: 0, y: 0, width: PermissionsCardView.width, height: card.panelHeight)
-        card.layoutSubtreeIfNeeded()
-
-        // The label is the promise; activating is the wiring. Both are asserted,
-        // because a row that says "Allow…" and opens Settings is worse than
-        // either mistake on its own.
-        #expect(card.actionLabel(for: .calendar) == "Allow…")
-        #expect(card.actionLabel(for: .location) == "Settings")
-        // A granted row has no button at all — there is nothing left to do.
-        #expect(card.actionLabel(for: .notifications) == nil)
-
-        card.activate(.calendar)
-        #expect(probe.asked == [.calendar])
-        #expect(probe.opened.isEmpty)
-
-        card.activate(.location)
-        #expect(probe.asked == [.calendar])
-        #expect(probe.opened == [.location])
-
-        card.activate(.notifications)
-        #expect(probe.asked == [.calendar])
-        #expect(probe.opened == [.location])
-    }
-
-    @Test("Permission copy is laid out below its action, never under it")
-    func rowCopyClearsActions() throws {
-        let card = PermissionsCardView(probe: FakePermissionProbe())
-        card.frame = CGRect(x: 0, y: 0, width: PermissionsCardView.width, height: card.panelHeight)
-        card.layoutSubtreeIfNeeded()
-
-        let button = try #require(
-            descendants(of: card)
-                .compactMap { $0 as? LedgeButton }
-                .first { $0.currentLabel == "Settings" }
-        )
-        let summary = try #require(
-            descendants(of: card)
-                .compactMap { $0 as? NSTextField }
-                .first { $0.stringValue == LedgePermission.automation.summary }
-        )
-        let buttonFrame = card.convert(button.bounds, from: button)
-        let summaryFrame = card.convert(summary.bounds, from: summary)
-        #expect(!buttonFrame.intersects(summaryFrame))
-        #expect(summaryFrame.minY >= buttonFrame.maxY)
-    }
-
-    /// Allowing something has to be visible immediately. The rows are rebuilt
-    /// wholesale from a fresh read rather than patched, because one click can
-    /// change the shape of the row it landed on.
+    /// An answered prompt is reflected without reopening the surface: the
+    /// ask's callback re-derives the rows, and the row that was ASK is now
+    /// settled — nobody has to remember to poke it.
     @Test("An answered prompt is reflected without reopening the surface")
     func answerReloads() {
         let probe = FakePermissionProbe([.calendar: .notDetermined])
         probe.answers[.calendar] = .granted
-        let card = PermissionsCardView(probe: probe)
-        card.activate(.calendar)
-        #expect(card.visibleRows.first { $0.permission == .calendar }?.status == .granted)
-        #expect(card.visibleRows.first { $0.permission == .calendar }?.action == .settled)
-        #expect(card.actionLabel(for: .calendar) == nil)
+        let session = HostSession()
+        session.openReplay()
+        let model = SettingsModel(session: session, probe: probe, onQuit: {})
+        model.ask(.calendar)
+        #expect(model.rows.first { $0.permission == .calendar }?.status == .granted)
+        #expect(model.rows.first { $0.permission == .calendar }?.action == .settled)
     }
 
+    /// Screen Recording's shape: the ask learns "takes effect on relaunch"
+    /// while every later preflight read still answers `notDetermined`. The
+    /// answer is held over the ambiguous read — a settled read supersedes it —
+    /// so the row does not snap back to an Allow… button that already worked.
     @Test("An answer survives an ambiguous system re-read")
     func ambiguousReadKeepsAnswer() {
         let probe = FakePermissionProbe([.screenRecording: .notDetermined])
         probe.answers[.screenRecording] = .unreadable("Takes effect when Ledge restarts.")
         probe.reflectsAnswers = false
-        let card = PermissionsCardView(probe: probe)
+        let session = HostSession()
+        session.openReplay()
+        let model = SettingsModel(session: session, probe: probe, onQuit: {})
 
-        card.activate(.screenRecording)
+        model.ask(.screenRecording)
 
-        let row = card.visibleRows.first { $0.permission == .screenRecording }
+        let row = model.rows.first { $0.permission == .screenRecording }
         #expect(row?.status == .unreadable("Takes effect when Ledge restarts."))
         #expect(row?.action == .openSettings)
-        #expect(card.actionLabel(for: .screenRecording) == "Settings")
+
+        // …and a poll's refresh does not wash it away either.
+        model.refreshPermissions()
+        #expect(
+            model.rows.first { $0.permission == .screenRecording }?.status
+                == .unreadable("Takes effect when Ledge restarts.")
+        )
     }
 
-    /// A surface nobody is looking at must not poll TCC. It stays in the view
-    /// hierarchy after the panel collapses, so the controller — not the window —
-    /// is what turns it off.
-    @Test("It only watches the system while it is on screen")
-    func watchesOnlyWhenActive() {
-        let card = PermissionsCardView(probe: FakePermissionProbe())
-        #expect(!card.isWatching)
-        card.setActive(true)
-        #expect(card.isWatching)
-        card.setActive(false)
-        #expect(!card.isWatching)
+    /// A denied row's one remedy is the System Settings pane; the model must
+    /// route there and never try to re-ask what TCC will not re-answer.
+    @Test("A denied row opens the pane instead of asking again")
+    func deniedOpensThePane() {
+        let probe = FakePermissionProbe([.location: .denied])
+        let session = HostSession()
+        session.openReplay()
+        let model = SettingsModel(session: session, probe: probe, onQuit: {})
+        model.openSystemSettings(for: .location)
+        #expect(probe.opened == [.location])
+        #expect(probe.asked.isEmpty)
     }
 
-    @Test("Done dismisses, and dismissing is a legitimate answer")
-    func dismiss() {
-        let card = PermissionsCardView(probe: FakePermissionProbe())
-        var dismissed = false
-        card.onDismiss = { dismissed = true }
-        card.dismiss()
-        #expect(dismissed)
-    }
 
     // MARK: - First run
 
@@ -395,80 +303,6 @@ struct PermissionsTests {
 
     // MARK: - Rendering
 
-    /// Rendered rather than reasoned about. `screencapture` returns the
-    /// wallpaper without a Screen Recording grant (see `scripts/snapshot-editor.swift`),
-    /// so the surface is drawn in-process into a bitmap and the pixels are read
-    /// back — which is also the only way to catch a row that laid out at zero
-    /// height or a label that drew in black on black.
-    ///
-    /// Set `LEDGE_SNAPSHOT_DIR` to keep the PNG and look at it.
-    @Test("The card actually draws, in every state a row can be in")
-    func rendersVisibly() throws {
-        let probe = FakePermissionProbe([
-            .notifications: .granted,
-            .screenRecording: .notDetermined,
-            .calendar: .denied,
-            .location: .unavailable("Missing NSLocationWhenInUseUsageDescription — run Ledge.app."),
-        ])
-        let card = PermissionsCardView(probe: probe)
-        let png = try render(card, named: "permissions.png")
-
-        #expect(png.count > 2000, "a card that draws nothing compresses to almost nothing")
-    }
-
-    /// The same card **in its new home** (G4). It used to be composed into the
-    /// panel, below the camera cutout; onboarding is a Settings page now, so
-    /// the seam that can go wrong has moved with it: the card is drawn in the
-    /// shell's white-on-black inks, and a settings window that was not dark
-    /// would render every row invisible. That is exactly the defect a bitmap
-    /// catches and a layout assertion never would.
-    @Test("It composes inside the Settings window, on the window's own ground")
-    func composesInTheSettingsWindow() throws {
-        let page = OnboardingSettingsPage(probe: FakePermissionProbe(), onDone: {})
-        let card = try #require(page.cardForTesting)
-        let body = page.pageView
-
-        let size = CGSize(
-            width: SettingsWindowController.contentWidth,
-            height: card.panelHeight + SettingsWindowController.pad * 2
-        )
-        let host = FlippedView(frame: CGRect(origin: .zero, size: size))
-        host.wantsLayer = true
-        // The window's real background, not white: this is the assertion.
-        host.layer?.backgroundColor = SettingsWindowController.windowBackground.cgColor
-        body.frame = host.bounds.insetBy(dx: SettingsWindowController.pad, dy: SettingsWindowController.pad)
-        host.addSubview(body)
-        host.layoutSubtreeIfNeeded()
-        host.displayIfNeeded()
-
-        let representation = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: representation)
-        let png = try #require(representation.representation(using: .png, properties: [:]))
-        try Self.keep(png, named: "permissions-settings-page.png")
-        #expect(png.count > 2000, "rows that drew in black on black compress to almost nothing")
-    }
-
-    /// Draw one view into a bitmap and hand back the PNG, writing it out when
-    /// `LEDGE_SNAPSHOT_DIR` says where.
-    private func render(_ card: PermissionsCardView, named name: String) throws -> Data {
-        let size = CGSize(width: PermissionsCardView.width, height: card.panelHeight)
-        let host = FlippedView(frame: CGRect(origin: .zero, size: size))
-        // Composited over the panel's own glass: the card is transparent by
-        // design, and a snapshot on white would hide exactly the defect this is
-        // most useful for — ink that is invisible against the real background.
-        host.wantsLayer = true
-        host.layer?.backgroundColor = LedgeTheme.glass.cgColor
-        card.frame = host.bounds
-        host.addSubview(card)
-        host.layoutSubtreeIfNeeded()
-        host.displayIfNeeded()
-
-        let representation = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-        host.cacheDisplay(in: host.bounds, to: representation)
-        let png = try #require(representation.representation(using: .png, properties: [:]))
-        try Self.keep(png, named: name)
-        return png
-    }
 
     /// Write a rendered PNG out when `LEDGE_SNAPSHOT_DIR` asks for one.
     ///

@@ -384,7 +384,12 @@ final class PanelWingBarView: FlippedView {
             }
             menu.addItem(item)
         }
-        menu.popUp(positioning: menu.items.first, at: CGPoint(x: tear.frame.minX, y: tear.frame.maxY + 4), in: self)
+        // In the BEAD's own space, not the bar's: the bead sits inside
+        // `rightZone`, and a frame read in one container popped the menu a
+        // container away from the button (G4 on-device). Flip-aware, so the
+        // menu hangs under the bead whichever way this view counts y.
+        let below = CGPoint(x: 0, y: tear.isFlipped ? tear.bounds.maxY + 2 : -2)
+        menu.popUp(positioning: nil, at: below, in: tear)
     }
 
     /// **Parked, the islands hug the window's edges** (G2.9): [⌂|✦] at the far
