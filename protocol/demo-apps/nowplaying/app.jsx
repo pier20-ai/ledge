@@ -1,11 +1,13 @@
 /** @jsxImportSource react */
 // Now Playing — the app that owns the resting pill.
 //
-// SIGNATURE: the wing waveform. Seven bars breathing in the collapsed notch
-// while something plays, and the same node drawn in the panel — one `ctx.draw`,
-// two places. There is no audio tap on macOS, so the levels are pseudo: sines
-// seeded by the track, advanced only while the music advances, eased toward
-// their target every frame. It has to read as alive, not as noise.
+// SIGNATURE: the wing reel (G2.10, the weatherglass doctrine — simulate a
+// substance, not a status). A tape reel spins in the collapsed notch while
+// something plays, and the same node draws in the panel — one `ctx.draw`, two
+// places. There is no audio tap on macOS, so the honest theatre is *rotation*:
+// playing is the one thing we truly know, so the reel turns while it is true,
+// coasts to a stop on pause, and winds back up on play. The old seven
+// pseudo-waveform bars — sines pretending to be the song — are retired.
 //
 // Laws it exercises:
 //   1   one step lighter — bare glyphs, no chips, no filled transport.
@@ -72,13 +74,16 @@ const SWELL_MS = 620;
  * bare in the middle of a song and nothing ever puts it back. */
 const WING_HEARTBEAT_MS = 45_000;
 
-const BARS = 7;
-const BAR_W = 3;
-const BAR_GAP = 3;
-const WAVE_W = BARS * BAR_W + (BARS - 1) * BAR_GAP;
+// The reel (G2.10's fun pass, the weatherglass doctrine): the wing is a tape
+// reel spinning at true elapsed rate — rotation is the one signal we honestly
+// have (position, playing), so rotation is the theatre. Three spoke holes
+// turn inside a dotted rim; pause and it coasts to a stop, play and it winds
+// back up. No fake audio levels pretending to be the song.
+const WAVE_W = 40;
 const WAVE_H = 34; // the notch's own height — the wing canvas' coordinate space
-const BAR_MIN = 2;
-const BAR_MAX = 22;
+const REEL_R = 13; // the rim's radius
+const SPOKE_R = 7.5; // where the three holes ride
+const REEL_RPS = 0.24; // revolutions per second: legible at 11 fps, calm
 
 let ctxRef = null;
 let now = null; // the last read playback state, or null
@@ -104,39 +109,12 @@ let waking = null;
 let started = false;
 
 let wave = null; // the canvas node, from a ref; its id is what ctx.draw targets
-const levels = new Array(BARS).fill(0);
-let phase = 0; // advances only while the music does
+let ink = 0; // the reel's eased visibility, 0…1
+let spin = 0; // the reel's angle, in revolutions
+let spinVel = 0; // revolutions per second — the reel has inertia
 let breathAt = 0; // when the track last changed under a held wing; 0 = not breathing
 
-// ---------------------------------------------------------------- the wave
-
-/** A stable 0…1 from a string. The track's title is the only signal we have
- * about how it should move, so it is the one we use. */
-function seedOf(text) {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
-  return (h >>> 0) / 4294967296;
-}
-
-/** The standing shape of the row: tallest in the middle. It is the whole
- * difference between a waveform and a row of rectangles, so it is also what is
- * left when the motion is taken away (see `paint`). */
-function hump(i) {
-  return 0.75 + 0.25 * Math.sin(((i + 0.5) / BARS) * Math.PI);
-}
-
-/** One bar's target level, 0…1. Two sines the seed detunes against each other
- * (so the pattern never quite repeats), offset per bar (so the shape *travels*
- * across the row instead of every bar pumping together), over a floor of 0.20
- * — a playing meter should never touch the height a stopped one sits at. The
- * hump keeps the middle bars tallest, which is the whole difference between a
- * waveform and a row of rectangles. */
-function target(i, t, seed, energy) {
-  const a = Math.sin(t * (1.35 + seed * 0.6) + i * 1.25);
-  const b = Math.sin(t * (2.15 + seed * 1.1) - i * 0.85);
-  const swell = (a * 0.55 + b * 0.45 + 1) / 2;
-  return Math.min(1, (0.2 + 0.8 * swell * energy) * hump(i));
-}
+// ---------------------------------------------------------------- the reel
 
 /**
  * The breath, 0…1 — how much of the wave is *let through* this frame.
@@ -183,33 +161,43 @@ function startBreath(hadGap) {
  * there. Still, not slower and not blank — the meter still says "playing", it
  * just stops breathing, and the track-change breath is motion too, so it does
  * not run there either. */
+/** A white with `v` (0…1) of alpha — every part of the reel scales with the
+ * ink, so the track-change breath dims the whole instrument and swells it
+ * back rather than resizing anything. */
+function shade(v) {
+  const a = Math.round(Math.min(1, Math.max(0, v)) * 255);
+  return `#FFFFFF${a.toString(16).padStart(2, "0").toUpperCase()}`;
+}
+
+function dot(ops, x, y, d, v) {
+  ops.push({ op: "rect", x: x - d / 2, y: y - d / 2, w: d, h: d, radius: d / 2, fill: shade(v) });
+}
+
 function paint(held, still = false) {
   if (!ctxRef || !wave) return;
-  const seed = shown ? seedOf(`${shown.title}${shown.artist}`) : 0;
-  const energy = 0.75 + seed * 0.25; // the track's character: how hard it moves
   const open = still ? 1 : breath();
+  const wanted = held ? (still ? 0.85 : open) : 0;
+  // Ease, never jump: the reel is a body dimming, not a chart repainting.
+  // Under Reduce Motion there is no easing — one frame, done.
+  if (still) ink = wanted;
+  else ink += (wanted - ink) * 0.25;
+
+  const cx = WAVE_W / 2;
+  const cy = WAVE_H / 2;
   const ops = [{ op: "clear" }];
-  for (let i = 0; i < BARS; i += 1) {
-    const wanted = held
-      ? still
-        ? 0.55 * hump(i)
-        : target(i, phase, seed, energy) * open
-      : 0;
-    // Ease, never jump: the bars are a body moving, not a chart repainting.
-    // Under Reduce Motion there is no body and no easing — one frame, done.
-    if (still) levels[i] = wanted;
-    else levels[i] += (wanted - levels[i]) * 0.28;
-    const h = Math.max(BAR_MIN, Math.round(BAR_MIN + levels[i] * (BAR_MAX - BAR_MIN)));
-    ops.push({
-      op: "rect",
-      x: i * (BAR_W + BAR_GAP),
-      y: Math.round((WAVE_H - h) / 2),
-      w: BAR_W,
-      h,
-      radius: 1.5,
-      fill: held ? "#FFFFFFD9" : "#FFFFFF33",
-    });
+  // The rim: ten fixed dots. The frame of the instrument, faint at rest.
+  for (let i = 0; i < 10; i += 1) {
+    const a = (i / 10) * Math.PI * 2;
+    dot(ops, cx + Math.cos(a) * REEL_R, cy + Math.sin(a) * REEL_R, 2, 0.2 + 0.5 * ink);
   }
+  // The three spoke holes: the part that turns. Under Reduce Motion the reel
+  // stands still — `spin` simply stops advancing — but stays fully drawn.
+  for (let k = 0; k < 3; k += 1) {
+    const a = (spin + k / 3) * Math.PI * 2;
+    dot(ops, cx + Math.cos(a) * SPOKE_R, cy + Math.sin(a) * SPOKE_R, 5, 0.15 + 0.75 * ink);
+  }
+  // The spindle.
+  dot(ops, cx, cy, 3, 0.25 + 0.6 * ink);
   ctxRef.draw(wave.id, ops);
 }
 
@@ -232,11 +220,16 @@ function tick() {
   // state takes the `<canvas>` — and `wave` — with it.
   publishWing(held);
   publish();
-  // Stopped and flat is a still frame, not a slower one. The frames between
-  // "stopped" and "flat" still run, which is how the bars settle instead of
-  // snapping — and how the wing gets released.
-  if (!held && levels.every((value) => value < 0.01)) return;
-  if (now?.playing) phase += FRAME_MS / 1000;
+  // Stopped and dark is a still frame, not a slower one. The frames between
+  // "stopped" and "dark" still run, which is how the reel coasts to rest and
+  // fades instead of snapping — and how the wing gets released.
+  if (!held && ink < 0.01 && spinVel < 0.005) return;
+  // The reel's inertia: play winds it up briskly, pause lets it coast. The
+  // spin advances from its own velocity, so a pause is a spin-down you can
+  // see, not a freeze-frame.
+  const wantVel = now?.playing ? REEL_RPS : 0;
+  spinVel += (wantVel - spinVel) * (now?.playing ? 0.3 : 0.08);
+  spin += spinVel * (FRAME_MS / 1000);
   paint(held);
 }
 
@@ -376,10 +369,9 @@ async function poll(ctx) {
     now = await readPlayback(ctx);
     artwork = await ensureArtwork(ctx, now, import.meta.dir);
     if (now?.title !== previous && now?.title) {
-      phase = 0; // a new track starts its own wave…
-      // …and the wave takes a breath before it does: quiet, then a swell in the
-      // new track's character. `previous` being absent means the player had
-      // already gone silent between the two, so the quiet has been served.
+      // A new track: the reel takes a breath before it turns for it — dim,
+      // then a swell. `previous` being absent means the player had already
+      // gone silent between the two, so the quiet has been served.
       startBreath(previous === undefined);
     }
     resolve();
