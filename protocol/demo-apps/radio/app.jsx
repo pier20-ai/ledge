@@ -96,24 +96,35 @@ function registerClick(station) {
 
 // ---------------------------------------------------------------- the sound
 
-/** One AVPlayer in one osascript runloop: no install, no dock icon, dies with
+/** One AVPlayer in one osascript process: no install, no dock icon, dies with
  * a kill. AVFoundation handles what stations actually stream — icecast mp3,
- * aac, HLS. Volume is set below full so a first play never blasts. */
-const playerScript = (url) => `
-ObjC.import("AVFoundation");
-ObjC.import("Foundation");
-const player = $.AVPlayer.playerWithURL($.NSURL.URLWithString(${JSON.stringify(url)}));
-player.volume = 0.8;
-player.play;
-$.NSRunLoop.currentRunLoop.run;
-`;
+ * aac, HLS. Volume is set below full so a first play never blasts.
+ *
+ * AppleScriptObjC, NOT JXA (G2.10): JXA's ObjC bridge is built from headers
+ * it does not have for AVFoundation — `$.AVPlayer` is simply `undefined` and
+ * the process exits in a blink, which on device read as "play works for a
+ * split second and stops". AppleScript's bridge introspects at runtime, so
+ * the same classes are reachable. The repeat/delay loop is the keep-alive:
+ * a bare runloop with no sources returns immediately; AVPlayer's audio
+ * pipeline runs on its own threads while this one sleeps. */
+const playerScript = (url) => [
+  'use framework "AVFoundation"',
+  "use scripting additions",
+  `set streamURL to current application's NSURL's URLWithString:"${String(url).replace(/[\\"]/g, "")}"`,
+  "set thePlayer to current application's AVPlayer's playerWithURL:streamURL",
+  "thePlayer's setVolume:0.8",
+  "thePlayer's play()",
+  "repeat",
+  "delay 60",
+  "end repeat",
+];
 
 let proc = null;
 
 function startAudio(station) {
   if (process.env.LEDGE_RADIO_MUTE === "1" || !station.url) return;
   registerClick(station);
-  proc = Bun.spawn(["osascript", "-l", "JavaScript", "-e", playerScript(station.url)], {
+  proc = Bun.spawn(["osascript", ...playerScript(station.url).flatMap((line) => ["-e", line])], {
     stdout: "ignore",
     stderr: "ignore",
   });

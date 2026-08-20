@@ -553,6 +553,9 @@ final class NotchPanelController {
     /// the host (spec §4.3).
     private func refresh(animated: Bool) {
         let presentation = shellState.presentation
+        // Whether the pointer was on the glass before this refresh moves it —
+        // the "stranded by a walk" grace needs the before and after (G2.10).
+        let wasHovered = surface.isHovered
         // Chat sits *below* the live preview (spec §8), so the app stays
         // selected while its chat is open; [+] and the pill select nothing.
         //
@@ -698,6 +701,7 @@ final class NotchPanelController {
         if let parked {
             parked.view.rowHeight = surface.panelWingRowHeight
             parked.view.cutoutWidth = surface.metrics.closedWidth
+            parked.view.contentWidth = width
             parked.view.setBodyMaterial(presentation.isConversation ? .chatGlass : .solid)
             parked.view.setPanelWing(mode: mode, canToggleGlass: canToggleGlass)
             parked.view.present(presentation, content: content, animated: animated)
@@ -766,7 +770,15 @@ final class NotchPanelController {
         // Every arrival changes at least one of the inhibitors (the editor came
         // or went; a swell replaced the visit), so the walk-away timer is
         // re-decided here rather than only when the pointer moves.
-        rearmExitTimer()
+        //
+        // …unless this very refresh pulled the glass out from under a pointer
+        // that did not move (a walk onto a shorter session, G2.10): then the
+        // timer waits for the hand, not the clock.
+        if wasHovered, !surface.isHovered, presentation.isExpanded, parked == nil {
+            armExitGrace()
+        } else {
+            rearmExitTimer()
+        }
         updateOutsideClickMonitor()
         lastRefreshedPresentation = presentation
     }
@@ -1212,6 +1224,9 @@ final class NotchPanelController {
     /// up — retract it, because a summary is the hover's surface and lives
     /// exactly as long as the hover ("Summary | pointer exit | whence it came").
     private func pointerChanged(inside: Bool) {
+        // A crossing is the pointer genuinely moving: the stranded-walk grace
+        // (G2.10) ends the moment the hand does anything at all.
+        clearExitGrace()
         rearmExitTimer()
         guard inside else {
             cancelThreshold()
@@ -1348,6 +1363,55 @@ final class NotchPanelController {
     /// change and every presentation change, because an inhibitor that merely
     /// made the timer's expiry a no-op would still close the panel the moment
     /// the user stopped typing.
+    /// **The glass moved, not the hand** (G2.10): a strip walk onto a shorter
+    /// session can pull the shape out from under a stationary pointer, and
+    /// with Texit at 0.3 s the visit then evaporated mid-walk. While this is
+    /// set, the walk-away timer holds its fire; the first real mouse move
+    /// clears it (a global monitor — the pointer is outside our tracking area
+    /// by definition) and the ordinary rules resume.
+    private var exitGraceUntilPointerMoves = false
+    private var exitGraceMonitors: [Any] = []
+
+    private func armExitGrace() {
+        exitGraceUntilPointerMoves = true
+        exitTimer?.cancel()
+        exitTimer = nil
+        guard exitGraceMonitors.isEmpty else { return }
+        // Both monitors, because each sees only half the world: the global one
+        // hears moves delivered to other apps, the local one hears moves over
+        // Ledge's own (mostly transparent) window.
+        let global = NSEvent.addGlobalMonitorForEvents(
+            matching: [.mouseMoved],
+            handler: { [weak self] _ in
+                MainActor.assumeIsolated { self?.clearExitGrace() }
+            }
+        )
+        if let global { exitGraceMonitors.append(global) }
+        let local = NSEvent.addLocalMonitorForEvents(
+            matching: [.mouseMoved],
+            handler: { [weak self] event in
+                MainActor.assumeIsolated { self?.clearExitGrace() }
+                return event
+            }
+        )
+        if let local { exitGraceMonitors.append(local) }
+    }
+
+    private func clearExitGrace() {
+        guard exitGraceUntilPointerMoves else { return }
+        exitGraceUntilPointerMoves = false
+        for monitor in exitGraceMonitors { NSEvent.removeMonitor(monitor) }
+        exitGraceMonitors = []
+        rearmExitTimer()
+    }
+
+    /// The grace's test seams: whether the walk-away timer is currently held
+    /// because the glass moved out from under a stationary pointer — and the
+    /// arm itself, because the trigger (a live pointer stranded by a present)
+    /// cannot be staged headlessly.
+    var isHoldingExitGraceForTesting: Bool { exitGraceUntilPointerMoves }
+    func armExitGraceForTesting() { armExitGrace() }
+
     private func rearmExitTimer() {
         exitTimer?.cancel()
         exitTimer = nil
@@ -1356,6 +1420,7 @@ final class NotchPanelController {
         // evaporated 2.5 seconds after they looked away would be undoing that
         // decision for them. Only the ⌃ and the bare notch put it away.
         guard !isParked,
+              !exitGraceUntilPointerMoves,
               shellState.isExpanded,
               shellState.presentation.allowsPassiveCollapse,
               exitInhibitor.mayRunExitTimer else { return }

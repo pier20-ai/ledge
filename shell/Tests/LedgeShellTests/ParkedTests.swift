@@ -86,6 +86,39 @@ struct ParkedTests {
         #expect(!surface.panelWingBarView.hugsEdges)
     }
 
+    /// G2.10: the window is floored at the islands' span, so a session
+    /// narrower than the floor sits centred in the wider glass — the notch's
+    /// own law, kept by the window (tetris was left-hugging on device).
+    @Test("A narrow session is centred in the floored window")
+    func narrowSessionIsCentred() throws {
+        let (_, controller, _) = try parked()
+        let view = try #require(controller.parkedSurfaceForTesting)
+        view.layoutSubtreeIfNeeded()
+        try #require(view.contentWidth > 0)
+        let host = view.contentHostFrame
+        #expect(abs(host.midX - view.bounds.midX) < 0.5, "centred, not left-hugging")
+        #expect(host.width == min(view.contentWidth, view.bounds.width))
+    }
+
+    /// G2.10: a walk that pulls the glass out from under a stationary pointer
+    /// holds the walk-away timer until the hand actually moves — the grace's
+    /// mechanism, since a live stranded pointer cannot be staged headlessly.
+    @Test("The exit grace holds until the pointer moves, then normal rules resume")
+    func exitGraceHoldsUntilTheHandMoves() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        controller.present(.expanded(app: session.strip.apps[0]), animated: false)
+
+        controller.armExitGraceForTesting()
+        #expect(controller.isHoldingExitGraceForTesting)
+
+        // The pointer crossing the shape's edge is a move: the grace ends.
+        controller.surfaceForTesting.onPointerInside?(true)
+        #expect(!controller.isHoldingExitGraceForTesting)
+    }
+
     /// G2.8 bug 3's regression: park, fly home, park again — the whole cycle,
     /// twice, because the second tear is the one that used to be dead.
     @Test("The tear works again after flying home")

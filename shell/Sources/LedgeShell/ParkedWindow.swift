@@ -81,6 +81,18 @@ final class ParkedSurfaceView: FlippedView {
         }
     }
 
+    /// The session's own measured width, pushed in by the controller. The
+    /// window is floored at the islands' span (G2.8), so a narrow app sits in
+    /// a wider glass — and its tree, laid out at its own width, must be
+    /// **centred** in it, exactly as the notch panel centres its content
+    /// (G2.10: a 368 pt tetris was left-hugging a 458 pt window).
+    var contentWidth: CGFloat = 0 {
+        didSet {
+            guard contentWidth != oldValue else { return }
+            needsLayout = true
+        }
+    }
+
     init(callbacks: ShellCallbacks) {
         wingBar = PanelWingBarView(
             onToggleGlass: callbacks.toggleChat,
@@ -289,10 +301,13 @@ final class ParkedSurfaceView: FlippedView {
         )
         wingBar.needsLayout = true
 
+        // The session's content keeps its own declared width, centred in the
+        // floored glass — the notch panel's G2.5 law, kept by the window.
+        let width = contentWidth > 0 ? min(contentWidth, bounds.width) : bounds.width
         contentHost.frame = CGRect(
-            x: 0,
+            x: (bounds.width - width) / 2,
             y: Self.topPad + rowHeight,
-            width: bounds.width,
+            width: width,
             height: max(0, bounds.height - rowHeight - Self.topPad)
         )
         // Only a view that genuinely lives here: after fly-home the composite
@@ -340,6 +355,8 @@ final class ParkedSurfaceView: FlippedView {
 
     var wingBarView: PanelWingBarView { wingBar }
     var homeBead: LedgeButton { home }
+    /// Where the session's content stands — the centring law's test seam.
+    var contentHostFrame: CGRect { contentHost.frame }
 
     /// The strip's end refused a walk inside the window: same flinch as the
     /// notch's (see `NSView.runEndBounce`).
