@@ -109,8 +109,13 @@ struct LedgeMenuTests {
     }
 
     /// The controller is what decides who owns the well, and it has to get the
-    /// two surfaces that matter right: the placeholder (no host) and the
-    /// permission card are the shell's, an app's tree is not.
+    /// surfaces that matter right: the cards the shell draws itself — the
+    /// placeholder (no host) and the ledge — are the shell's, an app's tree is
+    /// not.
+    ///
+    /// The permission card was the third of those until G4 moved onboarding
+    /// into the Settings window. Nothing about ownership changed with it: a
+    /// window has its own chrome and never reaches the well at all.
     @Test("The controller hands the well to an app, and keeps its own cards")
     func ownershipFollowsWhoDrewIt() throws {
         let session = HostSession()
@@ -119,7 +124,8 @@ struct LedgeMenuTests {
         session.inject(try Fixtures.envelope("catalog.json"))
         session.inject(try Fixtures.envelope("commit-mount.json"))
 
-        controller.present(.permissions, animated: false)
+        // The ledge: every session at once, drawn by the shell.
+        controller.present(.overview, animated: false)
         #expect(controller.surfaceForTesting.contentOwner == .shell)
 
         // No host behind this one: the placeholder is a card the shell drew.

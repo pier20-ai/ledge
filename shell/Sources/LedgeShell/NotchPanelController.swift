@@ -149,9 +149,6 @@ final class NotchPanelController {
     /// exactly as deliberate as taking it was.
     private var holdsEditorFocus = false
     private var placeholder: (phase: HostPlaceholderView.Phase, view: HostPlaceholderView)?
-    /// The permission surface (see `permissionsView`). Lazy for the same reason
-    /// the editor is: a shell nobody ever asks should not build one.
-    private var permissionsSurface: PermissionsCardView?
 
     /// **The ledge** (flow.md, "The strip"). One instance, like the chat pane:
     /// there is one strip, so there is one shelf, and its slabs are rebuilt from
@@ -254,11 +251,20 @@ final class NotchPanelController {
 
     /// The window is built once and kept. Opening it again brings the same one
     /// forward, which is what every other settings window on the machine does.
-    private lazy var settingsWindow = SettingsWindowController(
-        session: session,
-        probe: permissionProbe,
-        onQuit: { NSApp.terminate(nil) }
-    )
+    /// Stored-with-accessor rather than `lazy` because the catalog path below
+    /// must be able to ask "is it built?" without the asking building it — a
+    /// catalog envelope must never summon a window.
+    private var settingsWindowStore: SettingsWindowController?
+    private var settingsWindow: SettingsWindowController {
+        if let settingsWindowStore { return settingsWindowStore }
+        let controller = SettingsWindowController(
+            session: session,
+            probe: permissionProbe,
+            onQuit: { NSApp.terminate(nil) }
+        )
+        settingsWindowStore = controller
+        return controller
+    }
 
     private func openSettings() {
         settingsWindow.show()
@@ -270,6 +276,12 @@ final class NotchPanelController {
     /// so asking for it is also what proves it can be built at all.
     var contextMenuForTesting: NSMenu { ledgeMenu }
     func openSettingsForTesting() { openSettings() }
+    /// The window itself, **only if it was built** — first run is the one time
+    /// the shell opens something without being asked, and the assertion that it
+    /// opened the Onboarding *page* rather than the notch cannot be made from
+    /// outside. Deliberately the store and not the accessor: asking must not be
+    /// what builds it, or the seam would answer its own question.
+    var settingsWindowForTesting: SettingsWindowController? { settingsWindowStore }
     /// The `‹|›` beads' own path, without synthesising a click on a bead in a
     /// window that does not exist headlessly. `-1` is `‹`, `+1` is `›` — the
     /// same signs the callback uses.
@@ -308,6 +320,7 @@ final class NotchPanelController {
         var walkStrip: ((Int) -> Void)!
         var showOverview: (() -> Void)!
         var parkNow: (() -> Void)!
+        var settingsNow: (() -> Void)!
         let callbacks = ShellCallbacks(
             selectApp: { app in selectApp(app) },
             selectNewApp: { selectNewApp() },
@@ -315,6 +328,7 @@ final class NotchPanelController {
             walkStrip: { steps in walkStrip(steps) },
             showOverview: { showOverview() },
             park: { parkNow() },
+            openSettings: { settingsNow() },
             // Quit is the shell's, not a session's: it terminates the whole
             // process, host and all (the app delegate tears the host down in
             // `applicationWillTerminate`).
@@ -353,6 +367,7 @@ final class NotchPanelController {
         showOverview = { [weak self] in self?.enterOverview() }
         // The tear bead beside `‹|›` (G2.7): the drag's clickable invitation.
         parkNow = { [weak self] in self?.parkFromButton() }
+        settingsNow = { [weak self] in self?.openSettings() }
 
         surface.onPointerInside = { [weak self] inside in self?.pointerChanged(inside: inside) }
         surface.onClick = { [weak self] in self?.clicked() }
@@ -389,6 +404,9 @@ final class NotchPanelController {
                 apps.filter { $0.enabled }.sorted { $0.order < $1.order }.first?.id
             )
             self.refresh(animated: true)
+            // The Settings window follows the catalog too — its switches and
+            // its per-app controls all confirm from here, never optimistically.
+            self.settingsWindowStore?.catalogChanged()
         }
         session.onContentChanged = { [weak self] app in
             guard let self, self.shellState.presentedApp == app else { return }
@@ -502,14 +520,12 @@ final class NotchPanelController {
     /// exception is gone rather than inherited by somebody else.
     static let permissionsChromeRequest = "permissions"
 
-    /// Show the permission surface on the panel.
-    ///
-    /// Two callers, both the shell's own: first run (once, ever), and nothing
-    /// else. The way back afterwards is the Settings window, which does not come
-    /// through here at all — it hosts its own `PermissionsCardView` over the
-    /// same probe, because a view cannot be in two windows at once.
+    /// Show the permission surface — the Settings window's Onboarding page
+    /// (G4). It used to be a card ON the panel; onboarding is furniture, and
+    /// a window can hold a scroll bar, real focus, and seven rows without
+    /// negotiating with a notch's ceiling. One caller: first run, once, ever.
     func presentPermissions() {
-        present(.permissions)
+        settingsWindow.show(page: OnboardingSettingsPage.id)
     }
 
     /// Why there is no host, as the placeholder should say it. Set by the app
@@ -655,18 +671,6 @@ final class NotchPanelController {
             owner = .app
             width = PanelLimits.defaultWidth
             height = ChatSurfaceView.panelHeight(stageHeight: nil) + surface.panelWingRowHeight
-        case .permissions:
-            // The one chrome surface that measures itself: a row grows a line
-            // when its status has something to say, so the panel's height is a
-            // function of what macOS currently reports (see `PermissionsCardView`)
-            // — clamped to the screen's allowance, exactly as the chat path is.
-            // Seven rows outgrew the smallest notched Mac (G3); past the clamp
-            // the rows scroll and the Done button stays on the glass.
-            let card = permissionsView()
-            card.maxPanelHeight = surface.limits.maxHeight - surface.panelWingRowHeight
-            content = card
-            width = PanelLimits.defaultWidth
-            height = card.panelHeight + surface.panelWingRowHeight
         case .overview:
             // **The ledge**: the strip, all of it, as a grid of cards. Shell
             // chrome — so the shell's own width, and a height that is a
@@ -738,10 +742,6 @@ final class NotchPanelController {
             String(describing: presentation),
             machine.state.rawValue
         )
-        // The permission surface watches the system while it is up — a status
-        // can change in System Settings behind our back — and must stop the
-        // moment it is not, or it polls TCC forever for a panel nobody sees.
-        permissionsSurface?.setActive(presentation == .permissions)
         if let parked {
             // The window is where the keyboard lives now: the notch behind it is
             // a bare pill with nothing in it to type into.
@@ -778,6 +778,9 @@ final class NotchPanelController {
         // …unless this very refresh pulled the glass out from under a pointer
         // that did not move (a walk onto a shorter session, G2.10): then the
         // timer waits for the hand, not the clock.
+        // A collapse from any door ends the hotkey hold: the next visit must
+        // earn its own, or a hover-opened one would inherit keyboard rules.
+        if !presentation.isExpanded { hotkeyHoldUntilPointerEnters = false }
         if wasHovered, !surface.isHovered, presentation.isExpanded, parked == nil {
             armExitGrace()
         } else {
@@ -847,9 +850,28 @@ final class NotchPanelController {
     /// ⌃⌥Space (`HotkeyCenter`, via `AppDelegate`). What the key *means* is
     /// the machine's row to decide from where the surface is; the controller
     /// contributes only who is recording, which is the landing it prefers.
+    ///
+    /// The hold is the part the first build got wrong: a visit opened by key
+    /// has the pointer *nowhere near it*, so the walk-away timer read "pointer
+    /// fully away" on the very next refresh and Texit closed it 0.3 s after it
+    /// opened. A keyboard-opened visit waits for the pointer to arrive once
+    /// before the pointer's absence can mean anything; until then Esc, a click
+    /// outside, or the key again are its ways out — all of them deliberate.
     func hotkeyPressed() {
+        hotkeyHoldUntilPointerEnters = true
         send(.hotkey(app: session.recordingOwner))
+        // A press that ended somewhere unexpanded (it toggled the visit away,
+        // or flew a parked window home) has nothing to hold open.
+        if !shellState.isExpanded { hotkeyHoldUntilPointerEnters = false }
     }
+
+    /// See `hotkeyPressed`. Cleared by the first pointer arrival on the shape
+    /// (`pointerChanged`), by any collapse (`refresh`), and by a press that
+    /// did not leave a visit up.
+    private var hotkeyHoldUntilPointerEnters = false
+
+    /// The hold's test seam, styled after the exit-grace pair above.
+    var isHoldingForHotkeyOpenForTesting: Bool { hotkeyHoldUntilPointerEnters }
 
     private func perform(_ effect: InteractionMachine.Effect) {
         switch effect {
@@ -1236,7 +1258,10 @@ final class NotchPanelController {
     /// exactly as long as the hover ("Summary | pointer exit | whence it came").
     private func pointerChanged(inside: Bool) {
         // A crossing is the pointer genuinely moving: the stranded-walk grace
-        // (G2.10) ends the moment the hand does anything at all.
+        // (G2.10) ends the moment the hand does anything at all — and a
+        // hotkey-opened visit graduates to ordinary rules the moment the
+        // pointer actually arrives on it.
+        if inside { hotkeyHoldUntilPointerEnters = false }
         clearExitGrace()
         rearmExitTimer()
         guard inside else {
@@ -1297,7 +1322,7 @@ final class NotchPanelController {
             send(.click(.notificationElsewhere))
         case .collapsed:
             send(.click(surface.wing == nil ? .pill : .wing))
-        case .expanded, .chat, .newApp, .permissions, .overview:
+        case .expanded, .chat, .newApp, .overview:
             break
         }
     }
@@ -1432,6 +1457,7 @@ final class NotchPanelController {
         // decision for them. Only the ⌃ and the bare notch put it away.
         guard !isParked,
               !exitGraceUntilPointerMoves,
+              !hotkeyHoldUntilPointerEnters,
               shellState.isExpanded,
               shellState.presentation.allowsPassiveCollapse,
               exitInhibitor.mayRunExitTimer else { return }
@@ -1544,7 +1570,7 @@ final class NotchPanelController {
         switch shellState.presentation {
         case .collapsed, .mini, .summary:
             break
-        case .expanded, .chat, .newApp, .permissions, .overview:
+        case .expanded, .chat, .newApp, .overview:
             return
         }
         // The machine raises the swell and arms **Ti**, the shell's default.
@@ -1740,25 +1766,6 @@ final class NotchPanelController {
         return view
     }
 
-
-    /// The permission surface, built once and kept. It holds live state — the
-    /// cached notification read, the poll that catches a change made in System
-    /// Settings — and rebuilding it per presentation would drop both.
-    private func permissionsView() -> PermissionsCardView {
-        if let permissionsSurface { return permissionsSurface }
-        let card = PermissionsCardView(probe: permissionProbe)
-        card.onDismiss = { [weak self] in self?.present(.collapsed) }
-        // A status changed under us (the user allowed something in Settings and
-        // came back), and the row that reported it may have grown or lost its
-        // explanatory line. Re-presenting is a re-measure, not a content swap —
-        // `ShellSurfaceView.present` morphs the same view to a new height.
-        card.onResize = { [weak self] in
-            guard let self, self.shellState.presentation == .permissions else { return }
-            self.refresh(animated: true)
-        }
-        permissionsSurface = card
-        return card
-    }
 
     private func placeholderView(for app: String?) -> HostPlaceholderView {
         // Name the actual gap: a connected host with zero apps is not

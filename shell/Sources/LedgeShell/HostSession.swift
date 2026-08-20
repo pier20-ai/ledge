@@ -286,6 +286,15 @@ final class HostSession {
         engine.sendAppControl(app: app, action: enabled ? "start" : "stop")
     }
 
+    /// **A turned control** (G4, `meta.settings`): Settings' native switches
+    /// and fields land here, one envelope per change. Deliberately without an
+    /// optimistic local write — the host validates, persists, and answers with
+    /// a full catalog, and the control follows the catalog like every other
+    /// row in the window (the same no-optimism rule as the enable switch).
+    func setAppSetting(_ app: String, key: String, value: JSONValue) {
+        engine.sendAppSetting(app: app, key: key, value: value)
+    }
+
     /// Every installed app, enabled or not — what the Settings window lists.
     ///
     /// Deliberately not `strip`, which filters to the enabled ones: a switch you

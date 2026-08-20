@@ -16,6 +16,7 @@ import type { Mutation } from "./render/mutations";
 import { resolveReactPaths, type ReactPaths } from "./render/runtime";
 import { applyMeta, scanApps, type CatalogApp } from "./registry";
 import { SettingsStore } from "./settings";
+import { coerceSettingValue, effectiveSettings } from "./worker/meta";
 import {
   AppSupervisor,
   realScheduler,
@@ -39,6 +40,7 @@ import type {
   NotifyRequest,
   PlatformRequest,
   ScreenInfo,
+  SettingValue,
   WingSpec,
 } from "./worker/messages";
 
@@ -335,13 +337,28 @@ export class Router implements SupervisorSink {
         // its own: the worker goes or comes, the app stays installed either way,
         // and "is this app running" keeps having one answer in one place (the
         // settings file).
-        const payload = envelope.payload as { app?: string; action?: string };
+        const payload = envelope.payload as {
+          app?: string;
+          action?: string;
+          key?: unknown;
+          value?: unknown;
+        };
         const app = String(payload.app ?? "");
         const action = String(payload.action ?? "");
+        if (app === "") break;
+        // The third verb (spec §4): the user moved one of the app's own
+        // declared controls in the Settings window. Same envelope because it is
+        // the same kind of statement — the shell speaking *about* an app — and
+        // the same reason it is a control-plane frame: the app it concerns may
+        // not even be running.
+        if (action === "setting") {
+          this.applySetting(app, payload.key, payload.value);
+          break;
+        }
         // Anything else is ignored rather than guessed at: a nameless target, or
         // a verb this host does not know, is a shell speaking a dialect we have
         // no safe reading of.
-        if (app === "" || (action !== "stop" && action !== "start")) break;
+        if (action !== "stop" && action !== "start") break;
         this.hostLog(`[ledge-host] ${action} '${app}' <- the ledge`);
         void this.setAppEnabled(app, action === "start").catch((error: unknown) => {
           this.hostLog(`[ledge-host] ${action} '${app}' failed: ${String(error)}`);
@@ -493,6 +510,12 @@ export class Router implements SupervisorSink {
     this.hostLog(
       `[ledge-host] meta <- ${app} ${JSON.stringify({ name: meta.name, icon: meta.icon, panel: meta.panel })}`,
     );
+    // The worker's first settings delivery (spec §5) hangs off `meta` rather
+    // than off the spawn, because the declaration IS the meta: until this
+    // message arrives the host does not know which keys this app has, so a map
+    // sent any earlier could only be empty. `meta` is posted before the mount
+    // commit, so the values are on their way before the first render lands.
+    this.deliverSettings(app);
     this.sendCatalog();
   }
 
@@ -764,6 +787,57 @@ export class Router implements SupervisorSink {
     this.ensureWatcher(this.catalogApps.filter((candidate) => candidate.enabled).map((c) => c.id));
   }
 
+  /**
+   * One control moved in the Settings window (spec §4).
+   *
+   * Validated against what the app DECLARES, and refused with a log line rather
+   * than an error frame: the shell renders from the catalog, so a key this host
+   * has never heard of means the two sides disagree about what is installed —
+   * and the fix for that is the snapshot the shell already gets, not a dialog.
+   * A number is clamped instead of refused (see `coerceSettingValue`).
+   *
+   * Store, deliver, then re-publish: the catalog goes last so the control the
+   * user is looking at confirms from what was actually written, not from what
+   * was asked for.
+   */
+  private applySetting(app: string, key: unknown, value: unknown): void {
+    const spec = this.appMeta.get(app)?.settings?.find((candidate) => candidate.key === key);
+    if (!spec) {
+      this.hostLog(`[ledge-host] setting ${JSON.stringify(key)} for '${app}' ignored (not declared)`);
+      return;
+    }
+    const accepted = coerceSettingValue(spec, value);
+    if (accepted === undefined) {
+      this.hostLog(
+        `[ledge-host] setting '${spec.key}' for '${app}' ignored (${JSON.stringify(value)} is not a ${spec.type})`,
+      );
+      return;
+    }
+    this.hostLog(`[ledge-host] setting '${spec.key}' = ${JSON.stringify(accepted)} for '${app}'`);
+    void this.settings.setValue(app, spec.key, accepted).then(
+      () => {
+        this.deliverSettings(app);
+        this.sendCatalog();
+      },
+      (error: unknown) =>
+        this.hostLog(`[ledge-host] setting '${spec.key}' for '${app}' failed: ${String(error)}`),
+    );
+  }
+
+  /** Post one app's effective settings to its worker (spec §5). Harmless for an
+   * app that declares none — the map is empty, and `ctx.settings` was empty
+   * anyway — which keeps this one call good for every app. */
+  private deliverSettings(app: string): void {
+    this.supervisors.get(app)?.post({ type: "settings", values: this.effectiveValues(app) });
+  }
+
+  /** Declared defaults with the stored values over them, for one app. Built
+   * from the declaration every time rather than cached: the declaration changes
+   * on every hot reload, and a cached map would outlive the keys it describes. */
+  private effectiveValues(app: string): Record<string, SettingValue> {
+    return effectiveSettings(this.appMeta.get(app)?.settings, this.settings.valuesFor(app));
+  }
+
   lifecycle(app: string, state: AppState, error?: TranspileError): void {
     this.hostLog(`[ledge-host] app '${app}' -> ${state}`);
     // A wing belongs to a live worker. Every lifecycle transition replaces or
@@ -824,6 +898,10 @@ export class Router implements SupervisorSink {
       // shipped app claims it any more (see SETTINGS_APP_ID); this is what an
       // app installed under that name would be granted.
       privileged: appId === SETTINGS_APP_ID,
+      // Read at each spawn, not captured: the values a fresh worker boots with
+      // are the ones on disk now (spec §2). Raw — the worker owns the
+      // declaration and lays them over its own defaults.
+      storedSettings: () => this.settings.valuesFor(appId),
       sink: this,
       factory: this.factory,
       scheduler: this.scheduler,
@@ -908,10 +986,17 @@ export class Router implements SupervisorSink {
    * declared `meta` merged over it. Enabled apps are (about to be) running;
    * reflect that in the snapshot. */
   private catalogSnapshot(): CatalogApp[] {
-    return this.catalogApps.map((app) => ({
-      ...applyMeta(app, this.appMeta.get(app.id)),
-      running: app.enabled,
-    }));
+    return this.catalogApps.map((app) => {
+      const entry: CatalogApp = {
+        ...applyMeta(app, this.appMeta.get(app.id)),
+        running: app.enabled,
+      };
+      // `values` rides with `settings` and only with it: the shell has nothing
+      // to draw the values ON without the declaration, and an app that declares
+      // no controls carries neither field (spec §3).
+      if (entry.settings) entry.values = this.effectiveValues(app.id);
+      return entry;
+    });
   }
 
   /** Publish it. Full snapshots, no diffs — spec §3.6. */

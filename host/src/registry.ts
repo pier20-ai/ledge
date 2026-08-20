@@ -4,7 +4,13 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { NO_DISABLED_APPS } from "./settings";
-import { sanitizeAppMeta, type AppMeta, type PanelSpec } from "./worker/meta";
+import {
+  sanitizeAppMeta,
+  type AppMeta,
+  type PanelSpec,
+  type SettingSpec,
+  type SettingValue,
+} from "./worker/meta";
 
 /** One row of the `catalog` snapshot (spec §3.6). `panel` is the app's declared
  * panel size (spec §5 extension) — absent means "shell default"; present is a
@@ -17,6 +23,14 @@ export interface CatalogApp {
   enabled: boolean;
   running: boolean;
   panel?: PanelSpec;
+  /** The native controls this app declared (`meta.settings`), sanitized. Absent
+   * — not empty — for an app that declares none: the Settings window draws a
+   * section for a row that has one, and nothing at all for a row that does not. */
+  settings?: SettingSpec[];
+  /** What those controls are currently set to: one entry per declared key,
+   * always complete (the router builds it; see `effectiveSettings`). Travels
+   * with `settings` and never without it. */
+  values?: Record<string, SettingValue>;
 }
 
 export const DEFAULT_ROOT = join(
@@ -44,6 +58,9 @@ export function applyMeta(app: CatalogApp, meta: AppMeta | undefined): CatalogAp
   if (meta.name !== undefined) merged.name = meta.name;
   if (meta.icon !== undefined) merged.icon = meta.icon;
   if (meta.panel !== undefined) merged.panel = meta.panel;
+  // The declaration only; `values` needs the settings file, which the registry
+  // does not have and should not read (see `scanApps` on `disabled`).
+  if (meta.settings !== undefined) merged.settings = meta.settings;
   return merged;
 }
 

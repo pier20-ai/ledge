@@ -199,11 +199,22 @@ final class LedgeToggle: NSControl {
             }
         }
         guard inside else { return }
+        flip()
+    }
+
+    /// The click itself, once the press has resolved into one.
+    private func flip() {
         isOn.toggle()
         setAccessibilityValue(isOn)
         animateState()
         handler(isOn)
     }
+
+    /// Test seam: `mouseDown` resolves a press by pulling from the *window's*
+    /// event queue, which a headless test has no way to feed — so the flip that
+    /// reaches the handler is otherwise unreachable. One path either way: this
+    /// is the same `flip` the click ends in, not a copy of it.
+    func flipForTesting() { flip() }
 }
 
 /// `segment` (D6): a capsule group of h24 segments. The selection is a layer that

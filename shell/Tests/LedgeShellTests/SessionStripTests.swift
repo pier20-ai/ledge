@@ -81,8 +81,11 @@ struct SessionStripTests {
         // **[+]** is gone as a control; the blank slot is what it became.
         #expect(strip.slot(for: .newApp) == .blank)
         // Surfaces that are not sessions are not on the strip at all — the
-        // permission card, and an app the catalog does not have.
-        #expect(strip.slot(for: .permissions) == nil)
+        // overview (which is *about* all of them and so is none of them), and
+        // an app the catalog does not have. The permission card used to be the
+        // third example here; onboarding is a Settings page now (G4), and a
+        // window is not a presentation at all.
+        #expect(strip.slot(for: .overview) == nil)
         #expect(strip.slot(for: .expanded(app: "ghost")) == nil)
         #expect(strip.slot(for: .collapsed) == nil)
     }

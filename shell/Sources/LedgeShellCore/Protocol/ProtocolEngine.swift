@@ -608,6 +608,20 @@ public final class ProtocolEngine {
         ]))
     }
 
+    /// One turned control in the Settings window (G4): the same control-plane
+    /// envelope as the ✕ and the switch, with the `setting` verb. The host
+    /// validates against the app's declared spec, persists, delivers to the
+    /// worker, and answers with a full catalog — so the control confirms from
+    /// truth, never from optimism.
+    public func sendAppSetting(app: String, key: String, value: JSONValue) {
+        emit(app: "", type: .appControl, payload: .object([
+            "app": .string(app),
+            "action": .string("setting"),
+            "key": .string(key),
+            "value": value,
+        ]))
+    }
+
     public func sendResyncRequest(app: String) {
         emit(app: "", type: .resyncRequest, payload: .object(["app": .string(app)]))
     }

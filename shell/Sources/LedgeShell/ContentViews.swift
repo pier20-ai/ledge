@@ -17,12 +17,14 @@ struct ShellCallbacks {
     /// "The strip"). The same callback in the panel and in the parked window —
     /// the whole surface tears off, so its controls do too.
     let showOverview: () -> Void
-    /// The tear-off bead beside `‹|›` (G2.7: "another affordance") — park the
-    /// surface as a window without the drag. The drag remains the gesture; the
-    /// bead is the *invitation* to it.
+    /// "Pop Out" in the overflow menu (G4; the tear bead until then) — park
+    /// the surface as a window without the drag. The drag remains the gesture;
+    /// the menu entry is the *invitation* to it.
     let park: () -> Void
-    /// Quit Ledge, from the right-click menu. The only way out now that the
-    /// bottom bar (and with it the Settings app's Quit row) is gone.
+    /// "Settings…" in the overflow menu — the native Settings window.
+    let openSettings: () -> Void
+    /// Quit Ledge, from the overflow and right-click menus. The only ways out
+    /// now that the bottom bar (and the Settings app's Quit row) is gone.
     let quit: () -> Void
 
     /// Callbacks for a surface nobody can drive — snapshots, and the chrome
@@ -35,6 +37,7 @@ struct ShellCallbacks {
         walkStrip: { _ in },
         showOverview: {},
         park: {},
+        openSettings: {},
         quit: {}
     )
 }

@@ -31,6 +31,8 @@
 //                 this app's own — it resumes rather than starting a second.
 //   REDUCE MOTION the needles are SET once a second, no spring, no frames in
 //                 between; the wing's dot holds at its middle radius.
+//   SETTINGS      one native control: the format a take is written in, read at
+//                 the moment the tape rolls and handed to `ctx.record.start`.
 //   NO <mini>, NO NOTIFICATION — a recorder interrupting you is the joke that
 //                 writes itself. Errors are one tertiary line under the
 //                 transport, never a dialog.
@@ -44,7 +46,24 @@
 //                         run's recordings in the repo (timer's
 //                         LEDGE_ALARM_STORE lesson, learned once).
 
-export const meta = { name: "Scribe", icon: "sf:mic" };
+export const meta = {
+  name: "Scribe",
+  icon: "sf:mic",
+  // Format is a choice because it is one: AAC is small and WAV is what an
+  // editor wants, and no third answer is coming. The recorder's other knobs
+  // (which sources, where the files go) are not settings — they are decisions
+  // the shell owns, one per machine.
+  settings: [
+    {
+      key: "format",
+      label: "Recording format",
+      type: "choice",
+      options: ["aac", "wav"],
+      default: "aac",
+      hint: "WAV is uncompressed — larger files, no generation loss.",
+    },
+  ],
+};
 
 // ---------------------------------------------------------------- the seam
 
@@ -274,7 +293,10 @@ async function startTake() {
   note = "";
   let opened = null;
   try {
-    opened = await rec().start();
+    // The format the user picked, read at the moment the take starts — never
+    // before, because a setting changed between two takes has to land on the
+    // second one. Absent (no delivery yet) means the shell's own default.
+    opened = await rec().start({ format: ctxRef?.settings?.format });
   } catch (error) {
     // Denied microphone, another app already recording, no capability at all:
     // all of it is one line under the transport (§09 — never a dialog).

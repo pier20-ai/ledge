@@ -98,7 +98,9 @@ final class ParkedSurfaceView: FlippedView {
             onToggleGlass: callbacks.toggleChat,
             onWalk: callbacks.walkStrip,
             onOverview: callbacks.showOverview,
-            onPark: callbacks.park
+            onPark: callbacks.park,
+            onSettings: callbacks.openSettings,
+            onQuit: callbacks.quit
         )
         // A window cannot tear off of itself, and dragging its glass is how it
         // moves — so no tear bead and no drag hand-off in here.

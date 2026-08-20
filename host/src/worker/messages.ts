@@ -11,10 +11,10 @@
 // Mutation objects, and event handlers stay worker-side keyed by (id, name)).
 
 import type { Mutation } from "../render/mutations";
-import type { AppMeta } from "./meta";
+import type { AppMeta, SettingValue } from "./meta";
 import type { WingSpec } from "./wing";
 
-export type { AppMeta, PanelSpec } from "./meta";
+export type { AppMeta, PanelSpec, SettingSpec, SettingType, SettingValue } from "./meta";
 export type { WingCanvas, WingMeter, WingSpec } from "./wing";
 
 export type ConsoleLevel = "log" | "info" | "warn" | "error" | "debug";
@@ -452,6 +452,11 @@ export interface ScreenInfo {
  * - `lifecycle`  panel phase change (spec §4.2); informational. Also carries the
  *                system's Reduce Motion state, which lands on `ctx.reduceMotion`
  *                before `onLifecycle` is called.
+ * - `settings`   the app's declared controls, as the user has them set — the
+ *                complete effective map, never a patch. Sent once as the worker
+ *                comes up and again on every accepted change; it lands on
+ *                `ctx.settings` first and then, from the second delivery on,
+ *                arrives at `onEvent("settings", values, ctx)`.
  * - `reply`      resolves a pending bridge request Promise by id.
  *
  * Termination is out-of-band: the host calls `worker.terminate()`, which
@@ -468,6 +473,7 @@ export type HostToWorker =
        * which is what a shell that predates the flag looks like. */
       reduceMotion?: boolean;
     }
+  | { type: "settings"; values: Record<string, SettingValue> }
   | BridgeReply;
 
 /**
@@ -494,4 +500,17 @@ export interface WorkerBoot {
   reactPaths?: ReactPaths;
   /** Grants ctx.platform. Set by the host only for the Settings app. */
   privileged?: boolean;
+  /**
+   * What the host has STORED for this app's settings — the raw settings.json
+   * map, not an effective one (spec §2).
+   *
+   * Raw, because only the worker can know the declaration: `meta.settings`
+   * lives inside the module, and the module is imported here. The worker lays
+   * these over its own declared defaults the moment it has both, which is what
+   * makes `ctx.settings` right on the monitor's FIRST line rather than one
+   * message later — a `settings` message is still posted (§5), but it is a
+   * message, and a monitor that reads a setting before the queue drains would
+   * otherwise see an empty map and act on it.
+   */
+  settings?: Record<string, SettingValue>;
 }

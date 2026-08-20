@@ -330,10 +330,16 @@ final class PanelWingBarView: FlippedView {
     /// a permanent control is *back*, and the bead says so.
     private let back: LedgeButton
     private let walker: WingWalkerView
-    /// The tear-off bead, after `‹|›` (G2.7): the visible invitation to the
-    /// park drag. Hidden inside the parked window — a window cannot tear off
-    /// of itself.
+    /// The overflow bead, after `‹|›` (G4, Manu: "a hamburger or overflow
+    /// menu"): ⋯ popping Pop Out / Settings… / Quit Ledge. It replaced the
+    /// bare tear bead — the shell had grown three chrome verbs and a bead per
+    /// verb would crowd the wing; a menu holds them without widening it.
+    /// Hidden inside the parked window — a window cannot pop out of itself,
+    /// and it has the right-click menu for the rest.
     private let tear: LedgeButton
+    /// The menu's targets, retained for the view's life — an `NSMenuItem`
+    /// does not retain its target.
+    private var overflowTargets: [ControlTarget] = []
 
     /// A press on any island that turns into a downward drag becomes the tear
     /// (G2.7): under the physical notch every visible pixel is an island, so
@@ -349,12 +355,36 @@ final class PanelWingBarView: FlippedView {
         }
     }
 
-    /// Whether the tear-off bead shows at all (the parked window hides it).
+    /// Whether the overflow bead shows at all (the parked window hides it).
     var showsTear = true {
         didSet {
             tear.isHidden = !showsTear
             needsLayout = true
         }
+    }
+
+    /// The overflow, popped under the bead: the shell's three chrome verbs.
+    /// A real `NSMenu`, because these are commands and macOS already knows
+    /// how to draw, key-navigate and dismiss a list of commands — glass
+    /// would be reinventing furniture (the Settings-window rule, in a menu).
+    private func popOverflow() {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let entries: [(String, String?, ControlTarget)] = [
+            ("Pop Out", "arrow.up.right.square", overflowTargets[0]),
+            ("Settings…", nil, overflowTargets[1]),
+            ("Quit Ledge", nil, overflowTargets[2]),
+        ]
+        for (index, entry) in entries.enumerated() {
+            if index > 0, entry.0 == "Quit Ledge" { menu.addItem(.separator()) }
+            let item = NSMenuItem(title: entry.0, action: #selector(ControlTarget.fire), keyEquivalent: "")
+            item.target = entry.2
+            if let symbol = entry.1 {
+                item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            }
+            menu.addItem(item)
+        }
+        menu.popUp(positioning: menu.items.first, at: CGPoint(x: tear.frame.minX, y: tear.frame.maxY + 4), in: self)
     }
 
     /// **Parked, the islands hug the window's edges** (G2.9): [⌂|✦] at the far
@@ -379,7 +409,9 @@ final class PanelWingBarView: FlippedView {
         onToggleGlass: @escaping () -> Void,
         onWalk: @escaping (Int) -> Void,
         onOverview: @escaping () -> Void,
-        onPark: @escaping () -> Void
+        onPark: @escaping () -> Void,
+        onSettings: @escaping () -> Void,
+        onQuit: @escaping () -> Void
     ) {
         // The left island on the stage is the [⌂|✦] split (Manu's O2
         // conclusion): ⌂ shows the ledge — the word "Apps" opening a chat was
@@ -394,13 +426,21 @@ final class PanelWingBarView: FlippedView {
             onToggleGlass()
         }
         walker = WingWalkerView(onWalk: onWalk, onOverview: onOverview)
-        tear = LedgeButton("", symbol: "arrow.up.right.square", variant: .bead, size: .s) {
-            onPark()
+        // The bead itself only *presents*; the verbs live in the menu it pops.
+        // The press reaches this bar through a box because the button's
+        // handler is fixed at init, before `self` exists to capture.
+        let press = OverflowPressBox()
+        tear = LedgeButton("", symbol: "ellipsis", variant: .bead, size: .s) {
+            press.fire()
         }
         super.init(frame: .zero)
+        overflowTargets = [
+            ControlTarget(onPark), ControlTarget(onSettings), ControlTarget(onQuit),
+        ]
+        press.fire = { [weak self] in self?.popOverflow() }
         back.isHidden = true
         back.setAccessibilityLabel("Back to the app")
-        tear.setAccessibilityLabel("Tear off into a window")
+        tear.setAccessibilityLabel("More — pop out, settings, quit")
         leftZone.addSubview(split)
         leftZone.addSubview(back)
         rightZone.addSubview(walker)
@@ -1440,7 +1480,9 @@ final class ShellSurfaceView: FlippedView {
             onToggleGlass: callbacks.toggleChat,
             onWalk: callbacks.walkStrip,
             onOverview: callbacks.showOverview,
-            onPark: callbacks.park
+            onPark: callbacks.park,
+            onSettings: callbacks.openSettings,
+            onQuit: callbacks.quit
         )
         super.init(frame: .zero)
         // Any island press that turns into a downward drag becomes the tear
@@ -2314,7 +2356,6 @@ final class ShellSurfaceView: FlippedView {
         case .expanded(let app): app ?? "no host"
         case .chat(let app): "\(app) chat"
         case .newApp: "new session"
-        case .permissions: "permissions"
         case .overview: "the ledge"
         }
     }
@@ -2822,4 +2863,12 @@ final class ShellSurfaceView: FlippedView {
 /// control the user cannot see swallowing one they can.
 private final class FrostView: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// A late-bound press: `LedgeButton`'s handler is fixed at init, and the wing
+/// bar needs the press to reach a method on itself — which does not exist yet
+/// when the button is made.
+@MainActor
+final class OverflowPressBox {
+    var fire: () -> Void = {}
 }

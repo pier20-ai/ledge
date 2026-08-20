@@ -794,6 +794,117 @@ struct EnvelopeFixtureTests {
         #expect(older["phase"]?.asString == "expanded")
     }
 
+    // MARK: - `meta.settings` on the catalog (G4)
+
+    /// **The wire says `default`; Swift cannot.** `default` is a keyword, so
+    /// the field is `defaultValue` in Swift and the `CodingKeys` carry the
+    /// mapping — which is exactly the kind of rename that is silently wrong
+    /// until something reads a real payload. This reads a real payload.
+    @Test("A declared control decodes, `default` and all (G4 §1)")
+    func settingSpecDecodesTheWireShape() throws {
+        let json = """
+        { "apps": [ { "id": "radio", "name": "Radio", "icon": "sf:radio",
+          "order": 0, "enabled": true, "running": true,
+          "settings": [
+            { "key": "dial-size", "label": "Stations on the dial", "type": "number",
+              "min": 6, "max": 36, "step": 6, "default": 24 },
+            { "key": "clicks", "label": "Report listens", "type": "toggle",
+              "default": true, "hint": "Radio Browser counts a tune-in." },
+            { "key": "format", "label": "Recording format", "type": "choice",
+              "options": ["aac", "wav"], "default": "aac" },
+            { "key": "model", "label": "Model", "type": "text", "default": "gpt-5.6-luna" }
+          ],
+          "values": { "dial-size": 12, "clicks": false, "format": "wav", "model": "gpt-5.6-luna" }
+        } ] }
+        """
+        let apps = try JSONDecoder().decode(CatalogPayload.self, from: Data(json.utf8)).apps
+        let radio = try #require(apps.first)
+        let settings = try #require(radio.settings)
+        #expect(settings.count == 4)
+
+        let dial = settings[0]
+        #expect(dial.key == "dial-size")
+        #expect(dial.kind == .number)
+        #expect(dial.defaultValue == .int(24))
+        #expect(dial.min == 6)
+        #expect(dial.max == 36)
+        #expect(dial.step == 6)
+        // The bounds belong to `number` alone, and absence is absence.
+        #expect(settings[1].min == nil)
+
+        #expect(settings[1].kind == .toggle)
+        #expect(settings[1].defaultValue == .bool(true))
+        #expect(settings[1].hint == "Radio Browser counts a tune-in.")
+
+        #expect(settings[2].kind == .choice)
+        #expect(settings[2].options == ["aac", "wav"])
+        #expect(settings[2].defaultValue == .string("aac"))
+
+        #expect(settings[3].kind == .text)
+        #expect(settings[3].hint == nil)
+
+        // `values` is the EFFECTIVE map — the stored value wins over the
+        // declared default, and it is the *catalog* that resolves that, never
+        // the shell (G4 §3).
+        #expect(radio.values?["dial-size"] == .int(12))
+        #expect(radio.values?["clicks"] == .bool(false))
+        #expect(radio.values?["format"] == .string("wav"))
+
+        // A round trip puts `default` back on the wire under its own name.
+        let reencoded = try JSONDecoder().decode(
+            JSONValue.self, from: JSONEncoder().encode(radio)
+        ).asObject
+        let first = try #require(reencoded?["settings"]?.asArray?.first?.asObject)
+        #expect(first["default"]?.asInt == 24)
+        #expect(first["defaultValue"] == nil, "the Swift spelling must not reach the wire")
+    }
+
+    /// A type this build has never heard of is not an error and not a guess:
+    /// `kind` is nil, and the window skips the row whole. Growing the
+    /// vocabulary must never take a shell down.
+    @Test("A `type` from the future decodes with no kind, and everything else survives")
+    func anUnknownTypeHasNoKind() throws {
+        let json = """
+        { "apps": [ { "id": "scribe", "name": "Scribe", "icon": "sf:mic",
+          "order": 0, "enabled": true, "running": true,
+          "settings": [
+            { "key": "highlight", "label": "Highlight", "type": "colour-picker",
+              "default": "#ff0000" },
+            { "key": "keep", "label": "Keep the audio", "type": "toggle", "default": false }
+          ] } ] }
+        """
+        let apps = try JSONDecoder().decode(CatalogPayload.self, from: Data(json.utf8)).apps
+        let settings = try #require(apps.first?.settings)
+
+        #expect(settings[0].type == "colour-picker", "the raw word is kept — it is not ours to lose")
+        #expect(settings[0].kind == nil)
+        #expect(settings[0].defaultValue == .string("#ff0000"))
+        // The neighbour is untouched: one unreadable row is one row.
+        #expect(settings[1].kind == .toggle)
+    }
+
+    /// **Backwards compatibility, pinned.** Apps that declare no settings carry
+    /// neither field — absent, not empty (G4 §3) — and the golden catalog from
+    /// before G4 must go on decoding exactly as it did. A shell that required
+    /// the new keys would refuse every catalog an older host sends.
+    @Test("A catalog from before `meta.settings` decodes unchanged")
+    func oldCatalogsStillDecode() throws {
+        let apps = try decode("catalog.json").decodePayload(CatalogPayload.self).apps
+        #expect(apps.count == 4)
+        for app in apps {
+            #expect(app.settings == nil, "\(app.id) invented a settings array")
+            #expect(app.values == nil, "\(app.id) invented a values map")
+        }
+        // …and absent stays absent on the way back out, rather than becoming
+        // `"settings": []` — which a host would read as "declared nothing on
+        // purpose" and is a different statement from "did not say".
+        let encoded = try JSONDecoder().decode(
+            JSONValue.self, from: JSONEncoder().encode(apps[0])
+        ).asObject
+        #expect(encoded?["settings"] == nil)
+        #expect(encoded?["values"] == nil)
+    }
+
     // MARK: - Helpers
 
     private func expectFailure(

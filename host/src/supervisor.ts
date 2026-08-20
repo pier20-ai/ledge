@@ -20,6 +20,7 @@ import type {
   NotifyRequest,
   PlatformRequest,
   ReactPaths,
+  SettingValue,
   WingSpec,
   WorkerToHost,
 } from "./worker/messages";
@@ -117,6 +118,10 @@ export interface AppSupervisorOptions {
   reactPaths?: ReactPaths;
   /** Grants ctx.platform — Settings only (spec §8). */
   privileged?: boolean;
+  /** This app's stored settings (spec §2), read at every spawn rather than
+   * captured once: a worker respawned after a crash must boot with the values
+   * the user has NOW, not the ones from whenever this supervisor was made. */
+  storedSettings?: () => Record<string, SettingValue>;
   sink: SupervisorSink;
   factory?: WorkerFactory;
   scheduler?: RestartScheduler;
@@ -139,6 +144,7 @@ export class AppSupervisor {
   private readonly modulesRoot: string;
   private readonly reactPaths?: ReactPaths;
   private readonly privileged: boolean;
+  private readonly storedSettings: () => Record<string, SettingValue>;
   private readonly sink: SupervisorSink;
   private readonly factory: WorkerFactory;
   private readonly scheduler: RestartScheduler;
@@ -163,6 +169,7 @@ export class AppSupervisor {
     this.modulesRoot = options.modulesRoot ?? options.appDir;
     this.reactPaths = options.reactPaths;
     this.privileged = options.privileged ?? false;
+    this.storedSettings = options.storedSettings ?? (() => ({}));
     this.sink = options.sink;
     this.factory = options.factory ?? realWorkerFactory;
     this.scheduler = options.scheduler ?? realScheduler;
@@ -243,6 +250,7 @@ export class AppSupervisor {
       modulesRoot: this.modulesRoot,
       reactPaths: this.reactPaths,
       privileged: this.privileged,
+      settings: this.storedSettings(),
     };
     const handle = this.factory(boot, {
       onMessage: (msg) => this.onMessage(handle, msg),

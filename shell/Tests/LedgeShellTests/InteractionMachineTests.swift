@@ -557,14 +557,19 @@ struct InteractionMachineTests {
     }
 
     /// The machine must agree with a presentation the shell changed for a reason
-    /// the table has no row for: an app's `ctx.expand`, the first-run permission
-    /// card, a host disconnect. Without this the next Esc would do nothing.
+    /// the table has no row for: an app's `ctx.expand`, a host disconnect, the
+    /// blank slot. Without this the next Esc would do nothing.
+    ///
+    /// (The first-run permission card used to be the headline example. It is a
+    /// Settings *page* now (G4) — a window the machine never hears about — so
+    /// the placeholder stands in for the same shape: expanded chrome with no
+    /// app behind it, arrived at without a transition row.)
     @Test("sync() reconciles the machine with a presentation the table did not cause")
     func syncCoversTheOutOfBandPaths() {
         var machine = Machine()
         machine.sync(to: .expanded(app: "stocks"))
         #expect(machine.state == .visit)
-        machine.sync(to: .permissions)
+        machine.sync(to: .expanded(app: nil))
         #expect(machine.state == .visit)
         machine.sync(to: .summary(app: "chess"))
         #expect(machine.state == .summary)
@@ -643,5 +648,90 @@ struct ExitInhibitorTests {
         #expect(LedgeInteraction.notificationDwell == 6)
         #expect(LedgeInteraction.exitDelay == 0.3)
         #expect(LedgeInteraction.ambientIdle > 0)
+    }
+}
+
+/// **A visit opened by key has the pointer nowhere near it** (G4).
+///
+/// The first build of ⌃⌥Space read "pointer fully away" on the very next
+/// refresh, so Texit closed the panel 0.3 s after the key opened it — on device
+/// that reads as the notch opening and collapsing right back, which is worse
+/// than the key not working. A keyboard-opened visit therefore waits for the
+/// pointer to arrive *once* before its absence is allowed to mean anything;
+/// until then Esc, a click outside, and the key again are its ways out, and all
+/// three are deliberate.
+///
+/// A controller-level suite rather than a machine one, because the hold is not
+/// a state — it is one more inhibitor on the walk-away timer, and the machine
+/// never hears about it.
+@MainActor
+@Suite("The hotkey's hold on a visit nobody has reached yet (G4)")
+struct HotkeyHoldTests {
+    private func openedByKey() throws -> (NotchPanelController, HostSession) {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        controller.present(.collapsed, animated: false)
+
+        controller.hotkeyPressed()
+        #expect(controller.presentation.isExpanded, "the key did not open anything")
+        return (controller, session)
+    }
+
+    /// Up with the visit, and — the part that matters — still up after the
+    /// pointer's *absence* has been noticed. That notice is precisely what used
+    /// to close the panel.
+    @Test("The hold goes up with the visit and outlives the pointer being away")
+    func theHoldSurvivesThePointerBeingAway() throws {
+        let (controller, _) = try openedByKey()
+        #expect(controller.isHoldingForHotkeyOpenForTesting)
+
+        controller.surfaceForTesting.onPointerInside?(false)
+        #expect(
+            controller.isHoldingForHotkeyOpenForTesting,
+            "a pointer that was never there leaving is not a walk-away"
+        )
+        #expect(controller.presentation.isExpanded)
+    }
+
+    /// The graduation: the hand arrives, and from then on this visit is an
+    /// ordinary one. The hold is spent on the first crossing — not renewed, not
+    /// re-armed by leaving again.
+    @Test("The first pointer arrival hands the visit back to the ordinary rules")
+    func pointerArrivalClearsTheHold() throws {
+        let (controller, _) = try openedByKey()
+
+        controller.surfaceForTesting.onPointerInside?(true)
+        #expect(!controller.isHoldingForHotkeyOpenForTesting)
+
+        // And leaving again does not give it back: from here the walk-away
+        // timer is the visit's own business.
+        controller.surfaceForTesting.onPointerInside?(false)
+        #expect(!controller.isHoldingForHotkeyOpenForTesting)
+    }
+
+    /// The key's other row: pressed again it closes the visit. Nothing is being
+    /// held open any more, and a hold left standing would inhibit the timer for
+    /// the *next* visit — one opened by hover, which never asked for keyboard
+    /// rules.
+    @Test("A second press closes the visit and takes the hold with it")
+    func pressingAgainClearsTheHold() throws {
+        let (controller, _) = try openedByKey()
+
+        controller.hotkeyPressed()
+        #expect(!controller.presentation.isExpanded)
+        #expect(!controller.isHoldingForHotkeyOpenForTesting)
+    }
+
+    /// A collapse from any other door ends it too — Esc here, but `refresh` is
+    /// where the clearing lives, so every route out is covered by the same line.
+    @Test("Esc out of a keyboard-opened visit ends the hold")
+    func escapeClearsTheHold() throws {
+        let (controller, _) = try openedByKey()
+
+        controller.surfaceForTesting.onEscape?()
+        #expect(!controller.presentation.isExpanded)
+        #expect(!controller.isHoldingForHotkeyOpenForTesting)
     }
 }

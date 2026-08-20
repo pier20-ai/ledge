@@ -22,12 +22,40 @@
 //   WING CANVAS  a live-activity strip in the right wing while playing, drawn
 //                imperatively at ~8 fps; the same node sits in the panel.
 //   REDUCE MOTION the bars stand at a fixed profile (spec §4.2).
+//   SETTINGS     two native controls in the Settings window: the band's length
+//                (a re-cut of the stations already fetched, on the spot) and
+//                whether the directory hears which one you tuned.
 //
 // Test seams (host/test/radio.test.ts drives the real worker):
 //   LEDGE_RADIO_STATIONS  JSON station list — skips the network.
 //   LEDGE_RADIO_MUTE=1    skips the audio process — state still flows.
 
-export const meta = { name: "Radio", icon: "sf:dot.radiowaves.left.and.right" };
+export const meta = {
+  name: "Radio",
+  icon: "sf:dot.radiowaves.left.and.right",
+  // Two native controls, and both are about the directory rather than the
+  // sound: how many of its stations the band carries, and whether it hears
+  // back from us. Volume is not here — it is the machine's, not this app's.
+  settings: [
+    {
+      key: "dial-size",
+      label: "Stations on the dial",
+      type: "number",
+      min: 6,
+      max: 36,
+      step: 6,
+      default: 24,
+      hint: "The band is re-cut from stations already fetched.",
+    },
+    {
+      key: "clicks",
+      label: "Report listens to the directory",
+      type: "toggle",
+      default: true,
+      hint: "Radio Browser counts a tune-in when this is on.",
+    },
+  ],
+};
 
 // ---------------------------------------------------------------- the dial
 
@@ -42,10 +70,20 @@ const USER_AGENT = "Ledge-Radio/1.0";
 /** Most-listened-to right now, not most-voted-ever: a radio app is live. The
  * over-fetch feeds the dedupe below — the directory lists the same network
  * under several relays, and a dial with "Radio Paradise" at three spots is a
- * bug, not a band plan. */
+ * bug, not a band plan — and it feeds the cut: the band's length is a setting,
+ * and moving it must not cost a round trip. */
 const TOP = "stations/topclick/40?hidebroken=true";
-/** How many stations fit on the band before the markers stop being targets. */
-const DIAL_SIZE = 24;
+/** How many stations fit on the band before the markers stop being targets.
+ * The user has the final say (`meta.settings`); this is what the dial carries
+ * until the host has said otherwise. */
+const DIAL_DEFAULT = 24;
+
+/** The band's length, as the user set it. Read fresh: `ctx.settings` is the
+ * live map, and a length captured once would be the one from before. */
+function dialSize() {
+  const asked = Number(ctxRef?.settings?.["dial-size"]);
+  return Number.isFinite(asked) && asked > 0 ? asked : DIAL_DEFAULT;
+}
 /** Yesterday's dial, for a cold or offline launch (same pattern as weather). */
 const CACHE = new URL("./stations.json", import.meta.url);
 
@@ -74,8 +112,9 @@ async function fetchTop() {
           url: row.url_resolved || row.url,
           country: String(row.countrycode ?? "").trim(),
         });
-        if (list.length === DIAL_SIZE) break;
       }
+      // Every station the directory gave us, uncut: the dial is sliced from
+      // this list, so a longer band is already paid for.
       return list;
     } catch {
       // The next mirror is the retry.
@@ -103,8 +142,11 @@ async function loadStations() {
 }
 
 /** Radio Browser etiquette: tell the directory a station was tuned. Fire and
- * forget — a click count is not worth a spinner, or an error. */
+ * forget — a click count is not worth a spinner, or an error. The user can
+ * decline the courtesy (`clicks`), which is the whole reason it is a setting:
+ * it is the one thing this app tells anybody about what you listen to. */
 function registerClick(station) {
+  if (ctxRef?.settings?.clicks === false) return;
   if (!station.uuid || process.env.LEDGE_RADIO_STATIONS) return;
   fetch(`${mirror}/url/${station.uuid}`, {
     headers: { "User-Agent": USER_AGENT },
@@ -179,12 +221,30 @@ const WING_H = 34;
 
 let ctxRef = null;
 let meter = null;
-let stations = null; // null until the dial loads; then exactly three
+let fetched = null; // every station the directory gave us, deduped
+let stations = null; // …and the cut of them the band carries; null until loaded
 let current = 0;
 let playing = false;
 let frame = 0;
 
 // ---------------------------------------------------------------- actions
+
+/** Cut the band out of what was fetched. The fetch is the expensive half and
+ * it is over-sized on purpose, so a different band length is a different
+ * slice of what is already here — never another round trip. */
+function cutDial() {
+  const tuned = stations?.[current] ?? null;
+  stations = fetched ? fetched.slice(0, dialSize()) : null;
+  if (stations && current >= stations.length) current = Math.max(0, stations.length - 1);
+  // A shorter band can push the station that is playing off its end. The
+  // needle lands on the nearest one that survived and the sound goes with it:
+  // a dial showing one station while another plays is a broken dial.
+  if (playing && tuned && stations?.[current] && stations[current] !== tuned) {
+    stopAudio();
+    tunedAt = Date.now();
+    startAudio(stations[current]);
+  }
+}
 
 function toggle() {
   if (playing) {
@@ -469,6 +529,17 @@ export function onLifecycle(phase, ctx) {
   stagePaint();
 }
 
+/** The user moved one of this app's controls (spec §5). `dial-size` is the one
+ * that shows: the band is re-cut from the stations already in hand and the
+ * face redrawn, with no fetch and no interruption to what is playing. */
+export function onEvent(name, values, ctx) {
+  ctxRef = ctxRef ?? ctx;
+  if (name !== "settings") return;
+  cutDial();
+  commit();
+  stagePaint();
+}
+
 let timer = null;
 
 export async function monitor(ctx) {
@@ -476,14 +547,14 @@ export async function monitor(ctx) {
   commit();
   paint();
   if (!timer) timer = setInterval(tick, FRAME_MS);
-  if (!stations) {
-    stations = await loadStations();
-    if (stations && current >= stations.length) current = 0;
+  if (!fetched) {
+    fetched = await loadStations();
+    cutDial();
     commit();
   }
   // The dial refreshes hourly; an empty one retries on the next minute. The
   // meter's clock is the interval above — the monitor only owns the fetch.
-  await Bun.sleep(stations ? 3_600_000 : 60_000);
+  await Bun.sleep(fetched ? 3_600_000 : 60_000);
 }
 
 // ---------------------------------------------------------------- the panel

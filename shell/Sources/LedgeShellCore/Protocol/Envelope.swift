@@ -64,6 +64,64 @@ public struct PanelSpec: Codable, Sendable, Equatable {
     }
 }
 
+/// One declared control from an app's `meta.settings` (G4), as the host's
+/// sanitizer shipped it. The shell renders these as native AppKit controls in
+/// the Settings window; a `type` this build has never heard of renders as
+/// nothing rather than as a guess, which is what lets the vocabulary grow
+/// without lockstep upgrades.
+public struct SettingSpec: Codable, Sendable, Equatable {
+    public var key: String
+    public var label: String
+    /// "toggle" | "choice" | "text" | "number" — see `kind`.
+    public var type: String
+    /// The declared default, matching `type`. Spelled `defaultValue` here only
+    /// because `default` is Swift's; the wire field is `default`.
+    public var defaultValue: JSONValue?
+    /// Choice only: what the pop-up offers, 2…12 entries.
+    public var options: [String]?
+    /// One explanatory line under the control, when the app earns it.
+    public var hint: String?
+    // Number only.
+    public var min: Double?
+    public var max: Double?
+    public var step: Double?
+
+    public enum CodingKeys: String, CodingKey {
+        case key, label, type, options, hint, min, max, step
+        case defaultValue = "default"
+    }
+
+    public enum Kind: String, Sendable {
+        case toggle, choice, text, number
+    }
+
+    /// The type as this build understands it — nil for a vocabulary from the
+    /// future, which the window skips whole.
+    public var kind: Kind? { Kind(rawValue: type) }
+
+    public init(
+        key: String,
+        label: String,
+        type: String,
+        defaultValue: JSONValue? = nil,
+        options: [String]? = nil,
+        hint: String? = nil,
+        min: Double? = nil,
+        max: Double? = nil,
+        step: Double? = nil
+    ) {
+        self.key = key
+        self.label = label
+        self.type = type
+        self.defaultValue = defaultValue
+        self.options = options
+        self.hint = hint
+        self.min = min
+        self.max = max
+        self.step = step
+    }
+}
+
 public struct CatalogApp: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
@@ -73,6 +131,14 @@ public struct CatalogApp: Codable, Sendable, Equatable {
     public var running: Bool
     /// Absent for an app that declared no `meta.panel` — the shell's defaults.
     public var panel: PanelSpec?
+    /// The controls this app declared in `meta.settings` (G4), already
+    /// sanitized by the host — the Settings window renders these natively.
+    /// Absent for an app that declared none.
+    public var settings: [SettingSpec]?
+    /// The EFFECTIVE value per declared key: the default overlaid with what
+    /// the user has set. Complete whenever `settings` is present, so a control
+    /// never has to reconstruct a default from the spec.
+    public var values: [String: JSONValue]?
 
     public init(
         id: String,
@@ -81,7 +147,9 @@ public struct CatalogApp: Codable, Sendable, Equatable {
         order: Int,
         enabled: Bool,
         running: Bool,
-        panel: PanelSpec? = nil
+        panel: PanelSpec? = nil,
+        settings: [SettingSpec]? = nil,
+        values: [String: JSONValue]? = nil
     ) {
         self.id = id
         self.name = name
@@ -90,6 +158,8 @@ public struct CatalogApp: Codable, Sendable, Equatable {
         self.enabled = enabled
         self.running = running
         self.panel = panel
+        self.settings = settings
+        self.values = values
     }
 
     /// The icon as a **symbol name**. The wire spells it `"sf:<symbol>"` (spec

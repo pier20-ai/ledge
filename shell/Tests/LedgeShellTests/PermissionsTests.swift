@@ -353,32 +353,42 @@ struct PermissionsTests {
         #expect(LedgeInstall.onboardedMarker.path.hasPrefix(root.path))
     }
 
-    /// The surface is expanded chrome with no app behind it: it must light no
-    /// icon in the strip, report no app to the host (a worker hearing
-    /// "expanded" for a panel showing permissions would be a lie), and be a
-    /// no-op for the ✦ toggle.
-    @Test("Permissions is chrome, not an app")
-    func presentationSemantics() {
-        #expect(ShellPresentation.permissions.isExpanded)
-        #expect(!ShellPresentation.permissions.allowsPassiveCollapse)
-        #expect(ShellPresentation.expanded(app: "stocks").allowsPassiveCollapse)
-        #expect(ShellPresentation.permissions.app == nil)
-        #expect(ShellPresentation.permissions.reportedApp == nil)
-        #expect(!ShellPresentation.permissions.isChat)
+    /// **First run is a window now** (G4). Onboarding used to be a seventh
+    /// presentation — expanded chrome with no app behind it, on the panel — and
+    /// the notch had to grow a card taller than it wanted to be. It is a
+    /// Settings page instead, so the assertion that matters is the negative
+    /// one: the one time Ledge opens itself, it opens a *window* and leaves the
+    /// notch exactly where it found it.
+    @Test("First run opens the Settings window on Onboarding, and never the panel")
+    func firstRunOpensTheWindow() throws {
+        let session = HostSession()
+        let controller = NotchPanelController(session: session)
+        session.openReplay()
+        session.inject(try Fixtures.envelope("catalog.json"))
+        controller.present(.collapsed, animated: false)
 
-        var state = ShellState(presentation: .permissions)
-        state.toggleChat()
-        #expect(state.presentation == .permissions)
-        // And it never becomes the app that hovering the pill reopens.
-        state.toggleExpansion()
-        #expect(state.presentation == .collapsed)
+        controller.presentPermissions()
+
+        let settings = try #require(
+            controller.settingsWindowForTesting,
+            "first run did not build the Settings window"
+        )
+        #expect(settings.windowForTesting != nil)
+        #expect(settings.selectedPageId == OnboardingSettingsPage.id)
+
+        // The notch is untouched: no expansion, no visit, nothing to walk away
+        // from. This is what the old presentation could not promise.
+        #expect(controller.presentation == .collapsed)
+        #expect(!controller.presentation.isExpanded)
+        #expect(controller.interactionState == .resting)
     }
 
-    /// The way back in, once onboarding has been dismissed. The name is a wire
-    /// value: Settings sends `chrome { request }` (spec §3.3) and the host has
-    /// the string hardcoded on its side, so renaming it here silently breaks the
-    /// only path to this surface.
-    @Test("Settings reopens the surface through a named chrome request")
+    /// The refusal, in a constant. An app asking for the permission surface via
+    /// `chrome { request }` (spec §3.3) is refused — from every app, always —
+    /// and the name is kept written down because the refusal is the interesting
+    /// part. Settings was the one holder of an exception; it is a window that
+    /// asks the shell directly now, so the exception has no holder left.
+    @Test("The permission chrome request keeps its name, and its refusal")
     func reopenRequestName() {
         #expect(NotchPanelController.permissionsChromeRequest == "permissions")
     }
@@ -406,41 +416,36 @@ struct PermissionsTests {
         #expect(png.count > 2000, "a card that draws nothing compresses to almost nothing")
     }
 
-    /// The same card in the real panel, because the card on its own cannot show
-    /// the two things that go wrong at the seams: content starting *behind* the
-    /// camera housing — every surface reserves the cutout row. (The 42 pt app
-    /// strip this also used to guard against is gone with the bottom bar; the
-    /// panel is content fit plus the exclusion row and nothing else.)
-    @Test("It composes inside the panel, below the cutout")
-    func composesInThePanel() throws {
-        let card = PermissionsCardView(probe: FakePermissionProbe())
-        let surface = ShellSurfaceView(callbacks: .inert)
-        // No glass to lower: there is no session behind this surface.
-        surface.setPanelWing(mode: .stage, canToggleGlass: false)
-        let height = card.panelHeight + surface.panelWingRowHeight
-        surface.frame = CGRect(
-            origin: .zero,
-            size: surface.shapeSize(
-                expanded: true,
-                width: PermissionsCardView.width,
-                height: height
-            )
-        )
-        surface.present(
-            .permissions,
-            content: card,
-            width: PermissionsCardView.width,
-            height: height,
-            animated: false
-        )
-        surface.layoutSubtreeIfNeeded()
-        surface.displayIfNeeded()
+    /// The same card **in its new home** (G4). It used to be composed into the
+    /// panel, below the camera cutout; onboarding is a Settings page now, so
+    /// the seam that can go wrong has moved with it: the card is drawn in the
+    /// shell's white-on-black inks, and a settings window that was not dark
+    /// would render every row invisible. That is exactly the defect a bitmap
+    /// catches and a layout assertion never would.
+    @Test("It composes inside the Settings window, on the window's own ground")
+    func composesInTheSettingsWindow() throws {
+        let page = OnboardingSettingsPage(probe: FakePermissionProbe(), onDone: {})
+        let card = try #require(page.cardForTesting)
+        let body = page.pageView
 
-        let representation = try #require(surface.bitmapImageRepForCachingDisplay(in: surface.bounds))
-        surface.cacheDisplay(in: surface.bounds, to: representation)
+        let size = CGSize(
+            width: SettingsWindowController.contentWidth,
+            height: card.panelHeight + SettingsWindowController.pad * 2
+        )
+        let host = FlippedView(frame: CGRect(origin: .zero, size: size))
+        host.wantsLayer = true
+        // The window's real background, not white: this is the assertion.
+        host.layer?.backgroundColor = SettingsWindowController.windowBackground.cgColor
+        body.frame = host.bounds.insetBy(dx: SettingsWindowController.pad, dy: SettingsWindowController.pad)
+        host.addSubview(body)
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+
+        let representation = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: representation)
         let png = try #require(representation.representation(using: .png, properties: [:]))
-        try Self.keep(png, named: "permissions-panel.png")
-        #expect(png.count > 2000)
+        try Self.keep(png, named: "permissions-settings-page.png")
+        #expect(png.count > 2000, "rows that drew in black on black compress to almost nothing")
     }
 
     /// Draw one view into a bitmap and hand back the PNG, writing it out when

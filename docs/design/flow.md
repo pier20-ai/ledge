@@ -56,7 +56,10 @@ the user it exists for; the one exception is a visit of *another* session while
 a recording runs, where the key is a jump to the recorder rather than a way
 out. Parked, it flies the window home instead of opening a second surface — the
 window may be on another desktop, and the strongest reading of the key is "put
-Ledge in front of me".
+Ledge in front of me". A visit opened this way has the pointer nowhere near it,
+so **Texit waits for the pointer to arrive once** before its absence may close
+anything; until then Esc, a click outside, and the key again are the ways out,
+and all three are deliberate.
 
 Knobs, feel-tuned on device: **Th** ≈ 0.1 s (below it, the notch swells a
 breath — a promise, not a surface) · **Ti** ≈ 6 s for ambient-class,
@@ -73,8 +76,13 @@ chat comes back as that chat.
 - The right wing `<|>` walks the strip; a horizontal swipe does the same.
   Walking past either end lands on the blank slot — at most one blank exists,
   and it IS the end: walking outward from it bounces in place instead of
-  wrapping (G2.7). A tear-off bead sits beside `<|>` — the park drag's
-  clickable invitation; the drag itself also starts from any island.
+  wrapping (G2.7). An **overflow bead** `⋯` sits beside `<|>`, popping a
+  native menu: Pop Out · Settings… · Quit Ledge. It replaced the bare
+  tear-off bead at G4 — the shell grew three chrome verbs and a bead per verb
+  would have crowded the wing, while a menu holds them without widening it.
+  Pop Out is still the park drag's clickable invitation; the drag itself also
+  starts from any island, and the parked window hides the bead (a window
+  cannot pop out of itself).
 - Zoom out to the overview — **the ledge**: sessions as a grid of square
   glass cards that swell toward the cursor; the blank slot is a dashed card,
   last. Click jumps; the only ✕ in the product lives here, riding the hovered
@@ -122,8 +130,23 @@ chat comes back as that chat.
   everywhere: a glyph, one line, one action — Reload — which restarts the
   entire host. Worst case is a fresh visit.
 - **Settings** — a native macOS window; configuration doesn't belong on
-  glass. Triggers: right-click any Ledge glass → native menu (Settings…,
-  Quit Ledge); ⌘, during a visit.
+  glass. Triggers: the wing's `⋯` bead; right-click any Ledge glass → native
+  menu (Settings…, Quit Ledge); ⌘, during a visit.
+  Shaped like the platform's own since G4: a **sidebar of pages**, not one
+  scroll of rows. **General** (the hotkey, launch at login, and Quit — with
+  no Dock icon and no menu-bar item there is nowhere else for it) ·
+  **Apps** (every installed app and its switch) · **Onboarding** · then one
+  page per app that declares `meta.settings`, drawn as real AppKit controls
+  from the declaration alone. No control is optimistic anywhere in this
+  window: a change goes to the host and the control moves when the catalog
+  comes back, so Settings and the ledge can never disagree.
+- **Onboarding** — the macOS permission rows, and a **page of the Settings
+  window** rather than a surface on the notch (G4). First run opens the
+  window on it, once ever, marked on presentation rather than on completion.
+  The notch never grows a permission card: onboarding is furniture, and a
+  window can hold a scroll bar, real focus and seven rows without negotiating
+  with a ceiling. It is the shell's own surface either way — no app can raise
+  it, and the request that asks is refused from every app, always.
 - **Notchless displays** — the shell synthesizes the seat: centered,
   menu-bar height, notch-width. Every law applies unchanged, the exclusion
   zone included — one layout for every display.

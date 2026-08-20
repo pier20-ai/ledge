@@ -429,7 +429,7 @@ struct InteractionMachine: Equatable {
             state = .summary
             swellApp = app
             showingOverview = false
-        case .expanded, .chat, .newApp, .permissions, .overview:
+        case .expanded, .chat, .newApp, .overview:
             state = .visit
             visitApp = presentation.app
             // The one mode the table cares about (see `showingOverview`).

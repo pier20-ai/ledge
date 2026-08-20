@@ -9,6 +9,7 @@ import type { CatalogApp } from "../src/registry";
 import { scanApps } from "../src/registry";
 import { Router } from "../src/router";
 import { SettingsStore } from "../src/settings";
+import { effectiveSettings, sanitizeAppMeta } from "../src/worker/meta";
 
 // The enable/disable machinery (spec §3.6 `enabled`, §8): the file that
 // remembers which apps are off, the registry flag it produces, the `appControl`
@@ -208,6 +209,112 @@ describe("settings.json (the host's own state)", () => {
 
   test("the settings file sits beside the apps root, never inside it", () => {
     expect(SettingsStore.pathFor("/Users/x/.ledge/apps")).toBe("/Users/x/.ledge/settings.json");
+  });
+});
+
+// --- the values half (spec §2) -----------------------------------------------
+
+describe("settings.json remembers what the controls are set to", () => {
+  test("a value round-trips, and the switches keep their own key", async () => {
+    // Two facts in one file, and neither disturbs the other: `disabled` is the
+    // list the ✕ writes, `values` is what the Settings window writes.
+    const { dir } = await makeRoot({});
+    const path = join(dir, "settings.json");
+    const store = new SettingsStore(path);
+    await store.load();
+
+    await store.setValue("radio", "dial-size", 6);
+    await store.setValue("radio", "clicks", false);
+    await store.setEnabled("beta", false);
+    expect(await Bun.file(path).json()).toEqual({
+      disabled: ["beta"],
+      values: { radio: { "dial-size": 6, clicks: false } },
+    });
+    expect((await readdir(dir)).filter((file) => file.endsWith(".tmp"))).toEqual([]);
+
+    const reread = new SettingsStore(path);
+    await reread.load();
+    expect(reread.valuesFor("radio")).toEqual({ "dial-size": 6, clicks: false });
+    expect(reread.isEnabled("beta")).toBe(false);
+    // An app nobody has set anything for is not an error, it is `{}`.
+    expect(reread.valuesFor("timer")).toEqual({});
+  });
+
+  test("a machine where nobody has touched a control keeps the file it had", async () => {
+    // No empty `values` key: the file a user opens should say what happened to
+    // it, and a key with nothing in it says nothing.
+    const { dir } = await makeRoot({});
+    const path = join(dir, "settings.json");
+    const store = new SettingsStore(path);
+    await store.load();
+    await store.setEnabled("alpha", false);
+    expect(await Bun.file(path).json()).toEqual({ disabled: ["alpha"] });
+  });
+
+  test("values and switches moved together still both land", async () => {
+    const { dir } = await makeRoot({});
+    const path = join(dir, "settings.json");
+    const store = new SettingsStore(path);
+    await store.load();
+
+    await Promise.all([
+      store.setValue("radio", "dial-size", 12),
+      store.setEnabled("timer", false),
+      store.setValue("timer", "model", "gpt-5.6-luna"),
+    ]);
+
+    expect(await Bun.file(path).json()).toEqual({
+      disabled: ["timer"],
+      values: { radio: { "dial-size": 12 }, timer: { model: "gpt-5.6-luna" } },
+    });
+  });
+
+  test("a hand-edited values block keeps its scalars and drops the rest", async () => {
+    const { dir } = await makeRoot({});
+    const path = join(dir, "settings.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        disabled: [],
+        values: {
+          radio: { "dial-size": 6, shape: { deep: true }, list: [1], nothing: null, name: "x" },
+          broken: "not an object",
+        },
+      }),
+    );
+    const store = new SettingsStore(path);
+    await store.load();
+    // Only what `setValue` could have written: a non-scalar is not a value
+    // anybody chose with a control.
+    expect(store.valuesFor("radio")).toEqual({ "dial-size": 6, name: "x" });
+    expect(store.valuesFor("broken")).toEqual({});
+  });
+
+  test("stored values only ever travel through the app's own declaration", () => {
+    // The filter that matters (spec §2): the file may hold a key the app has
+    // stopped declaring — an upgrade should not forget the user's choice — but
+    // it reaches neither the shell nor the worker. What comes out is exactly
+    // the declared keys, always complete, defaults where nothing is stored.
+    const declared = sanitizeAppMeta({
+      settings: [
+        { key: "dial-size", label: "Stations on the dial", type: "number", min: 6, max: 36, default: 24 },
+        { key: "clicks", label: "Report listens", type: "toggle", default: true },
+      ],
+    }).settings;
+
+    expect(effectiveSettings(declared, { "dial-size": 6, "long-gone": "yesterday" })).toEqual({
+      "dial-size": 6,
+      clicks: true,
+    });
+    // A stored value of the wrong type is not a value: the default stands.
+    expect(effectiveSettings(declared, { clicks: "yes" })).toEqual({
+      "dial-size": 24,
+      clicks: true,
+    });
+    // …and one stored out of range is clamped to the range it was stored under.
+    expect(effectiveSettings(declared, { "dial-size": 900 })["dial-size"]).toBe(36);
+    // An app that declares nothing has nothing to deliver, whatever is stored.
+    expect(effectiveSettings(undefined, { "dial-size": 6 })).toEqual({});
   });
 });
 

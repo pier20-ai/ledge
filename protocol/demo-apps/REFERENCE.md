@@ -52,12 +52,114 @@ the old one line by line for what was cut.
 | export | signature | purpose |
 |---|---|---|
 | `default` | `App(props)` | The view. Re-rendered whenever `ctx.update()` merges new props. |
-| `meta` | `{ name?, icon?, panel? }` | Catalog identity. `icon` is an SF Symbol as `"sf:name"`. `panel` is `{ width?, maxHeight? }` in points. |
+| `meta` | `{ name?, icon?, panel?, settings? }` | Catalog identity. `icon` is an SF Symbol as `"sf:name"`. `panel` is `{ width?, maxHeight? }` in points. `settings` declares native controls — see below. |
 | `monitor` | `async monitor(ctx)` | Background work. Called in a loop — see below. |
 | `onLifecycle` | `(phase, ctx)` | `"expanded" \| "collapsed" \| "hidden" \| "visible"`. Use it to stop animating while collapsed — and to notice a change in `ctx.reduceMotion`, which rides the same message. |
-| `onEvent` | `(name, data, ctx)` | App-level events with no node behind them: `"drop"`, `"notification"`, platform observations. |
+| `onEvent` | `(name, data, ctx)` | App-level events with no node behind them: `"drop"`, `"notification"`, `"settings"`, platform observations. |
 
 All except `default` are optional.
+
+### Settings — `meta.settings`
+
+**Declare the controls; the shell draws them.** An app that wants a knob does
+not build a settings surface for it — it says what the knob is, and Ledge's
+Settings window gives the app a page of its own in the sidebar with real AppKit
+controls on it. There is no settings screen to render, no form state to keep,
+and no persistence to write.
+
+```jsx
+export const meta = {
+  name: "Radio",
+  settings: [
+    {
+      key: "dial-size",
+      label: "Stations on the dial",
+      type: "number",
+      min: 6, max: 36, step: 6, default: 24,
+      hint: "The band is re-cut from stations already fetched.",
+    },
+    { key: "clicks", label: "Report listens to the directory", type: "toggle", default: true },
+  ],
+};
+```
+
+| field | applies to | rules |
+|---|---|---|
+| `key` | all | Required, `/^[a-z][a-z0-9-]{0,31}$/`. The identity: it is what travels, what is stored, and what `ctx.settings` is keyed by. A duplicate drops the *later* row. |
+| `label` | all | Required, 1–48 characters after trimming. The control's name in the window — and its accessibility label, so write it as a name and not as a sentence. |
+| `type` | all | `toggle` \| `choice` \| `text` \| `number`. |
+| `default` | all | Optional; must match `type` or it is dropped (a `default: "yes"` on a toggle is not a `true`). |
+| `hint` | all | Optional, ≤ 80 characters. One line under the control, for the thing the label cannot say. |
+| `options` | `choice` only | Required: 2–12 strings, 1–32 characters each, deduped. A choice without two valid options is **dropped whole** — a pop-up with one item is not a choice. |
+| `min` `max` `step` | `number` only | Optional, finite; `min < max` when both are given. |
+
+Each type renders as the control macOS already has for it: **toggle** is a
+switch, **choice** a pop-up, **text** a field, **number** a slider when both
+`min` and `max` are declared and a plain number field when they are not — a
+slider with invented ends is a guess wearing hardware.
+
+**At most 16 rows per app**, and the sanitizer drops *rows*, never the array: an
+app with one bad row keeps its fifteen good ones and the window opens as if the
+bad one had never been written. A `type` this build of the shell has never heard
+of is the same story — the row is skipped whole rather than rendered as
+something it is not. Nothing here throws; a mangled `meta.settings` costs you a
+control, not a launch.
+
+A missing `default` means the obvious thing, so every declared key always has a
+value: toggle `false`, text `""`, choice `options[0]`, number `min ?? 0`.
+
+**Reading them — `ctx.settings`.** A plain object keyed by `key`, complete for
+everything the app declares, `{}` until the first delivery (which arrives as the
+worker starts, before your first render).
+
+```jsx
+const model = ctxRef?.settings?.model || process.env.LEDGE_ALARM_MODEL || "gpt-5.6-luna";
+```
+
+Read it **fresh, every time**. The map is replaced on each change, so a value
+copied into a module variable at startup is precisely the one the user has since
+changed away from.
+
+**Reacting — `onEvent("settings", values, ctx)`.** Fires on every delivery after
+the first, through the same app-level door as `"drop"` and platform
+observations. `values` is the complete effective map, not a delta.
+
+```jsx
+export function onEvent(name, values) {
+  if (name !== "settings") return;
+  recutTheDial();                 // radio: re-slice the cached stations, re-commit
+}
+```
+
+Most apps need no handler at all — reading `ctx.settings` at the point of use
+covers the next fetch, the next recording, the next parse. Write one when a
+change has to be *visible* without waiting for the next such moment.
+
+**The round trip, and why nothing is optimistic.** A turned control does not
+move because it was clicked. The shell sends the change down the control plane;
+the host validates it against this declaration (unknown key, or a value of the
+wrong type: one line in the log and it is ignored — never stored, never
+delivered), persists it, hands the new map to the worker, and *then* re-sends
+the whole catalog. The control follows that catalog. So a refused value simply
+leaves the switch where it was, and there is no second source of truth to
+reconcile against. For `number`, a value outside a declared `min`/`max` is
+clamped into range rather than refused.
+
+Values live in the shell's own `settings.json`, per app and per key, and only
+keys the app **currently** declares are ever returned or delivered: stop
+declaring one and its stored value stays in the file, harmless and unread, ready
+if the key ever comes back.
+
+**What belongs here** is what the *user* should decide and the app must obey —
+Radio's `clicks` is a privacy choice, Scribe's `format` is a preference about
+files. What does not: anything the app can work out for itself, and anything
+that is the machine's rather than the app's (Radio has no volume setting; volume
+is macOS's). A settings page is not a place to park configuration you were too
+undecided to choose.
+
+In this folder: `timer` declares `model` (text), `radio` declares `dial-size`
+(number) and `clicks` (toggle), and `scribe` declares `format` (choice) — one of
+each control, in a real app, on purpose.
 
 ### The monitor loop
 
@@ -453,6 +555,7 @@ the platform cannot do — everything else is just Bun.
 
 ```
 ctx.reduceMotion                     boolean — the user asked for less motion
+ctx.settings                         the app's own `meta.settings` values, live — read fresh, never captured
 ctx.update(patch)                    merge into App's props + re-render
 ctx.notify(text, { attention?, title?, actions? })
 ctx.attention()                      notch glow, no notification

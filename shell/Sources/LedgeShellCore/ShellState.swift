@@ -13,10 +13,9 @@ import Foundation
 ///   renders its built-in placeholder card.
 /// - `chat(app:)` — the app's chat surface (spec §8). Shell chrome, not an app.
 /// - `newApp` — the **[+]** surface (spec §8). Shell chrome over a fresh folder.
-/// - `permissions` — the first-run macOS-permission surface. Shell chrome with
-///   no app behind it at all: it is the shell explaining what it is about to ask
-///   the system for on an app's behalf (spec §6's trust model, whose prompts are
-///   attributed to the shell because a worker cannot own one).
+///   (The first-run permission surface used to be a case here too; onboarding
+///   is a page of the Settings *window* since G4, and the notch never grows a
+///   permission card.)
 /// - `mini(app:)` — **the notification** (flow.md, Interruption): the app's
 ///   `<mini>` subtree, in the notch's swell. `mini` is the *wire* name — the
 ///   §5 node and `ctx.peek` keep it for compatibility — but in shell code this
@@ -39,7 +38,6 @@ public enum ShellPresentation: Equatable, Sendable {
     case expanded(app: String?)
     case chat(app: String)
     case newApp
-    case permissions
     case overview
 
     /// The swell family's other name for `.mini`. New shell code says
@@ -56,7 +54,7 @@ public enum ShellPresentation: Equatable, Sendable {
     public var isExpanded: Bool {
         switch self {
         case .collapsed, .mini, .summary: false
-        case .expanded, .chat, .newApp, .permissions, .overview: true
+        case .expanded, .chat, .newApp, .overview: true
         }
     }
 
@@ -103,7 +101,7 @@ public enum ShellPresentation: Equatable, Sendable {
         case .chat(let app): app
         case .mini(let app): app
         case .summary(let app): app
-        case .collapsed, .newApp, .permissions, .overview: nil
+        case .collapsed, .newApp, .overview: nil
         }
     }
 
@@ -121,18 +119,18 @@ public enum ShellPresentation: Equatable, Sendable {
     public var isConversation: Bool {
         switch self {
         case .chat, .newApp: true
-        case .collapsed, .mini, .summary, .expanded, .permissions, .overview: false
+        case .collapsed, .mini, .summary, .expanded, .overview: false
         }
     }
 
     /// Whether the walk-away timeout (flow.md `Texit`) may close this surface.
     ///
-    /// Permission onboarding is raised by the shell rather than by the user, so
-    /// letting a pointer that wandered off dismiss the first-run screen makes it
-    /// disappear without anybody having done anything. It stays until an
-    /// explicit dismissal; every other visit is walk-away-able.
+    /// True for every presentation today. It was the permission card's veto —
+    /// a shell-raised surface a wandering pointer must not dismiss — and that
+    /// card moved into the Settings window (G4). The property stays because
+    /// the QUESTION is load-bearing at every call site: the next shell-raised
+    /// surface answers here, not in a new flag threaded through the timers.
     public var allowsPassiveCollapse: Bool {
-        if case .permissions = self { return false }
         return true
     }
 }
@@ -179,7 +177,7 @@ public struct ShellState: Equatable, Sendable {
         case .chat: visitMode = .chat
         case .expanded: visitMode = .stage
         // Everything else leaves it alone — see `visitMode`.
-        case .collapsed, .mini, .summary, .newApp, .permissions, .overview: break
+        case .collapsed, .mini, .summary, .newApp, .overview: break
         }
     }
 
@@ -281,7 +279,7 @@ public struct ShellState: Equatable, Sendable {
             present(.chat(app: app))
         case .chat(let app):
             present(.expanded(app: app))
-        case .collapsed, .mini, .summary, .newApp, .permissions, .overview:
+        case .collapsed, .mini, .summary, .newApp, .overview:
             break
         }
     }

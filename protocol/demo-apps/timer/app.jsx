@@ -5,10 +5,11 @@
 // "45 min", "Sunset") with pause and delete at the trailing edge, and an
 // empty text box at the bottom. You type what you want. A tight local parser
 // covers the common shapes — clock times, durations, noon, tomorrow — and
-// anything it cannot read goes to a small OpenAI model (GPT-5.6 Luna; set
-// `LEDGE_ALARM_MODEL` to override the id, `OPENAI_API_KEY` to enable it at
-// all), which is what makes "ping me at sunset" an alarm rather than an
-// error. The note the model returns is the intelligent label the row keeps.
+// anything it cannot read goes to a small OpenAI model (GPT-5.6 Luna; the id
+// is the app's one Settings control, with `LEDGE_ALARM_MODEL` behind it and
+// `OPENAI_API_KEY` to enable it at all), which is what makes "ping me at
+// sunset" an alarm rather than an error. The note the model returns is the
+// intelligent label the row keeps.
 //
 // Laws: 1 (rows and ghosts, no cards) · 3 (ink until it rings, then red) ·
 // 5 (the note IS the row; the sub-line is the resolved time, which is data).
@@ -27,7 +28,23 @@
 // Persistence: alarms.json beside this file (temp file + rename), so a host
 // restart keeps the morning alarm. Stale alarms are dropped on load, loudly.
 
-export const meta = { name: "Alarms", icon: "sf:alarm" };
+export const meta = {
+  name: "Alarms",
+  icon: "sf:alarm",
+  // The one thing about this app worth a native control: which model reads the
+  // sentences the grammar cannot. It is a text field because model ids are not
+  // a list anybody can keep current — today's is `gpt-5.6-luna`, and the next
+  // one ships without asking Ledge.
+  settings: [
+    {
+      key: "model",
+      label: "Model",
+      type: "text",
+      default: "gpt-5.6-luna",
+      hint: "OpenAI model id for the parser",
+    },
+  ],
+};
 
 const TICK_MS = 250;
 const WING_HEARTBEAT_MS = 45_000;
@@ -164,7 +181,11 @@ async function location() {
 async function askModel(text) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return null;
-  const model = process.env.LEDGE_ALARM_MODEL || "gpt-5.6-luna";
+  // The Settings window first, then the environment, then the id this app was
+  // written against. `ctx.settings` is read here rather than kept anywhere: it
+  // holds today's value, and a model id captured at import would be the one
+  // from before the user changed it.
+  const model = ctxRef?.settings?.model || process.env.LEDGE_ALARM_MODEL || "gpt-5.6-luna";
   const where = await location();
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const system =

@@ -243,6 +243,70 @@ enum SnapshotRenderer {
                 to: directory
             )
         }
+
+        // **The Settings window** (G4): sidebar + pages, as furniture. Not a
+        // panel surface — the window controller's own content view, over a
+        // probe that answers from a dictionary, because a headless render
+        // must never read (let alone prompt) TCC. One PNG per standing page,
+        // and one of an app's declared controls when the catalog carries any.
+        let settingsSession = HostSession()
+        settingsSession.openReplay()
+        var settingsCatalog = catalog
+        if var first = settingsCatalog.first {
+            // A specimen declaration, so the controls page is reviewable
+            // without a live host: one of each control the vocabulary has.
+            first.settings = [
+                SettingSpec(key: "voice", label: "Voice", type: "toggle", defaultValue: .bool(true), hint: "Speak the answer as well as showing it."),
+                SettingSpec(key: "region", label: "Region", type: "choice", defaultValue: .string("Global"), options: ["Global", "Europe", "US"]),
+                SettingSpec(key: "model", label: "Model", type: "text", defaultValue: .string("gpt-5.6-luna")),
+                SettingSpec(key: "depth", label: "Depth", type: "number", defaultValue: .int(24), min: 6, max: 36, step: 6),
+            ]
+            first.values = [
+                "voice": .bool(true), "region": .string("Global"),
+                "model": .string("gpt-5.6-luna"), "depth": .int(24),
+            ]
+            settingsCatalog[0] = first
+        }
+        settingsSession.inject(Envelope(
+            app: "",
+            seq: 1,
+            type: "catalog",
+            payload: try encode(CatalogPayload(apps: settingsCatalog))
+        ))
+        let settings = SettingsWindowController(
+            session: settingsSession,
+            probe: SnapshotPermissionProbe(),
+            onQuit: {}
+        )
+        settings.loadForTesting()
+        if let content = settings.windowForTesting?.contentView {
+            content.layoutSubtreeIfNeeded()
+            for page in settings.pagesForTesting {
+                settings.selectForTesting(page)
+                content.layoutSubtreeIfNeeded()
+                content.displayIfNeeded()
+                try write(content, named: "settings-\(page)", to: directory)
+            }
+        }
+    }
+
+    /// The headless stand-in for `SystemPermissionProbe`: canned statuses, no
+    /// framework, no prompt — the same dictionary trick as the test target's
+    /// fake, re-stated here because a snapshot run is not a test run.
+    private final class SnapshotPermissionProbe: PermissionProbing {
+        func status(of permission: LedgePermission) -> PermissionStatus {
+            switch permission {
+            case .notifications, .calendar: .granted
+            case .microphone: .notDetermined
+            default: .notDetermined
+            }
+        }
+
+        func ask(_ permission: LedgePermission, then: @escaping @MainActor (PermissionStatus) -> Void) {
+            then(.notDetermined)
+        }
+
+        func openSettings(for permission: LedgePermission) {}
     }
 
     /// The ledge, rendered against a real catalog: one slab per enabled app plus

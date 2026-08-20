@@ -4,6 +4,8 @@
 // import.meta.dir, console) is the platform, used directly. Apps import nothing
 // from Ledge; ctx arrives as the monitor's argument.
 //
+//   ctx.settings                         this app's own declared controls, as
+//                                        the user has them set (§5)
 //   ctx.update(patch)                    monitor → UI bridge (§6)
 //   ctx.notify(text, { attention,        notification (+ action buttons) posted
 //              title, actions })         by the shell; returns its id (§6)
@@ -55,6 +57,7 @@ import type {
   RecordSession,
   RecordStatus,
   RecordStopResult,
+  SettingValue,
   SpotlightHit,
   WorkerToHost,
   WorkspaceInfo,
@@ -274,6 +277,27 @@ export interface Ctx {
    * stops moving between readings.
    */
   readonly reduceMotion: boolean;
+  /**
+   * This app's own settings — the controls it declared in `meta.settings`, as
+   * the user has them set (spec §5).
+   *
+   * Always complete for what the app declares: every declared key is here, with
+   * the stored value or the declared default, so `ctx.settings.format` never
+   * needs a fallback of its own — and complete from the monitor's first line,
+   * because the worker seeds it at boot from its own declaration (see
+   * `WorkerBoot.settings`). An app that declares nothing has `{}`.
+   *
+   * Read it **fresh at the point of use** — `const model = ctx.settings.model`
+   * inside the function that needs it, never copied into a module constant,
+   * which would freeze whatever the value was the first time and keep serving
+   * it after the user changed their mind.
+   *
+   * A property rather than a call for `ctx.reduceMotion`'s reason: the code
+   * that obeys a setting is usually already inside a loop or a handler.
+   * `onEvent("settings", values, ctx)` fires as well, for an app that has to
+   * *react* to a change rather than read one.
+   */
+  readonly settings: Record<string, SettingValue>;
   /** Shallow-merge `patch` into the props object passed to the default export
    * and schedule a render. In-memory only; the sole monitor → UI bridge (§6). */
   update(patch: Record<string, unknown>): void;
@@ -384,6 +408,10 @@ export interface CtxHandle {
    * when a `lifecycle` message carries the flag — *before* `onLifecycle`, so an
    * app that reacts to the callback reads the new value, not the old one. */
   setReduceMotion(value: boolean): void;
+  /** Replace `ctx.settings` (spec §5). Wholesale, never merged: the host sends
+   * the complete effective map every time, so a merge could only keep a key the
+   * app has stopped declaring alive inside a live worker. */
+  setSettings(values: Record<string, SettingValue>): void;
   /** Resolve/reject a pending apple/platform request from a host reply. Unknown
    * ids are ignored (the request was already settled, or the worker was
    * rebuilt). Called by the worker entry when a `reply` message arrives. */
@@ -560,10 +588,17 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
   // today's value — assigning a plain boolean onto the object would work too,
   // but a getter makes it unwritable from app code, which it should be.
   let reduceMotion = false;
+  // The app's settings (spec §5), held the same way and for the same reason:
+  // an app that reads `ctx.settings` from a handler written months of renders
+  // ago must see today's values, and must not be able to write them.
+  let settings: Record<string, SettingValue> = {};
 
   const ctx: Ctx = {
     get reduceMotion() {
       return reduceMotion;
+    },
+    get settings() {
+      return settings;
     },
     update: (patch) => io.update(patch),
     notify: (text, notifyOptions) => {
@@ -642,6 +677,9 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
     ctx,
     setReduceMotion: (value) => {
       reduceMotion = value;
+    },
+    setSettings: (values) => {
+      settings = values;
     },
     settle,
   };
