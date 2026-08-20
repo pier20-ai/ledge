@@ -16,9 +16,8 @@
 //   NO SUMMARY   declares neither <summary> nor <mini>: it is its own summary,
 //                so a rested pointer opens the visit directly (principle 8).
 //   WING CANVAS  a live-activity strip in the right wing while playing, drawn
-//                imperatively at ~11 fps; the same node sits in the panel.
-//                Since G2.10 it is a VU needle with ballistics — see "the VU".
-//   REDUCE MOTION the needle stands at a fixed deflection (spec §4.2).
+//                imperatively at ~8 fps; the same node sits in the panel.
+//   REDUCE MOTION the bars stand at a fixed profile (spec §4.2).
 //
 // Test seams (host/test/radio.test.ts drives the real worker):
 //   LEDGE_RADIO_STATIONS  JSON station list — skips the network.
@@ -151,10 +150,13 @@ function stopAudio() {
 
 // ---------------------------------------------------------------- state
 
-const FRAME_MS = 90; // ~11 fps: a needle with ballistics needs the frames
+const FRAME_MS = 120; // ~8 fps: enough for a breathing meter
 const WING_HEARTBEAT_MS = 45_000; // re-claim before the shell's Ta reclaim
 
-const WING_W = 44;
+const BARS = 5;
+const BAR_W = 4;
+const BAR_GAP = 4;
+const WING_W = BARS * BAR_W + (BARS - 1) * BAR_GAP;
 const WING_H = 34;
 
 let ctxRef = null;
@@ -228,17 +230,48 @@ function commit() {
   );
 }
 
+/** The bars' standing profile under Reduce Motion: the same meter, held. */
+const STILL = [0.35, 0.6, 0.8, 0.6, 0.35];
+
+function paint() {
+  if (!ctxRef || !meter) return;
+  const still = Boolean(ctxRef.reduceMotion);
+  const ops = [{ op: "clear" }];
+  for (let i = 0; i < BARS; i += 1) {
+    const moving = (Math.sin(frame / 6 + i * 1.1) + 1) / 2;
+    const wave = playing ? (still ? STILL[i] : moving) : 0;
+    const h = Math.max(2, Math.round(4 + wave * 16));
+    ops.push({
+      op: "rect",
+      x: i * (BAR_W + BAR_GAP),
+      y: Math.round((WING_H - h) / 2),
+      w: BAR_W,
+      h,
+      radius: 1,
+      fill: playing ? "#FFFFFFCC" : "#FFFFFF33",
+    });
+  }
+  ctxRef.draw(meter.id, ops);
+}
+
 // ---------------------------------------------------------------- the VU
 //
-// The fun pass (G2.10, the weatherglass doctrine): the meter is a **VU
-// needle with real ballistics**, not a bar chart. We have no honest signal —
-// tapping the stream is private-API territory — so the honest theatre is the
-// *instrument*: a needle with mass and damping chasing a programme-shaped
-// level, that slams home when you retune and climbs back as the dial locks
-// through a burst of static.
+// The stage instrument (G2.11 — "show the fun front and centre"): a big VU
+// meter drawn as a flat-ink machine face, weatherglass style. We have no
+// honest signal — tapping the stream is private-API territory — so the honest
+// theatre is the INSTRUMENT: a needle with mass and damping chasing a
+// programme-shaped level, that slams home when you retune and climbs back as
+// the dial locks through a burst of static.
 
+const STAGE_W = 380;
+const STAGE_H = 150;
+const PIVOT_X = STAGE_W / 2;
+const PIVOT_Y = STAGE_H - 18;
+const NEEDLE_LEN = 108;
+const SWEEP = (50 * Math.PI) / 180; // half-sweep, radians
 const STATIC_MS = 550; // how long a retune crackles before the lock
 
+let stage = null; // the stage canvas node, from a ref
 let needle = 0; // the needle's position, 0…1 — it has mass
 let needleVel = 0;
 let tunedAt = 0; // when the dial last turned; drives the static sweep
@@ -251,44 +284,49 @@ function programme(t) {
   return 0.55 + 0.28 * slow + flutter;
 }
 
-/** Deterministic speckle for the static sweep — pure in (frame). */
+/** Deterministic speckle for the static sweep — pure in (frame, i). */
 function crackle(seed) {
   const x = Math.sin(seed * 127.1) * 43758.5453;
   return x - Math.floor(x);
 }
 
-/** Needle geometry: pivot at the bottom centre, sweeping −54°…+54°. */
-const PIVOT_X = WING_W / 2;
-const PIVOT_Y = WING_H - 4;
-const NEEDLE_LEN = 24;
-const SWEEP = (54 * Math.PI) / 180;
-
-function needleTip(position) {
-  const angle = -Math.PI / 2 + (position * 2 - 1) * SWEEP;
-  return [PIVOT_X + Math.cos(angle) * NEEDLE_LEN, PIVOT_Y + Math.sin(angle) * NEEDLE_LEN];
+/** A point on the dial: `k` 0…1 across the sweep, at radius `r`. */
+function dialPoint(k, r) {
+  const angle = -Math.PI / 2 + (k * 2 - 1) * SWEEP;
+  return [PIVOT_X + Math.cos(angle) * r, PIVOT_Y + Math.sin(angle) * r];
 }
 
-function paint() {
-  if (!ctxRef || !meter) return;
+function stagePaint() {
+  if (!ctxRef || !stage || !expanded) return;
   const still = Boolean(ctxRef.reduceMotion);
   const now = Date.now();
   const inStatic = playing && !still && now - tunedAt < STATIC_MS;
-  const ops = [{ op: "clear" }];
+  const ops = [
+    { op: "clear" },
+    { op: "rect", x: 0, y: 0, w: STAGE_W, h: STAGE_H, fill: "#0B0B0Ecc", radius: 6 },
+  ];
 
-  // The scale: five tick dots along the arc. The instrument is always there;
-  // only the needle's life changes with the state.
-  for (let i = 0; i < 5; i += 1) {
-    const [tx, ty] = needleTip(i / 4);
-    const d = i === 4 ? 2.5 : 2;
+  // The dial arc, as a fine polyline — the instrument's horizon.
+  const arc = [];
+  for (let i = 0; i <= 24; i += 1) arc.push(dialPoint(i / 24, NEEDLE_LEN + 6));
+  ops.push({ op: "line", points: arc, stroke: "#FFFFFF26", width: 1 });
+
+  // Eleven ticks; the last three are the hot end, heavier and brighter —
+  // the red zone spoken in ink.
+  for (let i = 0; i <= 10; i += 1) {
+    const hot = i >= 8;
+    const [x1, y1] = dialPoint(i / 10, NEEDLE_LEN + 6);
+    const [x2, y2] = dialPoint(i / 10, NEEDLE_LEN + 6 - (hot ? 12 : 8));
     ops.push({
-      op: "rect",
-      x: tx - d / 2, y: ty - d / 2, w: d, h: d, radius: d / 2,
-      fill: playing ? (i === 4 ? "#FFFFFFE0" : "#FFFFFF66") : "#FFFFFF2E",
+      op: "line",
+      points: [[x1, y1], [x2, y2]],
+      stroke: playing ? (hot ? "#FFFFFFE6" : "#FFFFFF73") : "#FFFFFF30",
+      width: hot ? 2.5 : 1.5,
     });
   }
 
-  // Ballistics: the needle is a body. Spring toward the level, damped, so it
-  // kicks on transients and rings a little on the way down — VU behaviour.
+  // Ballistics: the needle is a body. It kicks on transients and rings a
+  // little on the way down — VU behaviour, at panel scale.
   const level = !playing ? 0 : still ? 0.62 : inStatic ? 0.15 + crackle(frame) * 0.5 : programme(now);
   if (still) {
     needle = level;
@@ -298,35 +336,34 @@ function paint() {
     needleVel *= 0.72;
     needle = Math.max(0, Math.min(1, needle + needleVel));
   }
-  const [tipX, tipY] = needleTip(needle);
+  const [tipX, tipY] = dialPoint(needle, NEEDLE_LEN);
+  const [tailX, tailY] = dialPoint(needle, -16); // the counterweight, past the pivot
   ops.push({
     op: "line",
-    points: [[PIVOT_X, PIVOT_Y], [tipX, tipY]],
-    stroke: playing ? "#FFFFFFD9" : "#FFFFFF40",
-    width: 1.5,
+    points: [[tailX, tailY], [tipX, tipY]],
+    stroke: playing ? "#FFFFFFE6" : "#FFFFFF40",
+    width: 2,
   });
-  ops.push({
-    op: "rect",
-    x: PIVOT_X - 2, y: PIVOT_Y - 2, w: 4, h: 4, radius: 2,
-    fill: playing ? "#FFFFFFCC" : "#FFFFFF40",
-  });
+
+  // The pivot: a stepped art-deco base and a dome.
+  ops.push({ op: "rect", x: PIVOT_X - 26, y: PIVOT_Y + 8, w: 52, h: 5, radius: 2.5, fill: "#FFFFFF24" });
+  ops.push({ op: "rect", x: PIVOT_X - 16, y: PIVOT_Y + 3, w: 32, h: 5, radius: 2.5, fill: "#FFFFFF33" });
+  ops.push({ op: "rect", x: PIVOT_X - 6, y: PIVOT_Y - 6, w: 12, h: 12, radius: 6, fill: "#FFFFFFB8" });
 
   // The static sweep: the dial travelling between stations, as speckle.
   if (inStatic) {
-    for (let i = 0; i < 9; i += 1) {
-      const r1 = crackle(frame * 9 + i);
-      const r2 = crackle(frame * 9 + i + 0.5);
+    for (let i = 0; i < 26; i += 1) {
       ops.push({
         op: "rect",
-        x: Math.floor(r1 * (WING_W - 2)),
-        y: Math.floor(r2 * (WING_H - 10)) + 2,
-        w: 1.5, h: 1.5, radius: 0,
-        fill: "#FFFFFF59",
+        x: Math.floor(crackle(frame * 31 + i) * (STAGE_W - 4)) + 2,
+        y: Math.floor(crackle(frame * 31 + i + 0.5) * (STAGE_H - 8)) + 4,
+        w: 2, h: 2, radius: 0,
+        fill: "#FFFFFF4D",
       });
     }
   }
 
-  ctxRef.draw(meter.id, ops);
+  ctxRef.draw(stage.id, ops);
 }
 
 function tick() {
@@ -341,11 +378,17 @@ function tick() {
   frame += 1;
   commit();
   paint();
+  stagePaint();
 }
+
+let expanded = false;
 
 export function onLifecycle(phase, ctx) {
   ctxRef = ctxRef ?? ctx;
+  if (phase === "expanded") expanded = true;
+  if (phase === "collapsed") expanded = false;
   paint();
+  stagePaint();
 }
 
 let timer = null;
@@ -385,42 +428,58 @@ export default function Radio({
   }
 
   return (
-    <stack axis="v" pad={16} gap={2}>
-      {/* The list is the switcher (principle 5): three rows of the datum, the
-          tuned one in primary ink. A row is a button in the child form — the
-          whole line is the target. */}
-      {list.map((station, index) => (
-        <button key={index} onClick={() => onTune?.(index)}>
-          <stack axis="h" gap={10} pad={8} align="center">
-            <text
-              content={station.name}
-              size="m"
-              weight={index === tuned ? "medium" : "regular"}
-              color={index === tuned ? "primary" : "tertiary"}
-              truncate
-            />
-            <spacer />
-            <text content={station.country} size="xs" color="tertiary" caps />
-          </stack>
-        </button>
-      ))}
+    // Tetris's alignment recipe: the outer column centres, the inner one has
+    // no align — its children stretch to the widest of them (the VU's slab),
+    // so the station rows line up with the instrument's edges exactly.
+    <stack axis="v" pad={16} align="center">
+      <stack axis="v" gap={8}>
+        {/* The VU, front and centre (G2.11) — the one framed region (§09). */}
+        <stack axis="v" pad={2} fill="black" stroke="hairline" radius={8}>
+          <canvas
+            ref={(node) => {
+              stage = node;
+            }}
+            w={STAGE_W}
+            h={STAGE_H}
+          />
+        </stack>
 
-      {/* The wing's own strip, sitting in the panel: the shell mirrors this
-          node's frames into the notch — the same pixels, two places. */}
-      <stack axis="h" gap={12} pad={8} align="center">
-        <canvas
-          ref={(node) => {
-            meter = node;
-          }}
-          w={WING_W}
-          h={WING_H}
-        />
-        <spacer />
-        <button
-          icon={live ? "sf:pause" : "sf:play"}
-          variant="ghost"
-          onClick={() => onToggle?.()}
-        />
+        {/* The list is the switcher (principle 5): three rows of the datum,
+            the tuned one in primary ink. A row is a button in the child form —
+            the whole line is the target. */}
+        {list.map((station, index) => (
+          <button key={index} onClick={() => onTune?.(index)}>
+            <stack axis="h" gap={10} pad={6} align="center">
+              <text
+                content={station.name}
+                size="m"
+                weight={index === tuned ? "medium" : "regular"}
+                color={index === tuned ? "primary" : "tertiary"}
+                truncate
+              />
+              <spacer />
+              <text content={station.country} size="xs" color="tertiary" caps />
+            </stack>
+          </button>
+        ))}
+
+        {/* The wing's own strip, sitting in the panel: the shell mirrors this
+            node's frames into the notch — the same pixels, two places. */}
+        <stack axis="h" gap={12} pad={6} align="center">
+          <canvas
+            ref={(node) => {
+              meter = node;
+            }}
+            w={WING_W}
+            h={WING_H}
+          />
+          <spacer />
+          <button
+            icon={live ? "sf:pause" : "sf:play"}
+            variant="ghost"
+            onClick={() => onToggle?.()}
+          />
+        </stack>
       </stack>
     </stack>
   );

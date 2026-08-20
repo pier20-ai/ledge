@@ -1,18 +1,23 @@
 /** @jsxImportSource react */
 // Now Playing — the app that owns the resting pill.
 //
-// SIGNATURE: the wing reel (G2.10, the weatherglass doctrine — simulate a
-// substance, not a status). A tape reel spins in the collapsed notch while
-// something plays, and the same node draws in the panel — one `ctx.draw`, two
-// places. There is no audio tap on macOS, so the honest theatre is *rotation*:
-// playing is the one thing we truly know, so the reel turns while it is true,
-// coasts to a stop on pause, and winds back up on play. The old seven
-// pseudo-waveform bars — sines pretending to be the song — are retired.
+// SIGNATURE, twice over (G2.11 — "show the fun front and centre"):
+//   the WING is the waveform: seven bars breathing in the collapsed notch
+//   while something plays, and the same node drawn in the panel. No audio tap
+//   exists on macOS, so the levels are pseudo — sines seeded by the track,
+//   advanced only while the music advances, eased every frame.
+//   the STAGE is the deck: where the album sleeve used to sit there is an
+//   OP-1-style tape machine, drawn as a flat-ink schematic. Its physics is
+//   honest — the tape winds from supply to takeup with the REAL track
+//   position, so the pack radii ARE the progress, and each reel turns at tape
+//   speed over its own radius (the emptying reel visibly hurries). Pause and
+//   the reels coast; play and they wind back up.
 //
 // Laws it exercises:
 //   1   one step lighter — bare glyphs, no chips, no filled transport.
-//   3   monochrome by choice: the artwork is the only colour, and no hue here
-//       has a job, so none is spent.
+//   3   monochrome by choice: the deck is flat ink on dark glass — no hue
+//       here has a job, so none is spent. (The artwork sleeve retired with
+//       the deck's arrival; the machine is the identity now.)
 //   4/5 no header, no labels, no clock digits — the title IS the display and
 //       the meter IS the position.
 //   8   NO <summary>. This app is its own summary, so a rested pointer opens
@@ -29,7 +34,7 @@
 // The plumbing to Music.app and Spotify (and the reason neither is ever
 // launched) is in players.js.
 
-import { PLAYBACK_NOTIFICATIONS, ensureArtwork, readPlayback, sendCommand } from "./players.js";
+import { PLAYBACK_NOTIFICATIONS, readPlayback, sendCommand } from "./players.js";
 
 export const meta = {
   name: "Now Playing",
@@ -74,16 +79,13 @@ const SWELL_MS = 620;
  * bare in the middle of a song and nothing ever puts it back. */
 const WING_HEARTBEAT_MS = 45_000;
 
-// The reel (G2.10's fun pass, the weatherglass doctrine): the wing is a tape
-// reel spinning at true elapsed rate — rotation is the one signal we honestly
-// have (position, playing), so rotation is the theatre. Three spoke holes
-// turn inside a dotted rim; pause and it coasts to a stop, play and it winds
-// back up. No fake audio levels pretending to be the song.
-const WAVE_W = 40;
+const BARS = 7;
+const BAR_W = 3;
+const BAR_GAP = 3;
+const WAVE_W = BARS * BAR_W + (BARS - 1) * BAR_GAP;
 const WAVE_H = 34; // the notch's own height — the wing canvas' coordinate space
-const REEL_R = 13; // the rim's radius
-const SPOKE_R = 7.5; // where the three holes ride
-const REEL_RPS = 0.24; // revolutions per second: legible at 11 fps, calm
+const BAR_MIN = 2;
+const BAR_MAX = 22;
 
 let ctxRef = null;
 let now = null; // the last read playback state, or null
@@ -102,19 +104,45 @@ let now = null; // the last read playback state, or null
  * covers the case where there is no answer at all.
  */
 let shown = null;
-let artwork = null;
 let expanded = false;
 let polling = false;
 let waking = null;
 let started = false;
 
 let wave = null; // the canvas node, from a ref; its id is what ctx.draw targets
-let ink = 0; // the reel's eased visibility, 0…1
-let spin = 0; // the reel's angle, in revolutions
-let spinVel = 0; // revolutions per second — the reel has inertia
+const levels = new Array(BARS).fill(0);
+let phase = 0; // advances only while the music does
 let breathAt = 0; // when the track last changed under a held wing; 0 = not breathing
 
-// ---------------------------------------------------------------- the reel
+// ---------------------------------------------------------------- the wave
+
+/** A stable 0…1 from a string. The track's title is the only signal we have
+ * about how it should move, so it is the one we use. */
+function seedOf(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  return (h >>> 0) / 4294967296;
+}
+
+/** The standing shape of the row: tallest in the middle. It is the whole
+ * difference between a waveform and a row of rectangles, so it is also what is
+ * left when the motion is taken away (see `paint`). */
+function hump(i) {
+  return 0.75 + 0.25 * Math.sin(((i + 0.5) / BARS) * Math.PI);
+}
+
+/** One bar's target level, 0…1. Two sines the seed detunes against each other
+ * (so the pattern never quite repeats), offset per bar (so the shape *travels*
+ * across the row instead of every bar pumping together), over a floor of 0.20
+ * — a playing meter should never touch the height a stopped one sits at. The
+ * hump keeps the middle bars tallest, which is the whole difference between a
+ * waveform and a row of rectangles. */
+function target(i, t, seed, energy) {
+  const a = Math.sin(t * (1.35 + seed * 0.6) + i * 1.25);
+  const b = Math.sin(t * (2.15 + seed * 1.1) - i * 0.85);
+  const swell = (a * 0.55 + b * 0.45 + 1) / 2;
+  return Math.min(1, (0.2 + 0.8 * swell * energy) * hump(i));
+}
 
 /**
  * The breath, 0…1 — how much of the wave is *let through* this frame.
@@ -161,44 +189,137 @@ function startBreath(hadGap) {
  * there. Still, not slower and not blank — the meter still says "playing", it
  * just stops breathing, and the track-change breath is motion too, so it does
  * not run there either. */
-/** A white with `v` (0…1) of alpha — every part of the reel scales with the
- * ink, so the track-change breath dims the whole instrument and swells it
- * back rather than resizing anything. */
-function shade(v) {
-  const a = Math.round(Math.min(1, Math.max(0, v)) * 255);
-  return `#FFFFFF${a.toString(16).padStart(2, "0").toUpperCase()}`;
-}
-
-function dot(ops, x, y, d, v) {
-  ops.push({ op: "rect", x: x - d / 2, y: y - d / 2, w: d, h: d, radius: d / 2, fill: shade(v) });
-}
-
 function paint(held, still = false) {
   if (!ctxRef || !wave) return;
+  const seed = shown ? seedOf(`${shown.title}${shown.artist}`) : 0;
+  const energy = 0.75 + seed * 0.25; // the track's character: how hard it moves
   const open = still ? 1 : breath();
-  const wanted = held ? (still ? 0.85 : open) : 0;
-  // Ease, never jump: the reel is a body dimming, not a chart repainting.
-  // Under Reduce Motion there is no easing — one frame, done.
-  if (still) ink = wanted;
-  else ink += (wanted - ink) * 0.25;
-
-  const cx = WAVE_W / 2;
-  const cy = WAVE_H / 2;
   const ops = [{ op: "clear" }];
-  // The rim: ten fixed dots. The frame of the instrument, faint at rest.
-  for (let i = 0; i < 10; i += 1) {
-    const a = (i / 10) * Math.PI * 2;
-    dot(ops, cx + Math.cos(a) * REEL_R, cy + Math.sin(a) * REEL_R, 2, 0.2 + 0.5 * ink);
+  for (let i = 0; i < BARS; i += 1) {
+    const wanted = held
+      ? still
+        ? 0.55 * hump(i)
+        : target(i, phase, seed, energy) * open
+      : 0;
+    // Ease, never jump: the bars are a body moving, not a chart repainting.
+    // Under Reduce Motion there is no body and no easing — one frame, done.
+    if (still) levels[i] = wanted;
+    else levels[i] += (wanted - levels[i]) * 0.28;
+    const h = Math.max(BAR_MIN, Math.round(BAR_MIN + levels[i] * (BAR_MAX - BAR_MIN)));
+    ops.push({
+      op: "rect",
+      x: i * (BAR_W + BAR_GAP),
+      y: Math.round((WAVE_H - h) / 2),
+      w: BAR_W,
+      h,
+      radius: 1.5,
+      fill: held ? "#FFFFFFD9" : "#FFFFFF33",
+    });
   }
-  // The three spoke holes: the part that turns. Under Reduce Motion the reel
-  // stands still — `spin` simply stops advancing — but stays fully drawn.
-  for (let k = 0; k < 3; k += 1) {
-    const a = (spin + k / 3) * Math.PI * 2;
-    dot(ops, cx + Math.cos(a) * SPOKE_R, cy + Math.sin(a) * SPOKE_R, 5, 0.15 + 0.75 * ink);
-  }
-  // The spindle.
-  dot(ops, cx, cy, 3, 0.25 + 0.6 * ink);
   ctxRef.draw(wave.id, ops);
+}
+
+// ---------------------------------------------------------------- the deck
+//
+// The stage instrument (G2.11, Manu: "bring back the reel in a BIG way… like
+// the Teenage Engineering OP-1's diagram"). Where the album sleeve sat there
+// is now a tape deck, drawn like a machine schematic: two reels, the tape
+// path over its guide rollers and head, everything flat ink on dark glass —
+// the weatherglass rule that the fun sits front and centre, not in a corner.
+//
+// The physics is honest: the tape winds from the supply reel to the takeup
+// as the REAL track position advances, so the pack radii ARE the progress —
+// and each reel's speed is tape speed over its own pack radius, which is why
+// an emptying supply reel visibly hurries the way a real one does. Pause and
+// they coast; play and they wind back up.
+
+const DECK_W = 316;
+const DECK_H = 132;
+const REEL_Y = 54;
+const REEL_LX = 88;
+const REEL_RX = 228;
+const PACK_MIN = 18;
+const PACK_MAX = 42;
+const TAPE_SPEED = 30; // px of tape per second, at the pack's edge
+const DECK_BG = "#0B0B0E";
+
+let deck = null; // the stage canvas node, from a ref
+let thetaL = 0; // each reel's angle, radians
+let thetaR = 0;
+let reelVel = 0; // 0…1: how wound-up the transport is — coasts on pause
+
+function deckCircle(ops, x, y, r, fill) {
+  ops.push({ op: "rect", x: x - r, y: y - r, w: r * 2, h: r * 2, radius: r, fill });
+}
+
+/** One reel: flange rim, tape pack at its true radius, hub with three
+ * windows, spindle. The windows are what make the rotation legible. */
+function pushReel(ops, cx, pack, theta) {
+  deckCircle(ops, cx, REEL_Y, PACK_MAX + 4, "#FFFFFF24"); // the flange rim
+  deckCircle(ops, cx, REEL_Y, PACK_MAX + 2.5, DECK_BG);
+  deckCircle(ops, cx, REEL_Y, pack, "#FFFFFF1F"); // the wound tape
+  deckCircle(ops, cx, REEL_Y, 14, "#FFFFFF30"); // the hub
+  for (let k = 0; k < 3; k += 1) {
+    const a = theta + (k / 3) * Math.PI * 2;
+    deckCircle(ops, cx + Math.cos(a) * 8, REEL_Y + Math.sin(a) * 8, 3.5, DECK_BG);
+  }
+  deckCircle(ops, cx, REEL_Y, 2.5, "#FFFFFFC0"); // the spindle
+}
+
+function deckPaint() {
+  if (!ctxRef || !deck || !shown) return;
+  const p = shown.duration > 0 ? Math.min(1, shown.position / shown.duration) : 0;
+  const packL = PACK_MIN + (1 - p) * (PACK_MAX - PACK_MIN); // supply empties…
+  const packR = PACK_MIN + p * (PACK_MAX - PACK_MIN); // …the takeup fills
+
+  const ops = [
+    { op: "clear" },
+    { op: "rect", x: 0, y: 0, w: DECK_W, h: DECK_H, fill: "#0B0B0Ecc", radius: 6 },
+  ];
+
+  pushReel(ops, REEL_LX, packL, thetaL);
+  pushReel(ops, REEL_RX, packR, thetaR);
+
+  // The tape path: off the supply pack, over two rollers, across the head,
+  // onto the takeup pack — one honest polyline.
+  ops.push({
+    op: "line",
+    points: [
+      [REEL_LX, REEL_Y + packL],
+      [128, 110],
+      [188, 110],
+      [REEL_RX, REEL_Y + packR],
+    ],
+    stroke: "#FFFFFF8C",
+    width: 1.5,
+  });
+  // The guide rollers…
+  for (const rx of [128, 188]) {
+    deckCircle(ops, rx, 110, 5, "#FFFFFF33");
+    deckCircle(ops, rx, 110, 1.5, "#FFFFFFA6");
+  }
+  // …and the head block between them, the machine's one right angle.
+  ops.push({ op: "rect", x: 150, y: 103, w: 16, h: 13, radius: 2, fill: "#FFFFFF3B" });
+  ops.push({ op: "rect", x: 156.5, y: 100, w: 3, h: 5, radius: 1, fill: "#FFFFFF3B" });
+
+  ctxRef.draw(deck.id, ops);
+}
+
+/** Advance the reels one frame: real tape mechanics, eased transport. */
+function deckSpin() {
+  const wanted = now?.playing ? 1 : 0;
+  reelVel += (wanted - reelVel) * (wanted ? 0.25 : 0.07); // winds up briskly, coasts long
+  if (reelVel < 0.005) {
+    reelVel = 0;
+    return false;
+  }
+  const p = shown && shown.duration > 0 ? Math.min(1, shown.position / shown.duration) : 0;
+  const packL = PACK_MIN + (1 - p) * (PACK_MAX - PACK_MIN);
+  const packR = PACK_MIN + p * (PACK_MAX - PACK_MIN);
+  const dt = FRAME_MS / 1000;
+  thetaL += ((TAPE_SPEED * reelVel) / packL) * dt;
+  thetaR += ((TAPE_SPEED * reelVel) / packR) * dt;
+  return true;
 }
 
 /** The animation clock. A setInterval, not a monitor pass: the monitor loop has
@@ -220,16 +341,15 @@ function tick() {
   // state takes the `<canvas>` — and `wave` — with it.
   publishWing(held);
   publish();
-  // Stopped and dark is a still frame, not a slower one. The frames between
-  // "stopped" and "dark" still run, which is how the reel coasts to rest and
-  // fades instead of snapping — and how the wing gets released.
-  if (!held && ink < 0.01 && spinVel < 0.005) return;
-  // The reel's inertia: play winds it up briskly, pause lets it coast. The
-  // spin advances from its own velocity, so a pause is a spin-down you can
-  // see, not a freeze-frame.
-  const wantVel = now?.playing ? REEL_RPS : 0;
-  spinVel += (wantVel - spinVel) * (now?.playing ? 0.3 : 0.08);
-  spin += spinVel * (FRAME_MS / 1000);
+  // The deck turns whenever the panel can be seen — its coast on pause is
+  // motion too, so it keeps its frames until the reels genuinely rest.
+  const spinning = deckSpin();
+  if (expanded && shown && (spinning || now?.playing)) deckPaint();
+  // Stopped and flat is a still frame, not a slower one. The frames between
+  // "stopped" and "flat" still run, which is how the bars settle instead of
+  // snapping — and how the wing gets released.
+  if (!held && levels.every((value) => value < 0.01)) return;
+  if (now?.playing) phase += FRAME_MS / 1000;
   paint(held);
 }
 
@@ -242,6 +362,8 @@ function still(held) {
   if (signature === lastStill) return;
   lastStill = signature;
   paint(held, true);
+  // The deck stands still too — packs at their true radii, reels frozen.
+  if (expanded && shown) deckPaint();
 }
 
 // ---------------------------------------------------------------- publishing
@@ -301,7 +423,6 @@ function publish() {
           ? 1 / shown.duration
           : 0,
     },
-    artwork,
   };
   const signature = JSON.stringify(props, (key, value) =>
     key === "done" ? Math.round(value * 200) : value,
@@ -367,15 +488,18 @@ async function poll(ctx) {
   try {
     const previous = now?.title;
     now = await readPlayback(ctx);
-    artwork = await ensureArtwork(ctx, now, import.meta.dir);
     if (now?.title !== previous && now?.title) {
-      // A new track: the reel takes a breath before it turns for it — dim,
-      // then a swell. `previous` being absent means the player had already
-      // gone silent between the two, so the quiet has been served.
+      phase = 0; // a new track starts its own wave…
+      // …and the wave takes a breath before it does: quiet, then a swell in the
+      // new track's character. `previous` being absent means the player had
+      // already gone silent between the two, so the quiet has been served.
       startBreath(previous === undefined);
     }
     resolve();
     publish();
+    // Every fresh sample repositions the tape packs — including while paused,
+    // when no frame loop is running to do it.
+    if (expanded && shown) deckPaint();
   } finally {
     polling = false;
   }
@@ -426,26 +550,16 @@ export function onLifecycle(phaseName, ctx) {
   lastStill = null;
   const held = resolve();
   if (ctxRef?.reduceMotion) still(held);
+  // The panel just came up: the deck's first frame, even if nothing plays —
+  // a paused deck is a machine at rest, not a hole in the panel.
+  if (expanded && shown) deckPaint();
   publish();
 }
 
 // ---------------------------------------------------------------- the panel
 
-/** The well — the one framed region on the glass (design.html §09), at the
- * content radius. Everything else here sits unframed. */
-const Sleeve = ({ src }) =>
-  src ? (
-    // `stroke` on the image itself (spec §5): artwork letterboxes, and a sleeve
-    // that does not fill its box would otherwise lose the well's frame. A
-    // stroked wrapper stack would double-frame it the moment one does fill.
-    <image src={src} w={72} h={72} radius={14} stroke="hairline" />
-  ) : (
-    <stack fill="raised" stroke="hairline" radius={14} pad={36} />
-  );
-
 export default function NowPlaying({
   track = null,
-  artwork: art = null,
   onPlayPause = onToggle,
   onSkip = onNext,
 }) {
@@ -462,18 +576,19 @@ export default function NowPlaying({
 
   return (
     // The panel's own inset (design.html §09: `.stagepanel` is `20px 22px 22px`,
-    // and Focus is already written to it). At 16 the sleeve, the progress bar and
-    // the transport all but touched the glass edge — on device the panel read as
-    // a screenshot of content rather than as content sitting on a surface.
-    <stack axis="v" pad={20} gap={14}>
+    // and Focus is already written to it).
+    <stack axis="v" pad={20} gap={14} align="center">
       {/* No <summary> and no <mini>, deliberately — see the header. */}
-      <stack axis="h" gap={14} align="center">
-        <Sleeve src={art} />
-        <stack axis="v" gap={4}>
-          <text content={track.title} size="l" truncate />
-          <text content={track.artist} size="s" color="secondary" truncate />
-        </stack>
-        <spacer />
+      {/* The deck, front and centre (G2.11): the sleeve's place belongs to
+          the machine now. The tape packs are the position — real data drawn
+          as a mechanism, not decoration around it. */}
+      <stack axis="v" pad={2} fill="black" stroke="hairline" radius={8}>
+        <canvas ref={(node) => { deck = node; }} w={DECK_W} h={DECK_H} />
+      </stack>
+
+      <stack axis="v" gap={4} align="center">
+        <text content={track.title} size="l" truncate />
+        <text content={track.artist} size="s" color="secondary" truncate />
       </stack>
 
       <progress value={track.done} rate={track.rate} />

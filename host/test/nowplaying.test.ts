@@ -49,9 +49,8 @@ class PlayerSession implements ShellSession {
   track: Track | null = null;
   /** Every wing request, in order: the string ticker, or null for a release. */
   wings: Array<string | null> = [];
-  /** The ink alphas (0-255) of the latest frame the app drew. The reel dims
-   * and brightens rather than resizing, so alpha is the breath's observable. */
-  inks: number[] = [];
+  /** The bar heights of the latest frame the app drew. */
+  bars: number[] = [];
 
   send(app: string, type: string, payload: Record<string, unknown>): void {
     this.sent.push({ app, type, payload });
@@ -60,9 +59,9 @@ class PlayerSession implements ShellSession {
       this.wings.push(wing ? (wing.text ?? "") : null);
     }
     if (type === "draw") {
-      this.inks = (payload.ops as Array<Record<string, unknown>>)
+      this.bars = (payload.ops as Array<Record<string, unknown>>)
         .filter((op) => op.op === "rect")
-        .map((op) => parseInt(String(op.fill).slice(7, 9), 16) || 0);
+        .map((op) => Number(op.h));
     }
     if (type === "apple") this.answerApple(app, payload);
     if (type === "platform") this.reply(app, "platformResult", { id: payload.id, ok: true });
@@ -130,7 +129,7 @@ afterEach(async () => {
 });
 
 describe("nowplaying across a track change", () => {
-  test("the wing is held, the ticker changes in place, and the reel breathes", async () => {
+  test("the wing is held, the ticker changes in place, and the wave breathes", async () => {
     const root = await appsRootWith("nowplaying");
     const session = new PlayerSession();
     session.track = { title: "Rhubarb", artist: "Aphex Twin" };
@@ -148,19 +147,19 @@ describe("nowplaying across a track change", () => {
       envelope("nowplaying", "lifecycle", { phase: "expanded", reduceMotion: false }),
     );
 
-    // Track A: the wing goes up and the reel brightens to full ink.
+    // Track A: the wing goes up and the wave builds.
     await waitFor(() => session.wings.length >= 1);
     expect(session.wings[0]).toBe("Rhubarb");
-    await waitFor(() => Math.max(...session.inks) > 150);
+    await waitFor(() => Math.max(...session.bars) > 8);
 
     // ------------------------------------------------- the beat between songs
     session.track = null;
     // Both players broadcast on a track change; the shell forwards it (§6 ext).
     router.onEnvelope(session, envelope("nowplaying", "event", { id: 0, name: "platform", data: {} }));
 
-    // The reel goes dark — the ink eases to the floor. This is the breath, and
-    // it is the *only* thing that should change: the surface itself stays up.
-    await waitFor(() => Math.max(...session.inks) <= 80);
+    // The wave goes quiet — every bar at the floor. This is the breath, and it
+    // is the *only* thing that should change: the surface itself stays up.
+    await waitFor(() => Math.max(...session.bars) <= 3);
     expect(session.wings).toEqual(["Rhubarb"]);
 
     // ------------------------------------------------------- track B arrives
@@ -171,8 +170,8 @@ describe("nowplaying across a track change", () => {
     expect(session.wings[1]).toBe("Turiya");
     // The whole point: no release anywhere in there. The notch never blinked.
     expect(session.wings).toEqual(["Rhubarb", "Turiya"]);
-    // …and the reel swells back rather than snapping to full ink.
-    await waitFor(() => Math.max(...session.inks) > 150);
+    // …and the wave swells back rather than snapping to full height.
+    await waitFor(() => Math.max(...session.bars) > 8);
 
     // ------------------------------------------------------- a real stop
     session.track = null;

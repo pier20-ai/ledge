@@ -160,9 +160,10 @@ describe("radio, pressed the way the shell presses it", () => {
     const claim = session.wings("radio")[0]!;
     expect(claim).not.toBeNull();
     expect(claim.text).toBe("Dial One");
-    // The wing mirrors the app's own panel canvas — one `ctx.draw`, two places.
-    const canvas = creates().find((m) => m.kind === "canvas")!;
-    expect((claim.canvas as { id: number }).id).toBe(canvas.id);
+    // The wing mirrors the app's own METER canvas — one `ctx.draw`, two
+    // places. (The big VU stage is a second canvas; the wing is the 36 pt one.)
+    const meter = creates().find((m) => m.kind === "canvas" && m.props.w === 36)!;
+    expect((claim.canvas as { id: number }).id).toBe(meter.id);
 
     // The meter is breathing: a stopped radio draws one still frame, a playing
     // one draws at ~8 fps.
