@@ -79,7 +79,7 @@ describe("rendering an app without a screen", () => {
     const dump = await renderAppCommit({ entryPath: join(DEMO_APPS, "timer", "app.jsx") });
     expect(dump.app).toBe("timer");
     // `meta.name`, sanitized by the same code the worker runs.
-    expect(dump.name).toBe("Timer");
+    expect(dump.name).toBe("Alarms");
     expect(dump.mutations.length).toBeGreaterThan(10);
     // A tree, not a list of orphans: something has to become the root.
     expect(dump.mutations.some((mutation) => mutation.op === "setRoot")).toBe(true);

@@ -34,7 +34,7 @@
 // The plumbing to Music.app and Spotify (and the reason neither is ever
 // launched) is in players.js.
 
-import { PLAYBACK_NOTIFICATIONS, readPlayback, sendCommand } from "./players.js";
+import { PLAYBACK_NOTIFICATIONS, ensureArtwork, readPlayback, sendCommand } from "./players.js";
 
 export const meta = {
   name: "Now Playing",
@@ -104,6 +104,7 @@ let now = null; // the last read playback state, or null
  * covers the case where there is no answer at all.
  */
 let shown = null;
+let artwork = null; // the sleeve's file path, drawn INTO the deck since G2.12
 let expanded = false;
 let polling = false;
 let waking = null;
@@ -234,14 +235,34 @@ function paint(held, still = false) {
 // they coast; play and they wind back up.
 
 const DECK_W = 316;
-const DECK_H = 132;
-const REEL_Y = 54;
-const REEL_LX = 88;
-const REEL_RX = 228;
-const PACK_MIN = 18;
-const PACK_MAX = 42;
+const DECK_H = 176;
+const REEL_Y = 64;
+const REEL_LX = 68;
+const REEL_RX = 248;
+const PACK_MIN = 15;
+const PACK_MAX = 36;
+const FLANGE_R = 40;
 const TAPE_SPEED = 30; // px of tape per second, at the pack's edge
 const DECK_BG = "#0B0B0E";
+
+// The machine's palette (G2.12, from the OP-1 reference and weather's deco
+// discipline): warm golds and olives as CONTENT inside the well, and exactly
+// one hot accent with a job — the playhead.
+const INK_FLANGE = "#C9A86A8C"; // the gold flange rims
+const INK_PACK = "#4A3A26E0"; // the wound tape, warm brown
+const INK_WINDOW = "#8A8A72CC"; // the reel's olive windows
+const INK_HUB = "#E8E2D0E0"; // cream hub
+const INK_TAPE = "#D8D2C08C"; // the tape path
+const INK_TICK = "#FFFFFF42";
+const INK_TICK_MAJOR = "#FFFFFF7A";
+const INK_PROGRESS = "#C9A86ACC"; // the played tape, in the flange's gold
+const INK_PLAYHEAD = "#FF5A36E6"; // the one hot accent
+
+// The scrubber's geometry: a ruled strip along the machine's foot.
+const RULE_X = 16;
+const RULE_W = DECK_W - RULE_X * 2;
+const RULE_Y = 150;
+const ART = 56; // the album art, set into the face between the spools
 
 let deck = null; // the stage canvas node, from a ref
 let thetaL = 0; // each reel's angle, radians
@@ -252,18 +273,18 @@ function deckCircle(ops, x, y, r, fill) {
   ops.push({ op: "rect", x: x - r, y: y - r, w: r * 2, h: r * 2, radius: r, fill });
 }
 
-/** One reel: flange rim, tape pack at its true radius, hub with three
- * windows, spindle. The windows are what make the rotation legible. */
+/** One reel: gold flange rim, tape pack at its true radius, three olive
+ * windows riding the hub — the OP-1's anatomy, in ops. */
 function pushReel(ops, cx, pack, theta) {
-  deckCircle(ops, cx, REEL_Y, PACK_MAX + 4, "#FFFFFF24"); // the flange rim
-  deckCircle(ops, cx, REEL_Y, PACK_MAX + 2.5, DECK_BG);
-  deckCircle(ops, cx, REEL_Y, pack, "#FFFFFF1F"); // the wound tape
-  deckCircle(ops, cx, REEL_Y, 14, "#FFFFFF30"); // the hub
+  deckCircle(ops, cx, REEL_Y, FLANGE_R, INK_FLANGE);
+  deckCircle(ops, cx, REEL_Y, FLANGE_R - 1.5, DECK_BG);
+  deckCircle(ops, cx, REEL_Y, pack, INK_PACK);
   for (let k = 0; k < 3; k += 1) {
     const a = theta + (k / 3) * Math.PI * 2;
-    deckCircle(ops, cx + Math.cos(a) * 8, REEL_Y + Math.sin(a) * 8, 3.5, DECK_BG);
+    deckCircle(ops, cx + Math.cos(a) * 14, REEL_Y + Math.sin(a) * 14, 6.5, INK_WINDOW);
   }
-  deckCircle(ops, cx, REEL_Y, 2.5, "#FFFFFFC0"); // the spindle
+  deckCircle(ops, cx, REEL_Y, 8, INK_HUB);
+  deckCircle(ops, cx, REEL_Y, 1.8, DECK_BG); // the spindle's dark eye
 }
 
 function deckPaint() {
@@ -281,26 +302,58 @@ function deckPaint() {
   pushReel(ops, REEL_RX, packR, thetaR);
 
   // The tape path: off the supply pack, over two rollers, across the head,
-  // onto the takeup pack — one honest polyline.
+  // onto the takeup pack — one honest polyline under the album art.
   ops.push({
     op: "line",
     points: [
       [REEL_LX, REEL_Y + packL],
-      [128, 110],
-      [188, 110],
+      [116, 124],
+      [200, 124],
       [REEL_RX, REEL_Y + packR],
     ],
-    stroke: "#FFFFFF8C",
+    stroke: INK_TAPE,
     width: 1.5,
   });
-  // The guide rollers…
-  for (const rx of [128, 188]) {
-    deckCircle(ops, rx, 110, 5, "#FFFFFF33");
-    deckCircle(ops, rx, 110, 1.5, "#FFFFFFA6");
+  for (const rx of [116, 200]) {
+    deckCircle(ops, rx, 124, 5, "#FFFFFF33");
+    deckCircle(ops, rx, 124, 1.5, INK_HUB);
   }
-  // …and the head block between them, the machine's one right angle.
-  ops.push({ op: "rect", x: 150, y: 103, w: 16, h: 13, radius: 2, fill: "#FFFFFF3B" });
-  ops.push({ op: "rect", x: 156.5, y: 100, w: 3, h: 5, radius: 1, fill: "#FFFFFF3B" });
+  ops.push({ op: "rect", x: 150, y: 117, w: 16, h: 13, radius: 2, fill: "#FFFFFF3B" });
+  ops.push({ op: "rect", x: 156.5, y: 114, w: 3, h: 5, radius: 1, fill: "#FFFFFF3B" });
+
+  // The album art, set into the face between the spools (G2.12). Without a
+  // sleeve on disk the recess stays — a machine with an empty art slot, not a
+  // hole in the drawing.
+  const artX = (DECK_W - ART) / 2;
+  const artY = REEL_Y - ART / 2 - 8;
+  ops.push({ op: "rect", x: artX - 2, y: artY - 2, w: ART + 4, h: ART + 4, radius: 10, fill: "#FFFFFF1A" });
+  if (artwork) {
+    ops.push({ op: "image", src: artwork, x: artX, y: artY, w: ART, h: ART, radius: 8 });
+  } else {
+    ops.push({ op: "rect", x: artX, y: artY, w: ART, h: ART, radius: 8, fill: "#16161A" });
+    deckCircle(ops, DECK_W / 2, artY + ART / 2, 10, "#FFFFFF24");
+    deckCircle(ops, DECK_W / 2, artY + ART / 2, 2, "#FFFFFF66");
+  }
+
+  // The scrubber (G2.12, "fancy like OP-1"): a ruled strip, the played tape
+  // in gold beneath it, and the playhead as the machine's one hot accent.
+  for (let i = 0; i <= 40; i += 1) {
+    const major = i % 5 === 0;
+    ops.push({
+      op: "rect",
+      x: RULE_X + (i / 40) * RULE_W - 0.5,
+      y: RULE_Y - (major ? 9 : 5),
+      w: 1,
+      h: major ? 9 : 5,
+      radius: 0,
+      fill: major ? INK_TICK_MAJOR : INK_TICK,
+    });
+  }
+  ops.push({ op: "rect", x: RULE_X, y: RULE_Y + 5, w: RULE_W, h: 2, radius: 1, fill: "#FFFFFF1F" });
+  ops.push({ op: "rect", x: RULE_X, y: RULE_Y + 5, w: Math.max(2, RULE_W * p), h: 2, radius: 1, fill: INK_PROGRESS });
+  const headX = RULE_X + RULE_W * p;
+  deckCircle(ops, headX, RULE_Y + 6, 6, INK_PLAYHEAD);
+  deckCircle(ops, headX, RULE_Y + 6, 3.5, DECK_BG);
 
   ctxRef.draw(deck.id, ops);
 }
@@ -488,6 +541,7 @@ async function poll(ctx) {
   try {
     const previous = now?.title;
     now = await readPlayback(ctx);
+    artwork = await ensureArtwork(ctx, now, import.meta.dir);
     if (now?.title !== previous && now?.title) {
       phase = 0; // a new track starts its own wave…
       // …and the wave takes a breath before it does: quiet, then a swell in the
@@ -586,12 +640,12 @@ export default function NowPlaying({
         <canvas ref={(node) => { deck = node; }} w={DECK_W} h={DECK_H} />
       </stack>
 
+      {/* The scrubber inside the deck is the progress now (principle 5): the
+          machine's own ruler, not a second bar under it. */}
       <stack axis="v" gap={4} align="center">
         <text content={track.title} size="l" truncate />
         <text content={track.artist} size="s" color="secondary" truncate />
       </stack>
-
-      <progress value={track.done} rate={track.rate} />
 
       <stack axis="h" gap={16} align="center">
         {/* The wing's own strip, sitting in the panel: the shell mirrors this

@@ -285,6 +285,20 @@ final class ProtocolCanvasView: NSView {
 
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.saveGState()
+        // `radius` clips the destination to a rounded rect, exactly as it
+        // rounds a `rect` — added at G2.12 for album art set into a machine
+        // face. Optional and additive: an op without it draws as it always has.
+        if let radius = object["radius"]?.asDouble, radius > 0 {
+            context.addPath(
+                CGPath(
+                    roundedRect: destination,
+                    cornerWidth: min(CGFloat(radius), destination.width / 2),
+                    cornerHeight: min(CGFloat(radius), destination.height / 2),
+                    transform: nil
+                )
+            )
+            context.clip()
+        }
         // A pixel sprite blown up must stay crisp; a photo scaled down must not
         // alias. Which one this is, is exactly the direction of the scale.
         let magnifying = destination.width >= CGFloat(cell.width)

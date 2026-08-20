@@ -54,3 +54,4 @@ protocol/demo-apps-archive/*/alarms.json
 protocol/demo-apps-archive/*/*.tmp
 protocol/demo-apps-archive/music/art-*.jpg
 protocol/demo-apps-archive/trader/ledger.sqlite*
+protocol/demo-apps/timer/alarms.json
