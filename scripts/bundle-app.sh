@@ -99,12 +99,37 @@ SHELL_BIN="$SHELL_DIR/.build/$CONFIGURATION/LedgeShell"
 #     entrypoints being embedded as .js).
 log "staging the host runtime + sources…"
 mkdir -p "$OUTPUT_DIR"
-BUN_BIN="$(command -v bun)" || fail "bun is not on PATH"
+
+# The shipped runtime is the release pinned in host/.bun-version, downloaded
+# from Bun's official GitHub releases and checksum-verified — never whatever
+# `bun` happens to be on this machine's PATH. That makes the pin the single
+# source of truth (any machine, incl. CI, ships the same bytes) and keeps a
+# bun upgrade a deliberate one-line bump. arm64-only by design: Ledge lives in
+# the notch, and every notched Mac is Apple Silicon.
+[ "$(uname -m)" = "arm64" ] || fail "release bundles are arm64-only; build on Apple Silicon"
 PINNED_BUN="$(cat "$HOST_DIR/.bun-version" 2>/dev/null || echo "")"
-ACTUAL_BUN="$("$BUN_BIN" --version)"
-if [ -n "$PINNED_BUN" ] && [ "$PINNED_BUN" != "$ACTUAL_BUN" ]; then
-  fail "bun $ACTUAL_BUN is on PATH but host/.bun-version pins $PINNED_BUN"
+[ -n "$PINNED_BUN" ] || fail "host/.bun-version is missing or empty"
+BUN_CACHE="${LEDGE_BUN_CACHE:-$HOME/Library/Caches/ledge-build}/bun-v$PINNED_BUN"
+BUN_BIN="$BUN_CACHE/bun-darwin-aarch64/bun"
+if [ ! -x "$BUN_BIN" ]; then
+  log "downloading bun v$PINNED_BUN (darwin-aarch64)…"
+  BUN_RELEASE="https://github.com/oven-sh/bun/releases/download/bun-v$PINNED_BUN"
+  mkdir -p "$BUN_CACHE"
+  curl -fsSL --proto '=https' -o "$BUN_CACHE/bun-darwin-aarch64.zip" \
+    "$BUN_RELEASE/bun-darwin-aarch64.zip" || fail "could not download bun v$PINNED_BUN"
+  curl -fsSL --proto '=https' -o "$BUN_CACHE/SHASUMS256.txt" \
+    "$BUN_RELEASE/SHASUMS256.txt" || fail "could not download bun's SHASUMS256.txt"
+  ( cd "$BUN_CACHE" \
+      && grep ' bun-darwin-aarch64.zip$' SHASUMS256.txt | shasum -a 256 -c - >/dev/null ) \
+    || fail "bun v$PINNED_BUN failed checksum verification"
+  unzip -oq "$BUN_CACHE/bun-darwin-aarch64.zip" -d "$BUN_CACHE" \
+    || fail "could not unzip the bun release"
+  rm -f "$BUN_CACHE/bun-darwin-aarch64.zip"
+  [ -x "$BUN_BIN" ] || fail "bun release unpacked to an unexpected layout"
 fi
+ACTUAL_BUN="$("$BUN_BIN" --version)"
+[ "$ACTUAL_BUN" = "$PINNED_BUN" ] \
+  || fail "cached bun at $BUN_BIN reports $ACTUAL_BUN, expected $PINNED_BUN"
 log "bundling bun $ACTUAL_BUN"
 
 # --- Assemble ---------------------------------------------------------------
@@ -272,23 +297,35 @@ EOF
 # `bun build --compile` emits a binary whose linker-signed signature does not
 # validate (oven-sh/bun#32159) — harmless on macOS 15, fatal on 27 betas, and it
 # blocks re-signing either way. Strip first, then sign for real.
+
+# Notarization requires a secure timestamp on every signature. Apple's
+# timestamp server only countersigns real Apple-issued identities, so ask for
+# one exactly when we hold one ("Ledge Dev" and ad-hoc stay offline-friendly).
+case "$IDENTITY" in
+  "Developer ID Application"*) TIMESTAMP="--timestamp" ;;
+  *)                           TIMESTAMP="--timestamp=none" ;;
+esac
+
 log "signing the host…"
 codesign --remove-signature "$CONTENTS/MacOS/ledge-host" 2>/dev/null || true
 codesign --force --sign "$IDENTITY" \
   --entitlements "$ENTITLEMENTS" \
   --identifier "dev.ledge.host" \
-  --options runtime \
+  --options runtime "$TIMESTAMP" \
   "$CONTENTS/MacOS/ledge-host" >/dev/null 2>&1 \
   || fail "could not sign the host"
 
 log "signing the app…"
-# Inside-out: nested code first (done above), then the bundle.
+# Inside-out: nested code first (done above), then the bundle. The bundle pass
+# re-signs the main executable, so it must carry the same hardened-runtime flag.
 codesign --force --sign "$IDENTITY" \
   --identifier "$BUNDLE_ID" \
-  --options runtime \
+  --options runtime "$TIMESTAMP" \
   "$CONTENTS/MacOS/LedgeShell" >/dev/null 2>&1 \
   || fail "could not sign the shell binary"
-codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" "$APP" >/dev/null 2>&1 \
+codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" \
+  --options runtime "$TIMESTAMP" \
+  "$APP" >/dev/null 2>&1 \
   || fail "could not sign the bundle"
 
 codesign --verify --deep --strict "$APP" \
