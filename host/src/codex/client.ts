@@ -267,7 +267,7 @@ export class CodexClient {
 
   async initialize(): Promise<Json> {
     const result = await this.request("initialize", {
-      clientInfo: { name: "ledge", title: "Ledge", version: "0.4.0" },
+      clientInfo: { name: "ledge", title: "Ledge", version: "1.0.0" },
       capabilities: null,
     });
     this.notify("initialized", {});

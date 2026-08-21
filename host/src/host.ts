@@ -9,7 +9,7 @@ import { ShellConnection } from "./connection";
 import { DEFAULT_ROOT } from "./registry";
 import { Router } from "./router";
 
-const HOST_VERSION = "0.4.0";
+const HOST_VERSION = "1.0.0";
 
 export interface RunHostOptions {
   socketPath?: string;

@@ -18,7 +18,7 @@ struct EnvelopeFixtureTests {
     func validTypes() throws {
         let hello = try decode("hello-host.json")
         #expect(hello.kind == .hello)
-        #expect(try hello.decodePayload(HelloHostPayload.self).host == "0.4.0")
+        #expect(try hello.decodePayload(HelloHostPayload.self).host == "1.0.0")
 
         let catalog = try decode("catalog.json")
         #expect(catalog.kind == .catalog)

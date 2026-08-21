@@ -1,1 +1,1 @@
-{ "v": 1, "app": "", "seq": 1, "type": "hello", "payload": { "v": 1, "host": "0.4.0" } }
+{ "v": 1, "app": "", "seq": 1, "type": "hello", "payload": { "v": 1, "host": "1.0.0" } }

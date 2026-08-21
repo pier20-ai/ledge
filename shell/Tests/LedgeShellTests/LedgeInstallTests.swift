@@ -148,3 +148,83 @@ struct LedgeInstallTests {
         #expect(LedgeInstall.settingsIsOurs(archived, manager: manager))
     }
 }
+
+/// The `ledge` CLI symlink (G5).
+///
+/// The promise mirrors seeding's: **the app maintains exactly one thing in
+/// `~/.local/bin`, and only ever the thing it made.** A user's own `ledge` —
+/// a real binary, a symlink to their own script — is never replaced, however
+/// stale; and the link the app did make follows the app when it moves.
+@Suite("The ledge CLI symlink")
+struct LedgeCLIInstallTests {
+    private func makeDirs() throws -> (bin: URL, shim: URL) {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("ledge-cli-\(UUID().uuidString)")
+        let bin = root.appendingPathComponent("bin")
+        // The shim's path must LOOK like a bundle's, because "is this ours" is
+        // decided by that shape.
+        let shim = root.appendingPathComponent("Ledge.app/Contents/Resources/ledge")
+        try FileManager.default.createDirectory(
+            at: shim.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(to: shim)
+        return (bin, shim)
+    }
+
+    @Test("A fresh install creates the directory and the symlink")
+    func freshInstall() throws {
+        let (bin, shim) = try makeDirs()
+        #expect(LedgeInstall.installCLI(shim: shim, into: bin))
+        let target = bin.appendingPathComponent("ledge")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == shim.path)
+    }
+
+    @Test("Installing twice is a no-op, not a churn")
+    func idempotent() throws {
+        let (bin, shim) = try makeDirs()
+        #expect(LedgeInstall.installCLI(shim: shim, into: bin))
+        #expect(LedgeInstall.installCLI(shim: shim, into: bin))
+        let target = bin.appendingPathComponent("ledge")
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == shim.path)
+    }
+
+    @Test("A moved app re-points the link it made — even a dangling one")
+    func relocationRepoints() throws {
+        let (bin, shim) = try makeDirs()
+        let target = bin.appendingPathComponent("ledge")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        // Where the app used to live: the old link dangles, but its shape says
+        // it was ours.
+        try FileManager.default.createSymbolicLink(
+            at: target,
+            withDestinationURL: URL(fileURLWithPath: "/Volumes/Old/Ledge.app/Contents/Resources/ledge")
+        )
+        #expect(LedgeInstall.installCLI(shim: shim, into: bin))
+        #expect(try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == shim.path)
+    }
+
+    @Test("A user's own `ledge` file is never replaced")
+    func foreignFileSurvives() throws {
+        let (bin, shim) = try makeDirs()
+        let target = bin.appendingPathComponent("ledge")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try Data("their own tool".utf8).write(to: target)
+        #expect(!LedgeInstall.installCLI(shim: shim, into: bin))
+        #expect(try String(contentsOf: target, encoding: .utf8) == "their own tool")
+    }
+
+    @Test("A user's own symlink is never replaced either")
+    func foreignSymlinkSurvives() throws {
+        let (bin, shim) = try makeDirs()
+        let target = bin.appendingPathComponent("ledge")
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(
+            at: target,
+            withDestinationURL: URL(fileURLWithPath: "/opt/their/ledge")
+        )
+        #expect(!LedgeInstall.installCLI(shim: shim, into: bin))
+        #expect(
+            try FileManager.default.destinationOfSymbolicLink(atPath: target.path) == "/opt/their/ledge"
+        )
+    }
+}

@@ -90,6 +90,76 @@ enum LedgeInstall {
         }
     }
 
+    // MARK: - The `ledge` CLI (G5)
+
+    /// Overrides where the CLI symlink lands (`LEDGE_CLI_DIR`). For suites and
+    /// smoke runs, which must never write into the user's real `~/.local/bin`.
+    nonisolated(unsafe) static var cliDirOverride: String?
+
+    /// Put `ledge` on the user's PATH-adjacent bin, every launch.
+    ///
+    /// The bundle already ships the CLI as a relocatable shim
+    /// (`Contents/Resources/ledge` — see `scripts/bundle-app.sh`); this is one
+    /// **symlink** to it from `~/.local/bin`, which needs no privilege, unlike
+    /// the `/usr/local/bin` the README used to send people to by hand. A
+    /// symlink rather than a copy so the shim never goes stale — and so a
+    /// moved .app breaks it *visibly*, whereupon the next launch of the moved
+    /// app lands here and points it at the new home.
+    ///
+    /// Every launch, not first launch: relocation is the whole point. And it
+    /// only ever replaces what it made — a `ledge` of the user's own (any
+    /// regular file, or a symlink to anywhere but a Ledge bundle's shim) is
+    /// logged and left alone; this is their bin directory, not ours.
+    static func installCLIIfPossible() {
+        // A relocated run (`--ledge-root`, the smoke test) must not touch the
+        // real bin unless it brought its own via the override.
+        guard rootOverride == nil || cliDirOverride != nil else { return }
+        guard Bundle.main.bundlePath.hasSuffix(".app") else { return } // dev builds have the repo
+        let shim = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/ledge")
+        guard FileManager.default.fileExists(atPath: shim.path) else { return }
+        let bin = cliDirOverride.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".local/bin", isDirectory: true)
+        installCLI(shim: shim, into: bin)
+    }
+
+    /// The suffix that marks a symlink as ours: any Ledge bundle's shim, at
+    /// any install location, including one that no longer exists.
+    private static let shimSuffix = ".app/Contents/Resources/ledge"
+
+    /// The mechanism, split from the discovery so a test can drive it with a
+    /// temp directory and no bundle.
+    @discardableResult
+    static func installCLI(shim: URL, into bin: URL) -> Bool {
+        let manager = FileManager.default
+        let target = bin.appendingPathComponent("ledge")
+
+        if let existing = try? manager.destinationOfSymbolicLink(atPath: target.path) {
+            if existing == shim.path { return true } // already right
+            guard existing.hasSuffix(shimSuffix) else {
+                NSLog("[ledge] %@ is a symlink to %@ — not ours, leaving it", target.path, existing)
+                return false
+            }
+            // Ours, pointing at where the app used to be. Re-point it.
+            try? manager.removeItem(at: target)
+        } else if manager.fileExists(atPath: target.path) {
+            // A real file we did not write. Their bin, their `ledge`.
+            NSLog("[ledge] %@ exists and is not Ledge's symlink — leaving it", target.path)
+            return false
+        }
+
+        do {
+            try manager.createDirectory(at: bin, withIntermediateDirectories: true)
+            try manager.createSymbolicLink(at: target, withDestinationURL: shim)
+            NSLog("[ledge] CLI installed: %@ → %@", target.path, shim.path)
+            return true
+        } catch {
+            // Not fatal: the CLI still works from the bundle by full path, and
+            // the README says how. A launch must never fail over a symlink.
+            NSLog("[ledge] could not install the CLI at %@: %@", target.path, String(describing: error))
+            return false
+        }
+    }
+
     /// The seed archive inside the bundle, or nil for a dev build. A tarball
     /// rather than a directory because codesign refuses a bundle containing
     /// symlinks that escape it, and node_modules is full of them (see

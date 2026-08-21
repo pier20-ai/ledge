@@ -51,6 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // scans the apps root at startup and an unseeded root is an empty
         // catalog. Both are no-ops in a dev build (see HostProcess.start).
         LedgeInstall.seedIfNeeded()
+        // …and the `ledge` CLI onto the user's own bin, every launch — a
+        // moved .app re-points the symlink here (env `LEDGE_CLI_DIR` reroutes
+        // it for suites; a `--ledge-root` run without it skips entirely).
+        LedgeInstall.cliDirOverride = ProcessInfo.processInfo.environment["LEDGE_CLI_DIR"]
+        LedgeInstall.installCLIIfPossible()
         let host = HostProcess(
             socketPath: socketPath ?? SocketTransport.defaultPath,
             appsRoot: LedgeInstall.appsRoot.path,

@@ -118,7 +118,7 @@ struct TransportE2ETests {
             guard let host = FakeHost(path: path) else { box.finish(hello: nil, event: nil); return }
             defer { host.close() }
             host.send(Envelope(app: "", seq: 1, type: "hello", payload: .object([
-                "v": .int(1), "host": .string("0.4.0"),
+                "v": .int(1), "host": .string("1.0.0"),
             ])))
             let hello = host.recvFrame().flatMap { try? JSONDecoder().decode(Envelope.self, from: $0) }
 

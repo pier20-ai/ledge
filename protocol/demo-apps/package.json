@@ -1,6 +1,6 @@
 {
   "name": "ledge-demo-apps",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "//": "The apps root's shared dependency set — the repo analogue of ~/.ledge/node_modules (spec §6). Apps import these bare; nothing here is a build tool. Versions are pinned exactly and bun.lock is committed, per spec §6 ('always ship the lockfile').",

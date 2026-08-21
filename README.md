@@ -194,11 +194,15 @@ edited.
 
 ## The `ledge` command
 
-Not installed automatically — writing to `/usr/local/bin` needs a privilege the
-app does not have and should not ask for:
+Installed for you: every launch, the app symlinks its bundled CLI to
+`~/.local/bin/ledge` — no privilege needed, and a moved .app re-points the
+link on its next launch. It never overwrites a `ledge` it did not create.
+Make sure `~/.local/bin` is on your PATH (most shells' dotfiles add it; if
+not: `export PATH="$HOME/.local/bin:$PATH"`). Prefer `/usr/local/bin`?
+That one needs sudo, so it stays manual:
 
 ```bash
-ln -s ~/Applications/Ledge.app/Contents/Resources/ledge /usr/local/bin/ledge
+sudo ln -s ~/Applications/Ledge.app/Contents/Resources/ledge /usr/local/bin/ledge
 ```
 
 ```

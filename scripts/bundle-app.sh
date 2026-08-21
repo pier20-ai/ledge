@@ -28,7 +28,7 @@ CONFIGURATION="release"
 OUTPUT_DIR="$REPO_ROOT/dist"
 IDENTITY="${LEDGE_SIGN_IDENTITY:-Ledge Dev}"
 BUNDLE_ID="dev.ledge.shell"
-VERSION="0.4.0"
+VERSION="1.0.0"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -207,8 +207,10 @@ log "seed payload: $(du -h "$CONTENTS/Resources/seed.tar.gz" | cut -f1)"
 # signed at all". As a resource it is sealed with the rest of the bundle.
 cat > "$CONTENTS/Resources/ledge" <<'SHIM'
 #!/bin/sh
-# Ledge CLI (spec §8). Symlink this somewhere on your PATH:
-#   ln -s "/Applications/Ledge.app/Contents/Resources/ledge" /usr/local/bin/ledge
+# Ledge CLI (spec §8). The app symlinks this to ~/.local/bin/ledge on every
+# launch (LedgeInstall.installCLIIfPossible) and re-points the link when the
+# app moves — nothing to run by hand. Relocatable on purpose: everything is
+# resolved from where this file actually is.
 HERE="$(cd "$(dirname "$0")" && pwd)"
 # `ledge shot` renders an app through the shell binary. It is right here, and
 # saying so beats making the CLI guess where the app was installed.
