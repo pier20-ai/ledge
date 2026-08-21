@@ -28,7 +28,7 @@ export default function App({ status = "—" }) {
 
 That is a complete, working app.
 
-## Five rules that will break your app if you miss them
+## Six rules that will break your app if you miss them
 
 1. **`/** @jsxImportSource react */` on line 1 of every `.jsx` file.** Without
    it the JSX does not compile.
@@ -54,6 +54,8 @@ That is a complete, working app.
 | `ctx` — the whole surface | `REFERENCE.md`, "`ctx`" |
 | pacing: monitor vs. timers | `REFERENCE.md`, "The monitor loop" |
 | wings, the mini view, peeking | `REFERENCE.md`, "Three sizes of attention" |
+| native settings controls (`meta.settings`) | `REFERENCE.md`, "Settings" |
+| recording audio (`ctx.record`) | `REFERENCE.md`, "Recording" |
 | canvas drawing and its ops | `REFERENCE.md`, "Canvas and games" |
 | storage, dependencies, splitting a file | `REFERENCE.md`, end |
 | a working example of any of it | a sibling app — `ls ..`, then read one |

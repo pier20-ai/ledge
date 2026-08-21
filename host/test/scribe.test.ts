@@ -210,7 +210,7 @@ describe("scribe, recorded the way the shell records", () => {
 
     // Nothing recorded and nothing recording: one glyph, one line, a bare
     // notch — and the honest word about transcription on this machine.
-    await waitFor(() => texts().includes("transcription needs macOS 26"));
+    await waitFor(() => texts().includes("transcription needs a Ledge build against the macOS 26 SDK"));
     expect(texts()).toContain(EMPTY_LINE);
     expect(session.wings("scribe")).toHaveLength(0);
 

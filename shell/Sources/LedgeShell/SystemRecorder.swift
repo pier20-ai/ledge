@@ -58,9 +58,11 @@ final class SystemRecorder: AudioRecording {
         // `SpeechAnalyzer` (the long-form on-device engine) is macOS 26 API,
         // and this build's SDK predates it — the older per-utterance
         // recognizer would half-work on an hour of meeting, which is worse
-        // than the truth. When the toolchain catches up this becomes an
-        // `#available` check instead of a constant.
-        "transcription needs macOS 26"
+        // than the truth. The sentence names the BUILD, not the OS, because
+        // the OS got there first (the machine this runs on is Tahoe): when
+        // the toolchain catches up this becomes an `#available` check
+        // instead of a constant.
+        "transcription needs a Ledge build against the macOS 26 SDK"
     }
 
     func root(for app: String) -> URL {

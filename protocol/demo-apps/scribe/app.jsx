@@ -86,7 +86,7 @@ function rec() {
  */
 function fakeRecord() {
   const root = process.env.LEDGE_RECORD_ROOT || new URL("./recordings", import.meta.url).pathname;
-  const TRANSCRIPTION = { available: false, reason: "transcription needs macOS 26" };
+  const TRANSCRIPTION = { available: false, reason: "transcription needs a Ledge build against the macOS 26 SDK" };
   let live = null;
   let since = 0;
   return {

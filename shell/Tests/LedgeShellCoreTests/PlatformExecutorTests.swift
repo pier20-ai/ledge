@@ -170,7 +170,7 @@ final class FakeQuit: ShellQuitting {
 final class FakeRecorder: AudioRecording {
     var unavailableReason: String?
     /// The honest answer on every machine this build runs on.
-    var transcriptionUnavailableReason: String? = "transcription needs macOS 26"
+    var transcriptionUnavailableReason: String? = "transcription needs a Ledge build against the macOS 26 SDK"
     var rootBase = "/tmp/ledge-test-recordings"
     var levelsValue: RecordingLevels?
 
@@ -660,7 +660,7 @@ struct PlatformExecutorTests {
         #expect(object["session"] == nil, "nothing is recording, so there is no session to describe")
         let transcription = try #require(object["transcription"]?.asObject)
         #expect(transcription["available"]?.asBool == false)
-        #expect(transcription["reason"]?.asString == "transcription needs macOS 26")
+        #expect(transcription["reason"]?.asString == "transcription needs a Ledge build against the macOS 26 SDK")
 
         // A shell that cannot record says so in the same shape rather than
         // failing the call: the app still has a root to list past sessions from.

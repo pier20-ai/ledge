@@ -355,9 +355,6 @@ export interface Ctx {
   /** Ask the shell to put this app away (spec §3.3). Ignored unless this app is
    * the one currently presented. */
   collapse(): void;
-  /** Raise the shell's permission surface (Settings only — see ChromeRequest).
-   * Nothing comes back: the shell shows it, or silently does not. */
-  permissions(): void;
   /**
    * Take a screenshot, executed by the shell (spec §6 extension). Resolves with
    * the path of a PNG in the shell's temp directory — the app may read, copy or
@@ -657,7 +654,6 @@ export function createCtx(io: CtxIO, options: { privileged?: boolean } = {}): Ct
       }),
     expand: () => io.post({ type: "chrome", request: "expand" }),
     collapse: () => io.post({ type: "chrome", request: "collapse" }),
-    permissions: () => io.post({ type: "chrome", request: "permissions" }),
     platform,
     record,
   };

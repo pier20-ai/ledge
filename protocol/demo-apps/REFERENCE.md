@@ -28,9 +28,9 @@ taste.
 |---|---|
 | `nowplaying` | the resting pill's owner: a **live-activity wing** (ticker + the breathing waveform) held while music plays and released when it stops · the STAGE is the tape deck, front and centre: an OP-1-style flat-ink schematic whose pack radii ARE the real track position, whose reels turn at tape speed over their own radius (coasting on pause), and whose tape path is computed as true outer tangents pack→roller→roller→pack at every radius · the deck's ruled scrubber is `onDrag`: the drag previews the whole machine (packs wind under the finger) and the release is one `set player position` seek, optimistic locally · `ctx.apple` transport against Music.app and Spotify **without ever launching them** · `ctx.platform.observe("distributedNotification", …)` as a latency fix over a slow poll · `progress` with `rate` · **no `<mini>`** — and an empty state that is one glyph and one line |
 | `weather` | the **canvas app**: one `<canvas>` redrawn at ~11 fps from `ctx.draw`, whose frame is a *pure function of (t, weather(t))* — so a second canvas with `onDrag` (§4.1 `drag`, phases down/move/up) scrubs that same renderer through the next 24 h and eases home on release · the `gradient` op doing real work (sky, droplet lenses, a solved-alpha bloom, fog strips) · an **ambient** wing that is one ticker and never a live activity · Reduce Motion as a *still* that the scrub still moves · `fetch` against Open-Meteo + ip-api, cached beside `app.jsx` so a cold or offline launch still has a sky · **no `<mini>`** — weather never interrupts |
-| `timer` | **Alarms — a list you talk to** (G2.12): rows of alarm notes with pause/✕ at the trailing edge, and an `input` at the foot · a strict local grammar (clock times, compound durations, noon, tomorrow) that refuses whole what it cannot read whole, with everything else sent to a small OpenAI model (`OPENAI_API_KEY`; `LEDGE_ALARM_MODEL`, default `gpt-5.6-luna`) that returns an exact time and an intelligent note ("Sunset") · the shell's input fires `onChange` on Enter, and clearing the field is two commits with a breath between · a wing **meter** (`meter: { value }`) filling toward the soonest alarm · an **alert-class** `ctx.peek` over a `<mini>` with one action · an empty state that teaches the grammar and is honest about whether the model is armed · JSON persistence beside the app (`LEDGE_ALARM_STORE` seam for suites — `import.meta.url` resolves through symlinks) |
-| `radio` | **plays real radio**: two dozen deduped top stations from the Radio Browser directory (keyless; mirror fallback; cached beside the app), through one spawned AppleScriptObjC `AVPlayer` the worker kills to stop · the STAGE is an old-school car dial, front and centre — FM/AM rulers in cream numerals (theatre; the directory has no frequencies), the stations as gold markers on the band (data), and a red needle spanning the face · the needle IS the switcher: `onDrag` rides the finger dead, release snaps to the nearest marker and tunes it through a static-speckle sweep, and untouched it glides to the tuned marker on a spring · the station name sits below the face as the datum · a wing **canvas** of five breathing bars · a wing held as live activity and released when it stops · env seams (`LEDGE_RADIO_STATIONS`, `LEDGE_RADIO_MUTE`) so the suite never touches the network or the speakers |
-| `scribe` | the **recorder**, and the first app with `ctx.record`: the STAGE is a twin-needle meter drawn like the radio dial's deco machine face — MIC left, SYS right, arc-swept needles carrying the **first honest levels on the platform** (0…1 RMS from `ctx.record.levels()`, polled ~7/s, on radio's needle spring; set once a second and still under Reduce Motion) · one transport ghost (`sf:record.circle` → `sf:stop.circle`) with `mm:ss` beside it, taken from `levels().seconds` so the clock is the recorder's rather than a drifting local copy · **jots** while recording: an `input` at the foot whose Enter appends `{at, text}` and rewrites `jots.json` in the session dir (temp file + rename) · **sessions** while not: a `scroll` of past sessions read back from each `meta.json` + `jots.json`, newest first, with reveal-in-Finder and delete per row, and one tertiary line carrying `status.transcription.reason` · a live-activity **wing** claimed on start and released on stop — ticker text plus a small canvas dot pulsing on a sine, re-claimed on a 45 s heartbeat · `status()` once at monitor time **adopts** a live session the shell kept recording through a worker restart · no `<summary>`, no `<mini>`, no notifications; a failed start is one tertiary line under the transport · `LEDGE_RECORD_FAKE=1` (+ `LEDGE_RECORD_ROOT`) swaps the whole capability for a deterministic fake, which is how the suite drives it without a microphone |
+| `timer` | **Alarms — a list you talk to** (G2.12): rows of alarm notes with pause/✕ at the trailing edge, and an `input` at the foot · a strict local grammar (clock times, compound durations, noon, tomorrow) that refuses whole what it cannot read whole, with everything else sent to a small OpenAI model (`OPENAI_API_KEY`; `LEDGE_ALARM_MODEL`, default `gpt-5.6-luna`) that returns an exact time and an intelligent note ("Sunset") · the shell's input fires `onChange` on Enter, and clearing the field is two commits with a breath between · a wing **meter** (`meter: { value }`) filling toward the soonest alarm · an **alert-class** `ctx.peek` over a `<mini>` with one action · an empty state that teaches the grammar and is honest about whether the model is armed · the model id as a declared **`meta.settings`** text control (`ctx.settings.model`, then `LEDGE_ALARM_MODEL`, then the default) · JSON persistence beside the app (`LEDGE_ALARM_STORE` seam for suites — `import.meta.url` resolves through symlinks) |
+| `radio` | **plays real radio**: two dozen deduped top stations from the Radio Browser directory (keyless; mirror fallback; cached beside the app), through one spawned AppleScriptObjC `AVPlayer` the worker kills to stop · the STAGE is an old-school car dial, front and centre — FM/AM rulers in cream numerals (theatre; the directory has no frequencies), the stations as gold markers on the band (data), and a red needle spanning the face · the needle IS the switcher: `onDrag` rides the finger dead, release snaps to the nearest marker and tunes it through a static-speckle sweep, and untouched it glides to the tuned marker on a spring · the station name sits below the face as the datum · two declared **`meta.settings`** controls — `dial-size` (a number that re-cuts the band from the cached over-fetch on `onEvent("settings")`) and `clicks` (a toggle gating the directory's tune-in etiquette) · a wing **canvas** of five breathing bars · a wing held as live activity and released when it stops · env seams (`LEDGE_RADIO_STATIONS`, `LEDGE_RADIO_MUTE`) so the suite never touches the network or the speakers |
+| `scribe` | the **recorder**, and the first app with `ctx.record`: the STAGE is a twin-needle meter drawn like the radio dial's deco machine face — MIC left, SYS right, arc-swept needles carrying the **first honest levels on the platform** (0…1 RMS from `ctx.record.levels()`, polled ~7/s, on radio's needle spring; set once a second and still under Reduce Motion) · one transport ghost (`sf:record.circle` → `sf:stop.circle`) with `mm:ss` beside it, taken from `levels().seconds` so the clock is the recorder's rather than a drifting local copy · **jots** while recording: an `input` at the foot whose Enter appends `{at, text}` and rewrites `jots.json` in the session dir (temp file + rename) · **sessions** while not: a `scroll` of past sessions read back from each `meta.json` + `jots.json`, newest first, with reveal-in-Finder and delete per row, and one tertiary line carrying `status.transcription.reason` · the recording `format` as a declared **`meta.settings`** choice (aac/wav), read fresh at each `start` · a live-activity **wing** claimed on start and released on stop — ticker text plus a small canvas dot pulsing on a sine, re-claimed on a 45 s heartbeat · `status()` once at monitor time **adopts** a live session the shell kept recording through a worker restart · no `<summary>`, no `<mini>`, no notifications; a failed start is one tertiary line under the transport · `LEDGE_RECORD_FAKE=1` (+ `LEDGE_RECORD_ROOT`) swaps the whole capability for a deterministic fake, which is how the suite drives it without a microphone |
 | `chess` | the **big well**: `meta.panel.width` asked *up* to 482 pt because a board is worth it (§09 — a true well may take the panel) · a `<canvas>` of ~120 ops per position, `image` ops naming this app's own sprite files, and one `onClick` turned into a square by two divisions · the grandfathered flat-vector sprite style (principle 11), and the one place raw hex is legal: draw ops are pixels, so a palette token here draws white · `Bun.spawn`ing Stockfish as a **UCI subprocess per move** (it cannot be `require`d under Bun — the header explains why) with a 2-ply built-in fallback · the whole panel is a well, one line and two ghosts — **no wing, no `<mini>`, no card, no label** |
 | `tetris` | principle 5's worked example: **a score is a number**, so a 36 pt `display` numeral sits directly on the glass with `lv 6` beside it and nothing around either — the `SCORE`/`LINES`/`LEVEL` boxes are what the design reset was about · a `focusable` `<canvas>` with `onKey`, driven by a `setInterval` game loop and parked `monitor` · the next piece drawn *inside* the well rather than in a second framed canvas · a commit signature so a soft-drop point does not re-reconcile the panel · one ghost that starts, pauses, resumes and restarts · Reduce Motion audited and found to have nothing to switch off — every moving pixel is gameplay |
 
@@ -63,9 +63,9 @@ All except `default` are optional.
 
 **Declare the controls; the shell draws them.** An app that wants a knob does
 not build a settings surface for it — it says what the knob is, and Ledge's
-Settings window gives the app a page of its own in the sidebar with real AppKit
-controls on it. There is no settings screen to render, no form state to keep,
-and no persistence to write.
+Settings window gives the app a page of its own in the sidebar, drawn with the
+platform's own controls in the platform's own appearance. There is no settings
+screen to render, no form state to keep, and no persistence to write.
 
 ```jsx
 export const meta = {
@@ -200,8 +200,8 @@ export async function monitor(ctx) {
 The parked promise is the whole idiom: `monitor` is the only thing the host
 awaits, so a promise that never resolves means it is called exactly once and the
 timer owns the pacing from then on. Use it for anything sub-second (a countdown,
-a meter, an animation) and for anything event-driven (`beacon` arms a
-`setTimeout` from a button and parks with nothing to poll at all). Keep the real
+a meter, an animation) and for anything event-driven (`timer` arms its alarms
+from the input's events and parks with nothing to poll at all). Keep the real
 polling shape — `await`, then `Bun.sleep` — for what it is for: fetching.
 
 A throw from `monitor` is an app crash: the worker restarts with backoff
@@ -225,7 +225,7 @@ positioning, no CSS.
 | `divider` | — | — |
 | `chart` | `points: number[]` | `color`, `fill` |
 | `slider` | `value` | `min`, `max`, `step`, `rate`, `onChange({value})` |
-| `input` | — | `value`, `placeholder`, `onChange({value})`, `onSubmit({value})` |
+| `input` | — | `value`, `placeholder`, `onChange({value})` — **fires on Enter, and only then**; there is no per-keystroke event. `onSubmit` validates but never fires today — wire Enter to `onChange`. Clearing the field takes **two commits** (echo the value, then empty it) with a beat between, or the updates coalesce and the text stays put |
 | `canvas` | `w`, `h` | `focusable`, `onKey({key,down})`, `onClick({x,y})`, `onDrag({phase,x,y})` — pixels come from `ctx.draw` |
 | `toggle` | `on` | `disabled`, `onChange({on})` |
 | `segment` | `options`, `value` | `onChange({value})` |
@@ -600,12 +600,13 @@ ctx.platform.stats()                 the catalog the strip is drawing
 ctx.platform.enable(id) / disable(id)
 ctx.platform.reorder(ids)            not implemented yet
 ctx.platform.quit()                  end Ledge (there is no menu bar and no Dock icon)
-ctx.platform.permissions()           raise the shell's permission surface
 ```
 
-The gate is not bureaucracy: an app that could raise an official-looking consent
-panel, or quit the shell, at a moment of its own choosing is exactly the ambush
-those surfaces exist to prevent.
+The gate is not bureaucracy: an app that could disable its rivals or quit the
+shell at a moment of its own choosing is exactly the ambush the gate exists to
+prevent. (There is **no** call that raises the permission surface — from any
+app, ever. Onboarding is a page of the shell's own Settings window, and the
+chrome request that once asked for it is refused by name.)
 
 Everything else is the platform directly: `fetch`, `bun:sqlite`, `Bun.sleep`,
 `Bun.$`, `fs`, timers, `import.meta.dir`, `console.*` (captured into the app's
@@ -672,11 +673,15 @@ sentences: `already recording for 'scribe'` · `nothing is recording` · `only
 audio capture needs macOS 14.2 or later` · `this shell has no recording
 capability`.
 
-**Transcription is gated, and the gate is honest.** `status.transcription`
-reports `{ available: false, reason: "transcription needs macOS 26" }` on this
-build and always will — the long-form `SpeechAnalyzer` engine is a macOS 26 API,
-and a build against an older SDK reports the gap rather than half-transcribing.
-Show the reason; do not show a disabled button with no explanation.
+**Transcription is gated, and the gate is honest — about the build.**
+`status.transcription` reports `{ available: false, reason: "transcription
+needs a Ledge build against the macOS 26 SDK" }` on this build and always
+will: the long-form `SpeechAnalyzer` engine is macOS 26 API, and a shell
+compiled against an older SDK cannot reach it **even running on macOS 26** —
+which is why the sentence names the build and not the OS. (The per-utterance
+recognizer older SDKs do have would half-work on an hour of meeting, which is
+worse than the truth.) Show the reason; do not show a disabled button with no
+explanation.
 
 **Playback is not a capability.** There is nothing to add: a worker plays a file
 by spawning `afplay` itself, like any other Bun process — `Bun.spawn(["afplay",
