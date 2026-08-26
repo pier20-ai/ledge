@@ -152,12 +152,33 @@ final class EditorSurfaceView: FlippedView {
     /// wholesale (`.copy`, not `.process`) so the paths the HTML references
     /// survive verbatim.
     static var bundleRoot: URL? {
-        guard let resources = Bundle.module.resourceURL else { return nil }
+        guard let resources = resourceBundle?.resourceURL else { return nil }
         let root = resources.appendingPathComponent("editor", isDirectory: true)
         return FileManager.default.fileExists(atPath: root.appendingPathComponent("index.html").path)
             ? root
             : nil
     }
+
+    /// `Bundle.module`, minus the trap. The synthesized accessor `fatalError`s
+    /// when `LedgeShell_LedgeShell.bundle` is not where it expects — which
+    /// turned an installed .app missing its resources into a crash on the
+    /// first chat surface (the walk onto the blank slot, on a live Tahoe box).
+    /// A missing bundle is `showMissingBundle()`'s job, never a crash, so this
+    /// walks the accessor's own candidate list by hand and returns nil.
+    private static let resourceBundle: Bundle? = {
+        let name = "LedgeShell_LedgeShell.bundle"
+        let candidates: [URL?] = [
+            Bundle.main.resourceURL,                 // the .app's Contents/Resources
+            Bundle(for: BundleSentinel.self).resourceURL,
+            Bundle.main.bundleURL,                   // a bare `swift run` executable
+        ]
+        for candidate in candidates {
+            guard let url = candidate?.appendingPathComponent(name),
+                  FileManager.default.fileExists(atPath: url.path) else { continue }
+            return Bundle(url: url)
+        }
+        return nil
+    }()
 
     private func load() {
         guard let root = Self.bundleRoot else {
@@ -174,13 +195,14 @@ final class EditorSurfaceView: FlippedView {
         )
     }
 
-    /// The dev-loop failure: a shell built without running the editor build. Say
-    /// so in the panel, because a blank black rectangle is indistinguishable
-    /// from a bridge that is silently broken.
+    /// A shell without its editor resources: a dev build made without running
+    /// the editor build, or an installed .app assembled without its resource
+    /// bundle. Say so in the panel, because a blank black rectangle is
+    /// indistinguishable from a bridge that is silently broken.
     private func showMissingBundle() {
         webView.isHidden = true
         let label = NSTextField(wrappingLabelWithString:
-            "Editor bundle missing.\nRun scripts/build-editor.sh and rebuild the shell.")
+            "Editor bundle missing.\nReinstall Ledge — or in a dev build, run scripts/build-editor.sh and rebuild the shell.")
         label.font = LedgeTheme.monoFont(11)
         label.textColor = LedgeTheme.secondary
         label.alignment = .center
@@ -190,6 +212,10 @@ final class EditorSurfaceView: FlippedView {
         NSLog("[ledge] editor bundle missing from the shell's resources")
     }
 }
+
+/// Exists only so `Bundle(for:)` can name this target's own binary — the same
+/// anchor the synthesized `Bundle.module` accessor uses.
+private final class BundleSentinel {}
 
 /// WebKit's side of the surface, kept off the main actor on purpose.
 ///
