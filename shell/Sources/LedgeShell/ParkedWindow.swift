@@ -85,7 +85,7 @@ final class ParkedSurfaceView: FlippedView {
     /// window is floored at the islands' span (G2.8), so a narrow app sits in
     /// a wider glass — and its tree, laid out at its own width, must be
     /// **centred** in it, exactly as the notch panel centres its content
-    /// (G2.10: a 368 pt tetris was left-hugging a 458 pt window).
+    /// (G2.10: a 368 pt blocks was left-hugging a 458 pt window).
     var contentWidth: CGFloat = 0 {
         didSet {
             guard contentWidth != oldValue else { return }

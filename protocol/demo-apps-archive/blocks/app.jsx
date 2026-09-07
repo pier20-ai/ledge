@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-// Tetris — the imperative-draw demo (docs/design/app-ideas.md, wave 1). It is
+// Blocks — the imperative-draw demo (docs/design/app-ideas.md, wave 1). It is
 // the app `ctx.draw` (§3.4) and `focusable` + `onKey` (§5, §4.1) exist for:
 // the well is a `canvas` whose pixels never go through the reconciler, and the
 // side column beside it is ordinary §5 vocabulary that only re-commits when the
@@ -26,12 +26,12 @@
 // worker, so the tick and the key handler both draw with the reference the
 // monitor was handed.
 //
-// Scoring is the Tetris Guideline table (https://tetris.wiki/Scoring, "Recent
-// guideline compatible games") — see the Scoring section below for the exact
+// Scoring is the guideline-style table most modern falling-block games share
+// — see the Scoring section below for the exact
 // mapping and the one row this game deliberately cannot implement.
 
 export const meta = {
-  name: "Tetris",
+  name: "Blocks",
   icon: "sf:square.grid.3x3.fill",
   panel: { maxHeight: 620 },
 };
@@ -52,25 +52,25 @@ const TICK_MS = 120;
 // (x, y) → (n − 1 − y, x) quarter turn, which is why O lives in a 2-box (it
 // must rotate to itself) and I in a 4-box.
 const PIECES = {
-  I: { box: 4, color: "#22D3EE", cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
-  O: { box: 2, color: "#FACC15", cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
-  T: { box: 3, color: "#C084FC", cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
-  S: { box: 3, color: "#4ADE80", cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
-  Z: { box: 3, color: "#F87171", cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
-  J: { box: 3, color: "#60A5FA", cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
-  L: { box: 3, color: "#FB923C", cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
+  I: { box: 4, color: "#E2E8F0", cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
+  O: { box: 2, color: "#2DD4BF", cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  T: { box: 3, color: "#FBBF24", cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
+  S: { box: 3, color: "#818CF8", cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
+  Z: { box: 3, color: "#A3E635", cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
+  J: { box: 3, color: "#F87171", cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
+  L: { box: 3, color: "#38BDF8", cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
 };
 
 const KINDS = Object.keys(PIECES);
 
 // ---------------------------------------------------------------------------
-// Scoring — the Tetris Guideline (https://tetris.wiki/Scoring, "Recent
-// guideline compatible games"). The whole table, verbatim:
+// Scoring — the guideline-style table most modern falling-block games share.
+// The whole table:
 //
 //   Single                 100 × level
 //   Double                 300 × level
 //   Triple                 500 × level
-//   Tetris                 800 × level          (a "difficult" clear)
+//   Four                   800 × level          (a "difficult" clear)
 //   Back-to-back difficult action score × 1.5   (excluding soft/hard drop)
 //   Combo                  50 × combo count × level
 //   Soft drop              1 per cell
@@ -476,7 +476,7 @@ function Stat({ label, value, color = "primary" }) {
   );
 }
 
-export default function Tetris({
+export default function Blocks({
   score: points = 0,
   lines: cleared = 0,
   level: tier = 1,
@@ -535,7 +535,7 @@ export default function Tetris({
           <Stat label="LEVEL" value={String(tier)} color="violet" />
 
           {/* The two score modifiers, kept deliberately quiet: B2B lights when
-              the next Tetris is worth × 1.5, and the combo count is what the
+              the next four-line clear is worth × 1.5, and the combo count is what the
               next clear multiplies 50 × level by. Both are always drawn so the
               column never changes height mid-game. */}
           <stack

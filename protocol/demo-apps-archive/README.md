@@ -5,7 +5,7 @@ scans it, nothing installs its dependencies, and nothing in it is a model for
 new work.
 
 Most of these predate the design reset (`docs/design/principles.md`) and are
-here so the rewrites can cite them — `chess` and `tetris` came back *out* of
+here so the rewrites can cite them — `chess` and `blocks` came back *out* of
 this folder in D4, and each new file's header quotes the old one line by line
 for what was cut.
 

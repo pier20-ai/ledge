@@ -34,7 +34,7 @@ each written the same way yours will be:
 
 **timer** · **weather** · **nowplaying** · **radio** · **scribe** (notes) ·
 **beacon** · **focus** (a garden that grows while you work) · **chess** (with a
-pruned Stockfish) · **tetris**
+pruned Stockfish) · **blocks**
 
 They are documentation you can play. When you wonder how to do something, read
 the sibling app that already does it.

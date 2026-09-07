@@ -38,7 +38,7 @@ export interface CommitDump {
   /** Every canvas the app painted during the same window, keyed by node id
    * (§3.4). The shell replays these as `draw` envelopes after the commit, which
    * is the only way a **panel** canvas is visible to a snapshot at all: three of
-   * the nine demo apps (weather, chess, tetris) are a canvas and nothing else,
+   * the nine demo apps (weather, chess, blocks) are a canvas and nothing else,
    * and their whole signature used to render as an empty well.
    *
    * Keys are strings because JSON object keys are. Same capture as `wingOps` —
@@ -177,7 +177,7 @@ function filterDraws(
  *
  * The second half is what makes a canvas app reviewable. A `canvas` node's
  * pixels never appear in a commit: they arrive as §3.4 `draw` frames, out of a
- * loop the monitor starts. So a snapshot of weather, chess or tetris used to be
+ * loop the monitor starts. So a snapshot of weather, chess or blocks used to be
  * an empty slab — the app's entire signature, missing, in the one picture that
  * is supposed to be evidence. This already ran the monitor and already recorded
  * every canvas's ops; it simply threw all but the wing's away.

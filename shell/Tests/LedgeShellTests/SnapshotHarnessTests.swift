@@ -10,7 +10,7 @@ import Testing
 /// Why it needed one: a `canvas` node carries no pixels in a commit (spec §3.4).
 /// Its content arrives as `draw` frames from a loop the monitor starts, and the
 /// replay had no monitor and no display link, so three of the nine demo apps —
-/// weather, chess, tetris, each of which *is* a well — rendered as an empty
+/// weather, chess, blocks, each of which *is* a well — rendered as an empty
 /// slab. Their whole signature was missing from the one picture that is supposed
 /// to be evidence, and Weather was being reviewed through a scratchpad
 /// rasteriser that duplicated renderer code.

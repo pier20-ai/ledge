@@ -88,17 +88,17 @@ struct SmallUnitTests {
     @Test("Two apps can own the same canvas id without colliding (§3.1 ids restart at 1)")
     func coalescerScopesByApp() {
         var coalescer = DrawCoalescer()
-        coalescer.submit(app: "tetris", canvas: 12, ops: [.string("tetris")])
+        coalescer.submit(app: "blocks", canvas: 12, ops: [.string("blocks")])
         coalescer.submit(app: "aviary", canvas: 12, ops: [.string("aviary")])
         let drained = coalescer.drain().sorted { $0.app < $1.app }
         #expect(drained.count == 2)
         #expect(drained[0].app == "aviary")
-        #expect(drained[1].ops == [.string("tetris")])
+        #expect(drained[1].ops == [.string("blocks")])
 
         // Discarding one app's tree leaves the other's pending frame alone.
-        coalescer.submit(app: "tetris", canvas: 12, ops: [.string("t2")])
+        coalescer.submit(app: "blocks", canvas: 12, ops: [.string("t2")])
         coalescer.submit(app: "aviary", canvas: 12, ops: [.string("a2")])
-        coalescer.discard(app: "tetris")
+        coalescer.discard(app: "blocks")
         let rest = coalescer.drain()
         #expect(rest.count == 1)
         #expect(rest[0].app == "aviary")

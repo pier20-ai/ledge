@@ -88,7 +88,7 @@ struct ParkedTests {
 
     /// G2.10: the window is floored at the islands' span, so a session
     /// narrower than the floor sits centred in the wider glass — the notch's
-    /// own law, kept by the window (tetris was left-hugging on device).
+    /// own law, kept by the window (blocks was left-hugging on device).
     @Test("A narrow session is centred in the floored window")
     func narrowSessionIsCentred() throws {
         let (_, controller, _) = try parked()

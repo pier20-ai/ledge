@@ -18,7 +18,7 @@ private struct CommitDump: Decodable {
     var wingOps: [JSONValue]?
     /// Every canvas the app painted during that same window (§3.4), keyed by
     /// node id. Replayed as `draw` envelopes once the panel has a size, which is
-    /// what makes a **panel** canvas — weather's pane, chess's board, tetris's
+    /// what makes a **panel** canvas — weather's pane, chess's board, blocks's
     /// well — appear in the PNG instead of an empty slab.
     var draws: [String: [JSONValue]]?
 }

@@ -23,7 +23,7 @@ struct CanvasKeyTests {
             engine.emitEvent(app: app, id: id, name: name, data: data)
         }
         engine.connectionOpened(generation: 1)
-        engine.receive(Envelope(app: "tetris", seq: 1, type: "commit", payload: .object([
+        engine.receive(Envelope(app: "blocks", seq: 1, type: "commit", payload: .object([
             "mutations": .array([
                 .object(["op": .string("create"), "id": .int(1), "kind": .string("stack"),
                          "props": .object(["axis": .string("v")])]),
@@ -63,7 +63,7 @@ struct CanvasKeyTests {
     @Test("A focused canvas turns key down/up into `key` events for its app")
     func keysReachTheWorker() throws {
         let (_, renderer, outbound) = makeGame()
-        let canvas = try #require(renderer.canvas(app: "tetris", id: 2))
+        let canvas = try #require(renderer.canvas(app: "blocks", id: 2))
 
         // Put it in a real window and make it first responder, which is what the
         // panel controller does when it presents an app with a focusable canvas.
@@ -84,7 +84,7 @@ struct CanvasKeyTests {
         let events = outbound.sent.filter { $0.type == "event" }
         #expect(events.count == 3)
         let payloads = try events.map { try $0.decodePayload([String: JSONValue].self) }
-        #expect(events.allSatisfy { $0.app == "tetris" })
+        #expect(events.allSatisfy { $0.app == "blocks" })
         #expect(payloads.allSatisfy { $0["id"]?.asInt == 2 })
         #expect(payloads.allSatisfy { $0["name"]?.asString == "key" })
         #expect(payloads[0]["data"]?.asObject?["key"]?.asString == "ArrowLeft")
@@ -96,9 +96,9 @@ struct CanvasKeyTests {
     @Test("A canvas that did not ask to be focusable never takes focus or keys")
     func nonFocusableCanvasIsInert() throws {
         let (_, renderer, outbound) = makeGame(focusable: false)
-        let canvas = try #require(renderer.canvas(app: "tetris", id: 2))
+        let canvas = try #require(renderer.canvas(app: "blocks", id: 2))
         #expect(canvas.acceptsFirstResponder == false)
-        #expect(renderer.focusableCanvas(for: "tetris") == nil)
+        #expect(renderer.focusableCanvas(for: "blocks") == nil)
 
         // Even handed an event directly, it falls through to super rather than
         // inventing a §4.1 event nobody subscribed to.
@@ -109,8 +109,8 @@ struct CanvasKeyTests {
     @Test("The presented app's focusable canvas is discoverable for focusing")
     func focusableCanvasIsFound() throws {
         let (_, renderer, _) = makeGame()
-        let found = try #require(renderer.focusableCanvas(for: "tetris"))
-        #expect(found === renderer.canvas(app: "tetris", id: 2))
+        let found = try #require(renderer.focusableCanvas(for: "blocks"))
+        #expect(found === renderer.canvas(app: "blocks", id: 2))
         #expect(renderer.focusableCanvas(for: "nobody") == nil)
     }
 
@@ -129,11 +129,11 @@ struct CanvasKeyTests {
                 .object(["op": .string("setRoot"), "id": .int(1)]),
             ]),
         ])))
-        let tetris = try #require(renderer.canvas(app: "tetris", id: 2))
+        let blocks = try #require(renderer.canvas(app: "blocks", id: 2))
         let aviary = try #require(renderer.canvas(app: "aviary", id: 2))
-        tetris.frame = CGRect(x: 0, y: 0, width: 200, height: 320)
+        blocks.frame = CGRect(x: 0, y: 0, width: 200, height: 320)
         aviary.frame = CGRect(x: 0, y: 0, width: 80, height: 34)
-        #expect(tetris !== aviary)
+        #expect(blocks !== aviary)
 
         engine.receive(Envelope(app: "aviary", seq: 2, type: "draw", payload: .object([
             "id": .int(2),
@@ -143,20 +143,20 @@ struct CanvasKeyTests {
         // Nothing to assert on pixels here beyond "it did not throw and it did
         // not go to the wrong view" — which the engine-level test pins down by
         // app id; this one proves the two views are genuinely distinct.
-        #expect(renderer.canvas(app: "tetris", id: 2) === tetris)
+        #expect(renderer.canvas(app: "blocks", id: 2) === blocks)
     }
 
     @Test("A wing canvas gets the same frames as the app's in-panel canvas")
     func wingCanvasMirrorsDraws() throws {
         let (engine, renderer, _) = makeGame()
-        let panelCanvas = try #require(renderer.canvas(app: "tetris", id: 2))
+        let panelCanvas = try #require(renderer.canvas(app: "blocks", id: 2))
         panelCanvas.frame = CGRect(x: 0, y: 0, width: 200, height: 320)
 
         let wingCanvas = ProtocolCanvasView()
         wingCanvas.frame = CGRect(x: 0, y: 0, width: 64, height: 34)
-        renderer.setWingTarget(app: "tetris", id: 2, view: wingCanvas)
+        renderer.setWingTarget(app: "blocks", id: 2, view: wingCanvas)
 
-        engine.receive(Envelope(app: "tetris", seq: 2, type: "draw", payload: .object([
+        engine.receive(Envelope(app: "blocks", seq: 2, type: "draw", payload: .object([
             "id": .int(2),
             "ops": .array([
                 .object(["op": .string("clear")]),
@@ -173,7 +173,7 @@ struct CanvasKeyTests {
         let fresh = ProtocolCanvasView()
         fresh.frame = CGRect(x: 0, y: 0, width: 64, height: 34)
         renderer.setWingTarget(app: "someone-else", id: 99, view: fresh)
-        engine.receive(Envelope(app: "tetris", seq: 3, type: "draw", payload: .object([
+        engine.receive(Envelope(app: "blocks", seq: 3, type: "draw", payload: .object([
             "id": .int(2), "ops": .array([.object(["op": .string("clear")])]),
         ])))
         engine.flushDraws()

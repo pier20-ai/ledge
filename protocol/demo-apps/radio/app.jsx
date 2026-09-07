@@ -577,7 +577,7 @@ export default function Radio({
   }
 
   return (
-    // Tetris's alignment recipe: the outer column centres, the inner one has
+    // Blocks's alignment recipe: the outer column centres, the inner one has
     // no align — its children stretch to the widest of them (the dial's slab),
     // so the rows below line up with the instrument's edges exactly.
     <stack axis="v" pad={16} align="center">

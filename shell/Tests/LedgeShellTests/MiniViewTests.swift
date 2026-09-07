@@ -89,7 +89,7 @@ struct MiniViewTests {
 
     /// Reporting a presented app is what produces `selection` + the
     /// `expanded`/`collapsed` lifecycle (§4.2/§4.3). Apps key real work off
-    /// `onLifecycle("expanded")` — aviary raises its frame rate, tetris unpauses
+    /// `onLifecycle("expanded")` — aviary raises its frame rate, blocks unpauses
     /// — so a peek that reported itself would start every app that flashes a
     /// track change and then immediately collapse it again, for a panel that
     /// never opened.

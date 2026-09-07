@@ -67,7 +67,7 @@ export default function App() {
 
 /** Draws one frame per monitor pass, keyed off the canvas node the tree owns. */
 const DRAW_APP = `/** @jsxImportSource react */
-export const meta = { name: "Tetris", icon: "sf:square.grid.3x3" };
+export const meta = { name: "Blocks", icon: "sf:square.grid.3x3" };
 
 let canvas = null;
 
@@ -364,27 +364,27 @@ describe("meta extraction → catalog (spec §6 → §3.6)", () => {
 
 describe("worker draw path (spec §3.4)", () => {
   test("ctx.draw becomes a per-app draw envelope; malformed frames never reach the wire", async () => {
-    const root = await makeAppsRoot({ tetris: DRAW_APP });
+    const root = await makeAppsRoot({ blocks: DRAW_APP });
     const session = new RecordingSession();
     const router = new Router({ appsRoot: root, watch: false });
     openRouter = router;
     await router.bindSession(session);
 
-    await waitFor(() => session.envelopesFor("tetris", "draw").length >= 1);
-    const mount = session.envelopesFor("tetris", "commit")[0]!.payload.mutations as Array<{
+    await waitFor(() => session.envelopesFor("blocks", "draw").length >= 1);
+    const mount = session.envelopesFor("blocks", "commit")[0]!.payload.mutations as Array<{
       op: string;
       id: number;
       kind?: string;
     }>;
     const canvasId = mount.find((m) => m.op === "create" && m.kind === "canvas")!.id;
 
-    const draw = session.envelopesFor("tetris", "draw")[0]!;
+    const draw = session.envelopesFor("blocks", "draw")[0]!;
     expect(draw.payload.id).toBe(canvasId);
     expect((draw.payload.ops as unknown[]).length).toBe(2);
 
     // The two bad calls are dropped at the ctx boundary — one frame per pass.
     await Bun.sleep(120);
-    const perPass = session.envelopesFor("tetris", "draw");
+    const perPass = session.envelopesFor("blocks", "draw");
     expect(perPass.every((e) => Array.isArray(e.payload.ops))).toBe(true);
     expect(perPass.every((e) => Number.isInteger(e.payload.id))).toBe(true);
   }, 30000);

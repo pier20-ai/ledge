@@ -211,11 +211,11 @@ struct ProtocolEngineTests {
                 "ops": .array([.object(["op": .string(marker)])]),
             ]))
         }
-        engine.receive(draw(app: "tetris", marker: "tetris"))
+        engine.receive(draw(app: "blocks", marker: "blocks"))
         engine.receive(draw(app: "aviary", marker: "aviary"))
         engine.flushDraws()
         #expect(delegate.draws.count == 2)
-        #expect(Set(delegate.draws.map(\.app)) == ["tetris", "aviary"])
+        #expect(Set(delegate.draws.map(\.app)) == ["blocks", "aviary"])
     }
 
     @Test("The golden draw fixture reaches the canvas verbatim (§3.4)")
@@ -234,13 +234,13 @@ struct ProtocolEngineTests {
     @Test("A reload drops that app's pending draws but nobody else's")
     func reloadDropsPendingDraws() {
         let (engine, delegate, _) = makeEngine()
-        engine.receive(Envelope(app: "tetris", seq: 1, type: "draw", payload: .object([
+        engine.receive(Envelope(app: "blocks", seq: 1, type: "draw", payload: .object([
             "id": .int(3), "ops": .array([.object(["op": .string("clear")])]),
         ])))
         engine.receive(Envelope(app: "aviary", seq: 1, type: "draw", payload: .object([
             "id": .int(3), "ops": .array([.object(["op": .string("clear")])]),
         ])))
-        engine.receive(Envelope(app: "tetris", seq: 2, type: "app",
+        engine.receive(Envelope(app: "blocks", seq: 2, type: "app",
                                 payload: .object(["state": .string("reloaded")])))
         engine.flushDraws()
         #expect(delegate.draws.map(\.app) == ["aviary"])

@@ -10,7 +10,7 @@ import Testing
 ///
 /// What this suite exists to keep true is one sentence: *an app cannot draw
 /// under the camera*. That was previously a convention, and every app in the
-/// repo broke it — chess's engine label, tetris's key hints and settings' worker
+/// repo broke it — chess's engine label, blocks's key hints and settings' worker
 /// count were all partly invisible on a notched Mac. The fix is structural, so
 /// the assertions are structural: the content host starts below the row, and the
 /// zones stop at the dead zone's edge whatever they are given.

@@ -278,7 +278,7 @@ private class PassthroughView: FlippedView {
 ///
 /// **The row exists by construction.** Every app in the repo opened with a title
 /// row, and on a notched Mac the middle of that row was simply invisible:
-/// chess's engine name, tetris's key hints, settings' worker count. Reserving
+/// chess's engine name, blocks's key hints, settings' worker count. Reserving
 /// the row means an app that renders a top row *cannot* collide with the camera,
 /// because its tree starts below it.
 ///

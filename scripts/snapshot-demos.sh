@@ -38,7 +38,7 @@
 #
 # Canvas apps therefore need no special handling any more. A `canvas` node's
 # content never travels in a commit (spec §3.4) — it arrives as draw frames from
-# a loop the monitor starts — so weather, chess and tetris used to render as
+# a loop the monitor starts — so weather, chess and blocks used to render as
 # empty slabs, their whole signature missing from the one picture that is meant
 # to be evidence. The dump now carries a `draws` map keyed by node id and the
 # shell replays it as `draw` envelopes once the panel has been measured.
@@ -56,7 +56,7 @@ OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 #
 # The list is the whole of protocol/demo-apps. Everything else that used to be
 # here lives in protocol/demo-apps-archive, which is not an apps root and is
-# never scanned — chess and tetris came back out of it in D4, rewritten against
+# never scanned — chess and blocks came back out of it in D4, rewritten against
 # principles.md rather than restored, and `settings` went the other way when
 # Settings became a native macOS window in the shell. `breath` went the same
 # way at G3, and `scribe` — the recorder — took the slot it was holding.
@@ -66,7 +66,7 @@ OUT_DIR="${1:-$REPO_ROOT/.snapshots}"
 # those frames to the shell. To see a *particular* state rather than the opening
 # one (a mid-game position, a live score), pass `--props` to dump-commits
 # directly and read the panel.
-APPS=(nowplaying weather scribe timer radio chess tetris)
+APPS=(nowplaying weather scribe timer radio chess blocks)
 
 COMMITS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ledge-commits.XXXXXX")"
 

@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-// Tetris — the well, and one number.
+// Blocks — the well, and one number.
 //
 // SIGNATURE: the bare score. Principle 5's own worked example is this app —
 // "a score is a number, not a labeled box around a number" — and the archive
@@ -15,7 +15,7 @@
 // 4 (the key legend is gone: a game teaches its own arrow keys, and a sentence
 // under a well is a design failure) · 5 (see above) · 12 (the well).
 //
-// Diet, against protocol/demo-apps-archive/tetris:
+// Diet, against protocol/demo-apps-archive/blocks:
 //   CUT   the left wing (a dot and the phase word) · the `NEXT` card and its
 //         second framed canvas · the SCORE / LINES / LEVEL stat boxes · the
 //         B2B / combo box · the labelled Start/Pause/Resume button · the
@@ -35,11 +35,11 @@
 //            pointer on the notch should tell you the score, not drop you into
 //            a live well you did not mean to be responsible for.
 //   WING     none. A game you are not looking at is a game you are losing.
-//   MINI     none. Tetris never interrupts.
+//   MINI     none. Blocks never interrupts.
 //   REDUCE MOTION  audited, and there is nothing to switch off. Every moving
 //            pixel here is the user's own input or the gravity they started —
 //            REFERENCE.md's rule is about *decoration*, and this app has none:
-//            no pulse on a line clear, no flash on a Tetris, no shake, no
+//            no pulse on a line clear, no flash on a four-line clear, no shake, no
 //            animated banner. The one thing that was ambient — the archive's
 //            wing — is cut. So `ctx.reduceMotion` is deliberately unread, and
 //            the honest fix if a clear ever gets a flash is to gate the flash,
@@ -57,12 +57,18 @@
 // socket nothing at all, and the interval is not even running. Collapsing the
 // panel pauses the game outright (`onLifecycle`).
 //
-// Scoring is the Tetris Guideline table (https://tetris.wiki/Scoring, "Recent
-// guideline compatible games") — see the Scoring section below for the exact
-// mapping and the one row this game deliberately cannot implement.
+// Scoring is the guideline-style table most modern falling-block games share
+// — see the Scoring section below for the exact mapping and the one row this
+// game deliberately cannot implement.
+//
+// The piece palette is deliberately *not* the canonical one (cyan I, yellow O,
+// purple T, and so on). The seven shapes are public domain; the shapes together
+// with that exact colour set are the trade dress of a very litigious company.
+// So every piece here wears a hue its canonical self never does. Do not "fix"
+// it back.
 
 export const meta = {
-  name: "Tetris",
+  name: "Blocks",
   icon: "sf:square.grid.3x3.fill",
   // The well wants 368: 336 pt of canvas (14 columns since G2.9 — Manu asked
   // for two more each side of the guideline ten; the panel was reading narrow
@@ -95,25 +101,25 @@ const PREVIEW_ALPHA = "8C"; // ~55%
 // (x, y) → (n − 1 − y, x) quarter turn, which is why O lives in a 2-box (it
 // must rotate to itself) and I in a 4-box.
 const PIECES = {
-  I: { box: 4, color: "#22D3EE", cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
-  O: { box: 2, color: "#FACC15", cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
-  T: { box: 3, color: "#C084FC", cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
-  S: { box: 3, color: "#4ADE80", cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
-  Z: { box: 3, color: "#F87171", cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
-  J: { box: 3, color: "#60A5FA", cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
-  L: { box: 3, color: "#FB923C", cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
+  I: { box: 4, color: "#E2E8F0", cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
+  O: { box: 2, color: "#2DD4BF", cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+  T: { box: 3, color: "#FBBF24", cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
+  S: { box: 3, color: "#818CF8", cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
+  Z: { box: 3, color: "#A3E635", cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
+  J: { box: 3, color: "#F87171", cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
+  L: { box: 3, color: "#38BDF8", cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
 };
 
 const KINDS = Object.keys(PIECES);
 
 // ---------------------------------------------------------------------------
-// Scoring — the Tetris Guideline (https://tetris.wiki/Scoring, "Recent
-// guideline compatible games"). The whole table, verbatim:
+// Scoring — the guideline-style table most modern falling-block games share.
+// The whole table:
 //
 //   Single                 100 × level
 //   Double                 300 × level
 //   Triple                 500 × level
-//   Tetris                 800 × level          (a "difficult" clear)
+//   Four                   800 × level          (a "difficult" clear)
 //   Back-to-back difficult action score × 1.5   (excluding soft/hard drop)
 //   Combo                  50 × combo count × level
 //   Soft drop              1 per cell
@@ -543,7 +549,7 @@ export async function monitor(ctx) {
 /** Grouped, because a score is read at a glance and 12480 is not. */
 const points = (n) => n.toLocaleString("en-US");
 
-export default function Tetris({ score: value = 0, level: tier = 1, phase: state = "ready" }) {
+export default function Blocks({ score: value = 0, level: tier = 1, phase: state = "ready" }) {
   const live = state === "playing";
 
   return (
