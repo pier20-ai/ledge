@@ -105,19 +105,23 @@ const BOARD_Y = 6;
 const CANVAS_W = BOARD_X + BOARD + BOARD_X; // 448
 const CANVAS_H = BOARD_Y + BOARD + 18; // 440 — the file labels live in the last 18
 
-/** The art is ~410 × 537 with a flat base on the bottom edge, so a piece is
- * drawn bottom-aligned inside its square at the sprites' own aspect ratio —
- * squaring them would make every knight look like it had been sat on. */
+/** The art is 251 × 328 per piece, cut from one sheet so every piece shares
+ * the canvas, the aspect ratio, and the baseline: the king fills the height,
+ * the pawn stands on the same bottom edge at its own size, and each piece is
+ * centred on its *base*, not its bounding box, so a knight's overhanging head
+ * does not shove it off-centre in the square. A piece is drawn bottom-aligned
+ * at the sprites' own aspect ratio — squaring them would make every knight look
+ * like it had been sat on. */
 const PIECE_H = 46;
 const PIECE_W = Math.round(PIECE_H * 0.765);
 
-// The board's own palette. Both armies carry a contrasting outline (ivory
-// pieces are outlined near-black, charcoal pieces outlined cream), so the
-// squares only have to avoid the two *fills*: ivory sits at ~#F8E8C8 and
-// charcoal at ~#384048. A mid slate pair clears both by a wide margin in value
-// and sits cool against the warm ivory, while staying well below the panel's
-// own glass in brightness. Law 15 does not reach here: draw ops are pixels, and
-// a palette token in an op silently draws white (REFERENCE.md).
+// The board's own palette. Both armies are faceted stone with a near-black
+// outline: bone (median fill ~#BCB5AA, lit faces up to ~#E6E0D4) and charcoal
+// (~#313332, with bone highlights and a red band). So the squares only have to
+// avoid the two *fills*, and a mid slate pair clears both by a wide margin in
+// value while sitting cool against the warm bone and staying well below the
+// panel's own glass in brightness. Law 15 does not reach here: draw ops are
+// pixels, and a palette token in an op silently draws white (REFERENCE.md).
 const LIGHT_SQUARE = "#A2A9B4";
 const DARK_SQUARE = "#5E6878";
 
