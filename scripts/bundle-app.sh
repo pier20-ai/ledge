@@ -333,25 +333,29 @@ esac
 
 log "signing the host…"
 codesign --remove-signature "$CONTENTS/MacOS/ledge-host" 2>/dev/null || true
-codesign --force --sign "$IDENTITY" \
+# Keep codesign's own words in the failure: the usual first-run culprits (the
+# keychain wanting authorization for the key, the timestamp server) are
+# indistinguishable without them. On the keychain one, running any codesign by
+# hand once — approving the prompt — primes the key, and a rerun passes.
+OUT="$(codesign --force --sign "$IDENTITY" \
   --entitlements "$ENTITLEMENTS" \
   --identifier "dev.ledge.host" \
   --options runtime "$TIMESTAMP" \
-  "$CONTENTS/MacOS/ledge-host" >/dev/null 2>&1 \
-  || fail "could not sign the host"
+  "$CONTENTS/MacOS/ledge-host" 2>&1)" \
+  || fail "could not sign the host: $OUT"
 
 log "signing the app…"
 # Inside-out: nested code first (done above), then the bundle. The bundle pass
 # re-signs the main executable, so it must carry the same hardened-runtime flag.
-codesign --force --sign "$IDENTITY" \
+OUT="$(codesign --force --sign "$IDENTITY" \
   --identifier "$BUNDLE_ID" \
   --options runtime "$TIMESTAMP" \
-  "$CONTENTS/MacOS/LedgeShell" >/dev/null 2>&1 \
-  || fail "could not sign the shell binary"
-codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" \
+  "$CONTENTS/MacOS/LedgeShell" 2>&1)" \
+  || fail "could not sign the shell binary: $OUT"
+OUT="$(codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" \
   --options runtime "$TIMESTAMP" \
-  "$APP" >/dev/null 2>&1 \
-  || fail "could not sign the bundle"
+  "$APP" 2>&1)" \
+  || fail "could not sign the bundle: $OUT"
 
 codesign --verify --deep --strict "$APP" \
   || fail "signature verification failed"
