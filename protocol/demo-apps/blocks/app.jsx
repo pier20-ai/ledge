@@ -70,10 +70,11 @@
 export const meta = {
   name: "Blocks",
   icon: "sf:square.grid.3x3.fill",
-  // The well wants 368: 336 pt of canvas (14 columns since G2.9 — Manu asked
-  // for two more each side of the guideline ten; the panel was reading narrow
-  // on device) + the slab's 2 pt inset each side + the root's 14 pt padding.
-  panel: { width: 368, maxHeight: 640 },
+  // The width is the shell's (480, G6). The well is 336 pt of canvas (14
+  // columns since G2.9 — Manu asked for two more each side of the guideline
+  // ten; the panel was reading narrow on device) in a 2 pt slab, and the root
+  // stack centres it in the glass — it never needed a width of its own.
+  panel: { maxHeight: 640 },
 };
 
 // ---------------------------------------------------------------------------

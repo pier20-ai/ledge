@@ -443,7 +443,8 @@ final class HostSession {
 
     /// The panel size `app` asked for in its `meta.panel` (spec §5 extension),
     /// already clamped to what this screen allows. An app that declared nothing
-    /// gets 440 pt and the screen's own height cap — exactly the old behavior.
+    /// — every default app — gets the fixed 480 pt (G6) and the screen's own
+    /// height cap.
     func panelSize(for app: String?) -> (width: CGFloat, maxHeight: CGFloat) {
         let panel = app.flatMap { id in catalog.first(where: { $0.id == id })?.panel }
         return (limits.width(requesting: panel?.width), limits.height(requesting: panel?.maxHeight))

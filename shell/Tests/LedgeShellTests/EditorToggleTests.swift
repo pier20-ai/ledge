@@ -57,18 +57,20 @@ struct EditorToggleTests {
     }
 
     /// ‹ Back takes the split's anchorage, so the island never moves when the
-    /// surface changes underneath it (principle 8).
+    /// surface changes underneath it (principle 8). Since G6 the anchorage is
+    /// the **leading** edge — the islands hug the glass's ends — so that is
+    /// the edge the two share.
     @Test("Back stands exactly where the split stood")
     func backTakesTheSplitsAnchorage() {
         let surface = makeSurface()
         let bar = surface.panelWingBarView
         surface.setPanelWing(mode: .stage, canToggleGlass: true)
         surface.layoutSubtreeIfNeeded()
-        let splitTrailing = bar.splitView.frame.maxX
+        let splitLeading = bar.splitView.frame.minX
 
         surface.setPanelWing(mode: .editor, canToggleGlass: true)
         surface.layoutSubtreeIfNeeded()
-        #expect(abs(bar.backView.frame.maxX - splitTrailing) < 0.01)
+        #expect(abs(bar.backView.frame.minX - splitLeading) < 0.01)
     }
 
     /// Principle 1's two-tier control law: both islands are beads — one split

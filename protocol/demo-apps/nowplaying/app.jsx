@@ -39,7 +39,7 @@ import { PLAYBACK_NOTIFICATIONS, ensureArtwork, readPlayback, sendCommand } from
 export const meta = {
   name: "Now Playing",
   icon: "sf:waveform",
-  panel: { width: 360 },
+  // No `panel`: the width is the shell's (480, G6) and the height is measured.
 };
 
 // Pacing (spec §4.2): the monitor runs whether the panel is open or not,

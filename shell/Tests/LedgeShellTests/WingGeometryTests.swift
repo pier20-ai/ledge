@@ -104,7 +104,7 @@ struct WingGeometryTests {
         surface.setWing(WingSpec(text: "live", canvas: WingCanvasSpec(id: 1, w: 80)), animated: false)
         // The visit is the panel's own width, floored at the islands' span
         // (G2.4/G2.5) — and the wing contributes nothing either way.
-        let expected = max(440, surface.visitBarWidth) + fillets
+        let expected = max(440, surface.visitFloorWidth) + fillets
         let expanded = surface.shapeSize(expanded: true, width: 440, height: 300)
         #expect(expanded.width == expected)
 

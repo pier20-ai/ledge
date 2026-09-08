@@ -99,16 +99,24 @@ enum NotchScreen {
 }
 
 /// What the screen will let a panel be (spec §5 "Layout & sizing", extended by
-/// the app-declared `meta.panel`). 440 pt stays the default width — an app that
-/// declares nothing gets exactly what it got before — but an app *may* ask for
-/// another width, and asking is all it does: the shell owns the screen, so every
-/// request lands here and is clamped.
+/// the app-declared `meta.panel`).
+///
+/// **The width is frozen** (G6): every panel is `defaultWidth` — the same
+/// glass for every session, so the shell's two islands stand at the same two
+/// places on screen for every app, and an app lays out against a width it
+/// knows. `meta.panel.width` survives as the exception: an app may ask for
+/// *more* — a true well can be worth it — and asking is all it does; the shell
+/// owns the screen, so every request lands here and is clamped. Nothing can ask
+/// for less, because less has no honest layout for the islands.
 ///
 /// This lives next to `NotchMetrics` because it is the same kind of fact: a
 /// measurement of the display the notch is on, not a preference.
 struct PanelLimits: Equatable {
-    /// The width an app gets when it declares no `meta.panel.width` (spec §5).
-    static let defaultWidth: CGFloat = 440
+    /// **The panel width.** One number, every session (G6). The name is kept
+    /// from when it was merely the fallback: it is what an app gets when it
+    /// declares no `meta.panel.width`, and since G6 what it gets otherwise too
+    /// unless it asked for more.
+    static let defaultWidth: CGFloat = 480
     /// Narrowest panel worth drawing: below this the 42 pt strip stops fitting
     /// its icons, and every two-column row in the vocabulary collapses.
     static let minWidth: CGFloat = 320
@@ -144,10 +152,13 @@ struct PanelLimits: Equatable {
         return PanelLimits(maxWidth: width, maxHeight: height)
     }
 
-    /// Clamp an app's requested panel width; `nil` (no declaration) is 440.
+    /// An app's panel width: the fixed width, or its own request if that asked
+    /// for **more** (G6). `nil` — no declaration, every default app — is the
+    /// fixed width; a request below it is the fixed width too, because the
+    /// islands need the glass whatever the app wanted.
     func width(requesting requested: Double?) -> CGFloat {
         guard let requested, requested.isFinite else { return Self.defaultWidth }
-        return min(max(CGFloat(requested), Self.minWidth), maxWidth)
+        return min(max(CGFloat(requested), Self.defaultWidth), maxWidth)
     }
 
     /// Clamp an app's requested max panel height; `nil` is the screen cap.
@@ -162,11 +173,11 @@ struct PanelLimits: Equatable {
     /// (see `ShellSurfaceView`) — it only has to be big enough for all of it.
     @MainActor
     func windowSize(for metrics: NotchMetrics) -> CGSize {
-        // The visit bar is a floor on the expanded shape (`visitBarWidth`), so
-        // it is one of the shapes the window has to contain — stated here rather
-        // than left to the accident that a wing happens to be wider.
+        // The islands' floor (`visitFloorWidth`) bounds the expanded shape from
+        // below, so it is one of the shapes the window has to contain — stated
+        // here rather than left to the accident that a wing happens to be wider.
         let widestShape = max(
-            max(maxWidth, metrics.closedWidth + LedgeMetrics.visitBarWing * 2),
+            max(maxWidth, metrics.closedWidth + LedgeMetrics.visitFloorReach * 2),
             metrics.closedWidth + Self.maxWingWidth * 2
         )
         return CGSize(
@@ -282,12 +293,14 @@ private class PassthroughView: FlippedView {
 /// the row means an app that renders a top row *cannot* collide with the camera,
 /// because its tree starts below it.
 ///
-/// **The controls are notch-anchored, never panel-anchored** (principle 8). Both
-/// hug the cutout's dead zone — the toggle's trailing edge against its left
-/// side, the walker's leading edge against its right — so a session that is
-/// 520 pt wide and one that is 360 pt wide put the same two controls in exactly
-/// the same place on screen. Walking the strip therefore never slides a control
-/// out from under the pointer, which was the old bar's worst habit.
+/// **The controls stand still because the glass does** (principle 8, as
+/// rewritten at G6). Both islands hug the *panel's* ends — the split's leading
+/// edge one pad in from the left, the walker's run ending one pad in from the
+/// right — and every default session is the same fixed width, so every session
+/// puts the same two controls in exactly the same place on screen. Walking the
+/// strip therefore never slides a control out from under the pointer. They used
+/// to hug the cutout's dead zone instead (G2.4), which kept them still but left
+/// them in the middle of the glass, anchored to nothing the eye could see.
 final class PanelWingBarView: FlippedView {
     /// Which surface the visit is showing, and therefore what the left bead
     /// says. The label always names **where the press goes**, never where you
@@ -392,17 +405,13 @@ final class PanelWingBarView: FlippedView {
         menu.popUp(positioning: nil, at: below, in: tear)
     }
 
-    /// **Parked, the islands hug the window's edges** (G2.9): [⌂|✦] at the far
-    /// left, ‹|› at the far right, flex space between. On the notch they hug
-    /// the cutout because the cutout is *there*; in a window the anchor is the
-    /// window itself, and controls pinned to phantom camera geometry read as
-    /// furniture that forgot where it was.
-    var hugsEdges = false {
-        didSet {
-            guard hugsEdges != oldValue else { return }
-            needsLayout = true
-        }
-    }
+    /// **The islands hug the bar's edges** — [⌂|✦] at the far left, ‹|› at
+    /// the far right, the dead zone between them. The parked window did this
+    /// first (G2.9: controls pinned to phantom camera geometry read as furniture
+    /// that forgot where it was); the notch panel joined it at G6, once its
+    /// width was frozen and the bar became the panel itself. Anchored to the
+    /// cutout, the islands sat in the middle of the glass with nothing to
+    /// explain their position; anchored to the edges they frame the content.
 
     /// The hardware cutout's width and the row's height, pushed in by the
     /// surface before every layout. They are measurements of the display, not
@@ -528,16 +537,15 @@ final class PanelWingBarView: FlippedView {
         leftZone.frame = left
         rightZone.frame = right
 
-        // **Hugging the cutout** (Manu's G2.4 conclusion: the controls sit
-        // beside the physical notch as floating islands; the bar band is gone
-        // and the silhouette is one uniform width). Inner-anchored: the
-        // split's trailing edge against the dead zone, the walker's leading
-        // edge against its other side. Parked, the anchors flip outward
-        // (`hugsEdges`, G2.9): far left and far right, flex space between.
+        // **Hugging the edges** (G6; the parked window's G2.9 rule, now the
+        // only rule): the split's leading edge at the bar's leading end, the
+        // walker's run ending at its trailing end, flex space between each and
+        // the dead zone. The zones already stop at the dead zone, so an island
+        // can never reach the camera however narrow the glass.
         let toggle = split.intrinsicContentSize
         let toggleWidth = min(ceil(toggle.width), left.width)
         split.frame = CGRect(
-            x: hugsEdges ? 0 : max(0, left.width - toggleWidth),
+            x: 0,
             y: (left.height - toggle.height) / 2,
             width: toggleWidth,
             height: toggle.height
@@ -548,7 +556,7 @@ final class PanelWingBarView: FlippedView {
         let backSize = back.intrinsicContentSize
         let backWidth = min(ceil(backSize.width), left.width)
         back.frame = CGRect(
-            x: hugsEdges ? 0 : max(0, left.width - backWidth),
+            x: 0,
             y: (left.height - backSize.height) / 2,
             width: backWidth,
             height: backSize.height
@@ -560,7 +568,7 @@ final class PanelWingBarView: FlippedView {
         let tearSize = tear.intrinsicContentSize
         let run = walkerWidth
             + (showsTear ? LedgeMetrics.panelWingGap + tearSize.width : 0)
-        let runX = hugsEdges ? max(0, right.width - run) : 0
+        let runX = max(0, right.width - run)
         walker.frame = CGRect(
             x: runX,
             y: (right.height - walkerSize.height) / 2,
@@ -1656,33 +1664,39 @@ final class ShellSurfaceView: FlippedView {
             )
         }
         // **One uniform width, top to bottom** (Manu's G2.4 conclusion): the
-        // bar band is gone — the controls float beside the cutout as their own
-        // islands — so the shape is the panel, floored at the islands' own
-        // span. The floor is the G2.5 lesson: without it a 320 pt session left
-        // the islands hanging past the glass over bare wallpaper, and every
-        // open and close morphed a shape that never reached its own controls.
-        return CGSize(width: max(width, visitBarWidth) + fillets, height: height)
+        // bar band is gone — the controls are islands on the panel's own top
+        // row — so the shape is the panel, floored at the islands' own span.
+        // The floor is the G2.5 lesson: without it a narrow session left the
+        // islands hanging past the glass over bare wallpaper, and every open and
+        // close morphed a shape that never reached its own controls. Since G6
+        // every session is `PanelLimits.defaultWidth` or wider, so the floor
+        // is a guard for an unusually wide cutout, not a case any app meets.
+        return CGSize(width: max(width, visitFloorWidth) + fillets, height: height)
     }
 
-    /// **The visit bar's width — a constant.**
-    ///
-    /// It is the cutout plus a fixed reach on each side (`visitBarWing`), so it
-    /// is the same on every session and every panel: the widest session and the
-    /// narrowest put Ledge's two controls in exactly the same two places on
-    /// screen (principle 8, and principle 15's "stated once"). The only thing
-    /// that can change it is the display's own cutout.
-    var visitBarWidth: CGFloat {
-        metrics.closedWidth + LedgeMetrics.visitBarWing * 2
+    /// **The least glass a visit can be**: the cutout plus `visitFloorReach`
+    /// each side — enough for both islands to stand clear of the dead zone.
+    /// The panel's fixed width is above it on every shipping display; the floor
+    /// is what widens the shape rather than colliding the islands if a display
+    /// ever is not.
+    var visitFloorWidth: CGFloat {
+        metrics.closedWidth + LedgeMetrics.visitFloorReach * 2
     }
 
-    /// Where the bar sits: centred on the cutout, `panelWingRowHeight` tall.
-    /// Measured from `bounds` rather than from the shape, because the shape is
-    /// the one thing here that a session is allowed to change.
+    /// **The visit bar is the panel** (G6): the islands hug the glass's own
+    /// edges, so the bar is exactly the body — the session's width, floored —
+    /// centred under the cutout and `panelWingRowHeight` tall. Every default
+    /// session is the same width, so this is the same rect for every one of
+    /// them: Ledge's two controls stand at the same two places on screen
+    /// whichever app is up (principle 8). Measured from `bounds` and
+    /// `expandedWidth`, not from the animating shape, so the islands are
+    /// already home when the open lands.
     var visitBarRect: CGRect {
-        CGRect(
-            x: (bounds.width - visitBarWidth) / 2,
+        let width = max(expandedWidth, visitFloorWidth)
+        return CGRect(
+            x: (bounds.width - width) / 2,
             y: 0,
-            width: visitBarWidth,
+            width: width,
             height: panelWingRowHeight
         )
     }
@@ -2109,10 +2123,12 @@ final class ShellSurfaceView: FlippedView {
         // optional — it is what keeps the payload strictly below the cutout
         // (principle 7).
         //
-        // **A constant frame.** The bar is `visitBarRect` and nothing else: not
-        // the panel's width, not the container's. Walking from a 360 pt session
-        // to a 640 pt one moves neither control by a point, which is the whole
-        // of principle 8 and the thing that felt wrong on device.
+        // **The bar is the panel** (G6): `visitBarRect` is the body's width,
+        // and the body is the same fixed width for every default session, so
+        // walking the strip moves neither control by a point — principle 8,
+        // kept by freezing the glass rather than by anchoring to the camera.
+        // Only an app that asked for more glass (the `meta.panel.width`
+        // exception) moves them, and then to *its* edges.
         panelWingBar.isHidden = !presentation.isExpanded
         panelWingBar.cutoutWidth = metrics.closedWidth
         panelWingBar.rowHeight = panelWingRowHeight
@@ -2773,8 +2789,9 @@ final class ShellSurfaceView: FlippedView {
     /// The body is a rounded slab with two fillets tucking its top corners under
     /// the menu bar, and — below the bar — a step in to the panel's own width:
     /// down the bar's edge, along its underside, round a concave fillet, and on
-    /// down the panel. A 440 pt panel under a 489 pt bar is **one silhouette**,
-    /// not a panel parked beneath a strip (principle 6: one material, one body).
+    /// down the panel. A panel narrower than its bar is **one silhouette**, not
+    /// a panel parked beneath a strip (principle 6: one material, one body) —
+    /// degenerate since G2.4, when the silhouette became one uniform width.
     ///
     /// **Every segment is emitted every time, in the same order, whether or not
     /// there is a shoulder** — and that invariance is the whole reason this

@@ -338,6 +338,39 @@ items landed; the rest are marked below with why they did not.
   chess and tetris landed (D4), not in this batch, and it is a real layout
   decision for the gate: scroll the shelf, shrink the slabs, or cap the strip.
 
+## G6 · The panel has one width, and the islands hug its edges — **DONE 2026-09-08**
+
+Manu, on device: the home/chat and ‹|› islands "look extremely weird" beside
+the cutout — stationary, but anchored to nothing the eye can see. The finding
+underneath it: the width was already frozen in practice. The visit bar floored
+every session at cutout + 2 × 124, so on a 234 pt cutout every default app —
+including the ones declaring 360 and 368 — rendered at 482, and the only thing
+`meta.panel.width` could still do was go wider.
+
+So the freeze is now stated (606 shell tests, 382 host):
+
+- **`PanelLimits.defaultWidth` is 480 and is the panel width.** `width(requesting:)`
+  clamps to `[480, screen max]`: an app may ask for *more* glass, never less.
+  No default app declares a width; `chess`'s 482 became 480 by trimming its two
+  coordinate gutters from 16 to 15, `blocks` and `nowplaying` simply dropped
+  theirs (both were floored past them anyway).
+- **The bar is the panel.** `visitBarRect` is the body's width, centred; the
+  islands hug its ends at `panelWingPad` — the parked window's G2.9 layout is
+  now the only layout, and `hugsEdges` is gone. The old constant reach survives
+  as `visitFloorReach` (8 + 101 + 10 = 119): a floor that on every shipping Mac
+  sits below 480 and never shows, kept so an unusually wide cutout widens the
+  shape instead of colliding the islands.
+- **Principle 8 rewritten**: "persistent controls stand still, because the
+  panel has one width". The notch-anchoring was the *mechanism* for standing
+  still; with one width the corners stand still too, and they frame the content.
+- REFERENCE.md "Layout and size" and the `meta` row say 480 and call `width`
+  the exception. Weather's pane grew from 412 to 452 (it was sized for the
+  old 440).
+
+Watch at the next device pass: the open morph's arrival recipe (G2.4) was
+tuned for islands arriving beside the cutout; from the corners it may want a
+beat.
+
 ## Deferred by decision
 
 Drop/intake design (last); Elon Bell (X API paywall); duo-mode wings;

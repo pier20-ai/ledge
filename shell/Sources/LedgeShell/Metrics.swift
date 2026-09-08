@@ -170,25 +170,23 @@ enum LedgeMetrics {
     /// width and the controls hang off *its* outer edges, so this number is
     /// measured from something that never moves.
     static let panelWingPad: CGFloat = 10
-    /// How far the visit bar reaches past the hardware cutout on **each** side.
+    /// The least glass a visit needs past the hardware cutout on **each** side
+    /// — the silhouette's **floor**, not its width.
     ///
-    /// The bar is a *fixed* width — the same on every session, every screen,
-    /// every panel (principle 8: persistent controls are notch-anchored, never
-    /// panel-anchored; principle 15: the number is stated once).
+    /// Since G6 the panel is one fixed width (`PanelLimits.defaultWidth`) and
+    /// the islands hug *its* edges, not the cutout's: [⌂|✦] at the far left,
+    /// ‹|› at the far right, the camera's dead zone between them. This number
+    /// is what keeps that layout honest on a display whose cutout is wider
+    /// than the fixed width allows for: a visit is never narrower than
+    /// `cutout + 2 × visitFloorReach` (`ShellSurfaceView.shapeSize`), so the
+    /// islands can always stand clear of the dead zone.
     ///
-    /// **Derived, not chosen** (G2.5, widened at G2.7 for the tear bead): the
-    /// islands hug the cutout, so the reach is exactly what they need — the
-    /// cutout margin (8), the widest island run (the walker's 67, a 6 pt gap,
-    /// the 28 pt tear bead: 101), and a fillet's worth of breathing (15) so a
-    /// bead never sits on the silhouette's rounded corner. The old 150 was the
-    /// retired bar band's proportion, and it left the islands floating past a
-    /// narrow panel's glass — over bare wallpaper.
-    ///
-    /// The consequence is the silhouette's **floor**: a visit is never narrower
-    /// than `cutout + 2 × visitBarWing`, so the islands always stand on glass
-    /// and the shape stays one uniform width top to bottom
-    /// (`ShellSurfaceView.shapeSize`).
-    static let visitBarWing: CGFloat = 124
+    /// **Derived, not chosen**: the cutout margin (8), the widest island run
+    /// (the walker's 67, a 6 pt gap, the 28 pt tear bead: 101) and the bar's
+    /// own end pad (`panelWingPad`, 10). On every shipping Mac the floor sits
+    /// below the fixed width and never shows; it exists so the day it would
+    /// matter, the shape widens instead of the islands colliding.
+    static let visitFloorReach: CGFloat = panelWingCutoutMargin + 101 + panelWingPad
     /// Gap between items an app puts in its left wing.
     static let panelWingGap: CGFloat = 6
     /// The default left-zone content: the app's catalog name, in the same face

@@ -83,7 +83,7 @@ final class NotchPanel: NSPanel {
 final class NotchPanelController {
     /// Fixed window size: large enough for the biggest shape the surface can
     /// morph into — the widest panel the screen allows (an app may declare more
-    /// than 440 pt now), the widest winged pill, and the tallest panel, plus
+    /// than the fixed 480 pt), the widest winged pill, and the tallest panel, plus
     /// shadow slack. Recomputed only when the screen configuration changes; the
     /// window frame still never animates, the shape morphs inside it.
     private var windowSize: CGSize = PanelLimits.fallback.windowSize(for: .fallback)
@@ -716,7 +716,7 @@ final class NotchPanelController {
             // Floored like the notch's own silhouette (G2.5/G2.8): the window
             // carries the same islands with the same notch-sized gap between
             // them, so it can never be narrower than they are.
-            resizeParked(width: max(width, surface.visitBarWidth), height: height)
+            resizeParked(width: max(width, surface.visitFloorWidth), height: height)
             surface.setContentOwner(.shell)
             surface.present(.collapsed, content: nil, height: 0, animated: animated)
         } else {

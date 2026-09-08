@@ -28,9 +28,12 @@ Sixteen rules. Every surface, mockup, and app follows all of them.
    hover summaries deform the notch itself — downward and outward, with the
    silhouette visibly continuous. The physical notch is an exclusion zone:
    nothing ever renders behind the cutout; content wraps around it.
-8. **Persistent controls are notch-anchored, never panel-anchored.** The panel
-   may take any size, centered under the notch, because no control depends on
-   its frame. A hover earns only a glance surface — the swell, the summary;
+8. **Persistent controls stand still, because the panel has one width.** The
+   panel is one fixed width for every app (480 pt), centered under the notch,
+   and the shell's controls stand at its two top corners — so they are in the
+   same two places on screen whichever app is up. An app may ask for more
+   glass only when a well is truly worth it, and then its controls move out to
+   its edges; none of the default apps do. A hover earns only a glance surface — the swell, the summary;
    the visit opens by click and closes by click, Esc, or a walk-away timeout
    that never fires mid-interaction. A heavy visit owes a hover summary; a
    light one is its own summary.

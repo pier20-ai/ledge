@@ -68,10 +68,11 @@ import { Chess } from "chess.js";
 export const meta = {
   name: "Chess",
   icon: "sf:crown",
-  // The board decides the width: 448 pt of canvas + the slab's 3 pt inset each
-  // side + the root's 14 pt padding. `panel` is a *request* — the shell clamps
-  // it to the screen — and a well this size is exactly what the clamp is for.
-  panel: { width: 482, maxHeight: 600 },
+  // The width is the shell's (480, G6) and the board fits it exactly: 446 pt
+  // of canvas + the slab's 3 pt inset each side + the root's 14 pt padding.
+  // `meta.panel.width` still exists for a well that needs more glass; this
+  // one does not, and no default app asks.
+  panel: { maxHeight: 600 },
 };
 
 // ---------------------------------------------------------------------------
@@ -99,10 +100,11 @@ const SQ = 52;
 const BOARD = SQ * 8; // 416
 // The coordinate gutter is symmetric now that the board is not sharing the
 // panel with a column: an off-centre well reads as a mistake once it is the
-// only thing on the glass.
-const BOARD_X = 16;
+// only thing on the glass. 15, not 16, since G6: the panel is 480 and the
+// board's 416 + slab + padding leaves exactly 30 for the two gutters.
+const BOARD_X = 15;
 const BOARD_Y = 6;
-const CANVAS_W = BOARD_X + BOARD + BOARD_X; // 448
+const CANVAS_W = BOARD_X + BOARD + BOARD_X; // 446
 const CANVAS_H = BOARD_Y + BOARD + 18; // 440 — the file labels live in the last 18
 
 /** The art is 251 × 328 per piece, cut from one sheet so every piece shares

@@ -96,7 +96,7 @@ struct ShapeMorphTests {
 
     private static let fillet = ShellSurfaceView.fillet
     private static let notch = NotchMetrics.fallback          // 210 × 34
-    private static var barWidth: CGFloat { notch.closedWidth + LedgeMetrics.visitBarWing * 2 }
+    private static var barWidth: CGFloat { notch.closedWidth + LedgeMetrics.visitFloorReach * 2 }
 
     /// The collapsed pill, as `applyGeometry` builds it: no wings, a zero-radius
     /// joint clamped into the 34 pt side.

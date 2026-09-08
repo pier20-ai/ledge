@@ -48,7 +48,7 @@ import { rulerOps } from "./ruler.js";
 
 export const meta = { name: "Weather", icon: "sf:cloud.sun" };
 
-const PANE_W = 412; // 440 pt panel − 14 pt of padding either side
+const PANE_W = 452; // the 480 pt panel (G6) − 14 pt of padding either side
 const PANE_H = 188;
 const RULER_H = 38;
 const FRAME_MS = 90; // ~11 fps — weather is slow, and every frame is ~250 ops

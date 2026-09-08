@@ -13,16 +13,19 @@ import Testing
 struct PanelGeometryTests {
     private let limits = PanelLimits(maxWidth: 640, maxHeight: 700)
 
-    @Test("No declaration is the old behavior exactly: 440 pt")
+    @Test("No declaration is the fixed width: 480 pt (G6)")
     func defaultWidth() {
-        #expect(limits.width(requesting: nil) == 440)
-        #expect(PanelLimits.defaultWidth == 440)
+        #expect(limits.width(requesting: nil) == 480)
+        #expect(PanelLimits.defaultWidth == 480)
     }
 
-    @Test("A requested width is clamped to [320, screen max]")
+    /// G6: an app may ask for *more* glass, never less — a narrower request
+    /// has no honest layout for the islands, so it is the fixed width.
+    @Test("A requested width is clamped to [fixed width, screen max]")
     func widthClamped() {
         #expect(limits.width(requesting: 520) == 520)
-        #expect(limits.width(requesting: 100) == PanelLimits.minWidth)
+        #expect(limits.width(requesting: 100) == PanelLimits.defaultWidth)
+        #expect(limits.width(requesting: 360) == PanelLimits.defaultWidth)
         #expect(limits.width(requesting: 4000) == 640)
         #expect(limits.width(requesting: .nan) == PanelLimits.defaultWidth)
     }
@@ -66,8 +69,8 @@ struct PanelGeometryTests {
         let wide = surface.shapeSize(expanded: true, width: 620, height: 300)
         #expect(wide.width == 620 + ShellSurfaceView.fillet * 2)
         let narrow = surface.shapeSize(expanded: true, width: 360, height: 300)
-        #expect(narrow.width == surface.visitBarWidth + ShellSurfaceView.fillet * 2)
-        #expect(360 < surface.visitBarWidth, "the case under test: narrower than the floor")
+        #expect(narrow.width == surface.visitFloorWidth + ShellSurfaceView.fillet * 2)
+        #expect(360 < surface.visitFloorWidth, "the case under test: narrower than the floor")
 
         surface.present(.expanded(app: "chess"), content: nil, width: 520, height: 300, animated: false)
         #expect(surface.expandedWidth == 520)
@@ -77,17 +80,17 @@ struct PanelGeometryTests {
                 == surface.metrics.closedWidth + ShellSurfaceView.fillet * 2)
     }
 
-    /// **The bar is an invariant** (principle 8, and defect 4 on device: the
-    /// controls hugged the cutout instead of sitting at the black bar's outer
-    /// edges). design.html §01 draws a *fixed-width* bar — 470 over a 168 pt
-    /// cutout — with the two controls at its far ends, and a 336 pt panel
-    /// hanging beneath it. So the bar's frame must be the same rect for every
-    /// session, whatever width that session asked for.
-    @Test("The visit bar is one frame, identical across sessions of every width")
+    /// **The bar is the panel** (G6). design.html §01 always drew a
+    /// fixed-width bar with the two controls at its far ends; what changed at
+    /// G6 is that the *panel* is that fixed width too, so the bar and the glass
+    /// are one rect. For every session at the fixed width — which is every
+    /// default session, `PanelLimits.width(requesting:)` sees to it — the bar
+    /// is the same rect; below the floor it is the floor.
+    @Test("The visit bar is one frame, identical across every default session")
     func visitBarIsInvariant() {
         var bars: [CGRect] = []
         var shapes: [CGFloat] = []
-        for width in [PanelLimits.minWidth, 360, PanelLimits.defaultWidth, 520, 640] as [CGFloat] {
+        for width in [PanelLimits.defaultWidth, PanelLimits.defaultWidth, PanelLimits.defaultWidth] {
             let surface = ShellSurfaceView(callbacks: .inert)
             surface.metrics = .fallback                          // 210 × 34
             surface.frame = CGRect(x: 0, y: 0, width: 900, height: 700)
@@ -103,26 +106,24 @@ struct PanelGeometryTests {
             bars.append(surface.convert(bar.bounds, from: bar))
             shapes.append(surface.currentShapeRect.width)
 
-            // The width itself: cutout + a fixed reach each side, and centred on
-            // the cutout so the controls straddle the camera symmetrically.
-            #expect(surface.visitBarWidth
-                    == surface.metrics.closedWidth + LedgeMetrics.visitBarWing * 2)
+            // The bar is the body: the fixed width, centred on the cutout so
+            // the islands straddle the camera symmetrically.
+            #expect(surface.visitBarRect.width == PanelLimits.defaultWidth)
             #expect(abs(surface.visitBarRect.midX - surface.hardwareCutoutRect.midX) < 0.01)
-            // …and wide enough past the cutout for both islands and their
-            // breathing room (the walker is the wider one: 67 + the 8 pt
-            // cutout margin).
-            #expect(surface.visitBarWidth > surface.metrics.closedWidth + 150)
+            // …and the floor beneath it leaves room past the cutout for both
+            // islands and their breathing (the walker's run is the wider one).
+            #expect(surface.visitFloorWidth
+                    == surface.metrics.closedWidth + LedgeMetrics.visitFloorReach * 2)
+            #expect(surface.visitFloorWidth > surface.metrics.closedWidth + 150)
+            #expect(surface.visitFloorWidth <= PanelLimits.defaultWidth,
+                    "on the mockup notch the floor never shows")
         }
         #expect(Set(bars.map { "\($0)" }).count == 1, "the bar moved: \(bars)")
 
-        // The silhouette is the session's width plus fillets — floored at the
-        // bar, so the islands always stand on glass (G2.5) — and one uniform
-        // width top to bottom (G2.4).
-        #expect(shapes.last! > shapes.first!)
-        #expect(shapes.allSatisfy {
-            $0 >= NotchMetrics.fallback.closedWidth
-                + LedgeMetrics.visitBarWing * 2 + ShellSurfaceView.fillet * 2
-        })
+        // The silhouette is the fixed width plus fillets, one uniform width
+        // top to bottom (G2.4), and the same for every one of them.
+        #expect(Set(shapes).count == 1)
+        #expect(shapes.first == PanelLimits.defaultWidth + ShellSurfaceView.fillet * 2)
     }
 
     @Test("A catalog panel declaration drives the session's panel size (§3.6 → §5)")

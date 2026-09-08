@@ -62,17 +62,18 @@ struct ParkedTests {
     /// G2.8/G2.9: the window keeps the notch's floored glass, and its islands
     /// hug the window's own edges — [⌂|✦] at the far left, ‹|› at the far
     /// right, flex space between (Manu: "let the controls hug… that makes the
-    /// app look good. But only in torn-off state").
+    /// app look good"). At G6 the notch panel adopted the same layout, so the
+    /// tail of this test is now the sameness rather than the difference.
     @Test("The window carries the floor, and its islands hug its edges")
     func theWindowHugsItsEdges() throws {
         let (_, controller, _) = try parked()
         let window = try #require(controller.parkedWindowForTesting)
         let view = try #require(controller.parkedSurfaceForTesting)
         let surface = controller.surfaceForTesting
-        #expect(window.frame.width >= surface.visitBarWidth)
+        #expect(window.frame.width >= surface.visitFloorWidth)
+        #expect(window.frame.width >= PanelLimits.defaultWidth)
         view.layoutSubtreeIfNeeded()
         let bar = view.wingBarView
-        #expect(bar.hugsEdges)
         #expect(bar.tearView.isHidden, "a window cannot tear off of itself")
 
         // The split's leading edge at the bar's leading edge; the walker's
@@ -82,8 +83,16 @@ struct ParkedTests {
         #expect(abs(split.minX - LedgeMetrics.panelWingPad) < 0.01)
         #expect(abs(walker.maxX - (bar.bounds.width - LedgeMetrics.panelWingPad)) < 0.01)
 
-        // …and the notch's own bar is untouched: inner-anchored, as it was.
-        #expect(!surface.panelWingBarView.hugsEdges)
+        // …and the notch's own bar does exactly the same (G6): one layout,
+        // two bodies — principle 6, "one material, one body".
+        surface.present(
+            .expanded(app: "settings"), content: FlippedView(),
+            width: PanelLimits.defaultWidth, height: 300, animated: false
+        )
+        surface.layoutSubtreeIfNeeded()
+        let notchBar = surface.panelWingBarView
+        let notchSplit = notchBar.convert(notchBar.splitView.bounds, from: notchBar.splitView)
+        #expect(abs(notchSplit.minX - LedgeMetrics.panelWingPad) < 0.01)
     }
 
     /// G2.10: the window is floored at the islands' span, so a session

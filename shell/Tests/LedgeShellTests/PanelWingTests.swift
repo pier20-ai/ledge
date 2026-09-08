@@ -88,29 +88,43 @@ struct PanelWingTests {
         }
     }
 
-    /// **The bar does not answer to the panel.** It used to be exactly as wide
-    /// as whatever session was on screen, so a 180 pt app left no room for a
-    /// wing and a 640 pt one gave both zones a hundred points of slack. It is a
-    /// constant now (`visitBarWidth`), so the zones are constants too.
-    @Test("The zones are the same on the narrowest session and the widest")
-    func zonesDoNotAnswerToThePanel() {
+    /// **The bar is the panel** (G6). It used to be a constant span around the
+    /// cutout whatever session was up; now the glass is the constant — every
+    /// default session is `PanelLimits.defaultWidth` — and the bar is exactly
+    /// that glass, so the zones run from the panel's edge to the dead zone.
+    /// A session that asked for more (the exception) gets wider zones, and one
+    /// that tried to be narrower is floored so the islands still fit.
+    @Test("The zones span the panel: identical at the fixed width, floored below it")
+    func zonesAreThePanel() {
         var lefts: [CGRect] = []
         var rights: [CGRect] = []
-        for width in [180, PanelLimits.minWidth, 440, 640] as [CGFloat] {
+        for width in [PanelLimits.defaultWidth, PanelLimits.defaultWidth] {
             let surface = makeSurface(width: width)
             let (left, right, dead) = zones(surface)
             lefts.append(left)
             rights.append(right)
-            // Real room on every one of them — enough for the wider island
-            // (the 67 pt walker) with air, which the narrow panel never had.
-            // (The reach shrank from 150 to what the islands need at G2.5.)
+            // Real room on both sides for the wider island (the 67 pt walker
+            // plus the tear bead) with air.
             #expect(left.width > 67)
-            #expect(right.width > 67)
+            #expect(right.width > 101)
             #expect(dead.width == surface.hardwareCutoutRect.width
                     + LedgeMetrics.panelWingCutoutMargin * 2)
+            // The zones reach the glass's own ends, less the bar's pad.
+            let body = surface.currentShapeRect.insetBy(dx: ShellSurfaceView.fillet, dy: 0)
+            #expect(abs(left.minX - (body.minX + LedgeMetrics.panelWingPad)) < 0.01)
+            #expect(abs(right.maxX - (body.maxX - LedgeMetrics.panelWingPad)) < 0.01)
         }
         #expect(Set(lefts.map { "\($0)" }).count == 1)
         #expect(Set(rights.map { "\($0)" }).count == 1)
+
+        // Below the floor the bar is the floor, never the session's width: the
+        // islands always have their glass — at the floor, *exactly* the run
+        // they need, which is how the floor was derived.
+        let narrow = makeSurface(width: 180)
+        let (left, right, _) = zones(narrow)
+        #expect(left.width >= 67)
+        #expect(right.width >= 101)
+        #expect(narrow.visitBarRect.width == narrow.visitFloorWidth)
     }
 
     // MARK: - Ledge's controls (flow.md: in a visit, the wings are Ledge's)
@@ -137,21 +151,21 @@ struct PanelWingTests {
         #expect(walker.maxX <= right.maxX + 0.01)
     }
 
-    /// **Principle 8: persistent controls are notch-anchored, never
-    /// panel-anchored.** This is the assertion that pays for the whole redesign:
-    /// the old bottom strip moved every control whenever the panel resized, so
-    /// walking from a 440 pt session to a 520 pt one slid the next control out
-    /// from under the pointer.
+    /// **Principle 8: persistent controls stand still.** The old bottom strip
+    /// moved every control whenever the panel resized, so walking from one
+    /// session to the next slid the next control out from under the pointer.
     ///
-    /// They hug the **cutout** as floating islands (Manu's G2.4 conclusion:
-    /// the bar band is gone, the silhouette is one uniform width, and the
-    /// controls sit just beside the physical notch).
-    @Test("Switching sessions never moves a control: they hug the cutout")
+    /// Since G6 the law is kept by the glass, not the camera: every default
+    /// session is the same fixed width, and the islands hug **its** edges —
+    /// [⌂|✦] at the far left, the walker's run ending at the far right (Manu:
+    /// hugging the cutout "looked extremely weird"; the parked window's G2.9
+    /// layout is now the only layout). Same width, same two places.
+    @Test("Switching sessions never moves a control: they hug the panel's edges")
     func controlsDoNotMoveWithPanelWidth() {
         var togglePositions: [CGFloat] = []
         var walkerPositions: [CGFloat] = []
-        for width in [PanelLimits.minWidth, PanelLimits.defaultWidth, 520, 640] as [CGFloat] {
-            let surface = makeSurface(width: width)
+        for height in [200, 300, 600] as [CGFloat] {
+            let surface = makeSurface(height: height)
             surface.setPanelWing(mode: .stage, canToggleGlass: true)
             surface.layoutSubtreeIfNeeded()
             let bar = surface.panelWingBarView
@@ -159,19 +173,46 @@ struct PanelWingTests {
             // described in, and therefore the space "on screen" means.
             let toggle = surface.convert(bar.splitView.bounds, from: bar.splitView)
             let walker = surface.convert(bar.walkerView.bounds, from: bar.walkerView)
+            let tear = surface.convert(bar.tearView.bounds, from: bar.tearView)
             togglePositions.append(toggle.minX)
             walkerPositions.append(walker.maxX)
-            // Inner-anchored: trailing edge against the dead zone's near side,
-            // leading edge against its far side.
-            let deadRect = zones(surface).dead
-            #expect(abs(toggle.maxX - deadRect.minX) < 0.01)
-            #expect(abs(walker.minX - deadRect.maxX) < 0.01)
-            // …and still clear of the camera, which is the other half of the law.
+            // Edge-anchored: the split's leading edge one pad in from the
+            // glass's left end, the run's trailing edge one pad in from its
+            // right end.
+            let body = surface.currentShapeRect.insetBy(dx: ShellSurfaceView.fillet, dy: 0)
+            #expect(abs(toggle.minX - (body.minX + LedgeMetrics.panelWingPad)) < 0.01)
+            let runEnd = bar.tearView.isHidden ? walker.maxX : tear.maxX
+            #expect(abs(runEnd - (body.maxX - LedgeMetrics.panelWingPad)) < 0.01)
+            // …and clear of the camera, which is the other half of the law.
             #expect(toggle.maxX <= zones(surface).dead.minX + 0.01)
             #expect(walker.minX >= zones(surface).dead.maxX - 0.01)
         }
+        // Every default session is the fixed width (`PanelLimits` sees to
+        // it), so every default session puts the controls in the same place.
         #expect(Set(togglePositions.map { round($0) }).count == 1)
         #expect(Set(walkerPositions.map { round($0) }).count == 1)
+    }
+
+    /// The exception, and what it costs: an app that asked for more glass
+    /// (`meta.panel.width`, G6's one escape hatch) moves the islands to *its*
+    /// edges. That is the point of anchoring to the edges — a wider well is
+    /// framed by its own controls, not by controls left behind at the old
+    /// width — and it is why no default app declares one.
+    @Test("A wider session takes its islands with it, to its own edges")
+    func widerSessionMovesTheIslandsToItsEdges() {
+        let fixed = makeSurface()
+        let wide = makeSurface(width: 640)
+        for surface in [fixed, wide] {
+            surface.setPanelWing(mode: .stage, canToggleGlass: true)
+            surface.layoutSubtreeIfNeeded()
+        }
+        let edge = { (s: ShellSurfaceView) -> CGFloat in
+            let bar = s.panelWingBarView
+            return s.convert(bar.splitView.bounds, from: bar.splitView).minX
+        }
+        let body = wide.currentShapeRect.insetBy(dx: ShellSurfaceView.fillet, dy: 0)
+        #expect(abs(edge(wide) - (body.minX + LedgeMetrics.panelWingPad)) < 0.01)
+        #expect(edge(wide) < edge(fixed), "more glass, and the island went to its end")
     }
 
     /// The geometry is identical regardless of *which* session is on screen,
@@ -189,22 +230,25 @@ struct PanelWingTests {
         // about.
         let before = surface.convert(bar.splitView.bounds, from: bar.splitView)
 
-        // A different session, a different width, the editor showing.
+        // A different session, a different height, the editor showing — at
+        // the fixed width, as every default session is (G6).
         surface.present(
             .chat(app: "chess"),
             content: FlippedView(),
-            width: 520,
+            width: PanelLimits.defaultWidth,
             height: 360,
             animated: false
         )
         surface.setPanelWing(mode: .editor, canToggleGlass: true)
         surface.layoutSubtreeIfNeeded()
         // G2.6: the editor wears ‹ Back, in the split's exact anchorage — only
-        // the island changed, not the place.
+        // the island changed, not the place. Since G6 the anchorage is the
+        // leading edge (the islands hug the glass's ends), so that is the
+        // edge that must not move.
         #expect(bar.splitView.isHidden)
         #expect(!bar.backView.isHidden)
         let after = surface.convert(bar.backView.bounds, from: bar.backView)
-        #expect(abs(after.maxX - before.maxX) < 0.01)
+        #expect(abs(after.minX - before.minX) < 0.01)
         #expect(after.height == before.height)
     }
 
