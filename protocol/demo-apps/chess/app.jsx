@@ -115,15 +115,21 @@ const CANVAS_H = BOARD_Y + BOARD + 18; // 440 — the file labels live in the la
 const PIECE_H = 46;
 const PIECE_W = Math.round(PIECE_H * 0.765);
 
-// The board's own palette. Both armies are faceted stone with a near-black
-// outline: bone (median fill ~#BCB5AA, lit faces up to ~#E6E0D4) and charcoal
-// (~#313332, with bone highlights and a red band). So the squares only have to
-// avoid the two *fills*, and a mid slate pair clears both by a wide margin in
-// value while sitting cool against the warm bone and staying well below the
-// panel's own glass in brightness. Law 15 does not reach here: draw ops are
-// pixels, and a palette token in an op silently draws white (REFERENCE.md).
-const LIGHT_SQUARE = "#A2A9B4";
-const DARK_SQUARE = "#5E6878";
+// The board's own palette: the poster triad the pieces already speak — aged
+// paper, oxblood, and the black glass as the ink. Both armies are faceted stone
+// with a near-black outline: bone (median fill ~#BCB5AA, lit faces up to
+// ~#E6E0D4) and charcoal (~#313332, with bone highlights and a red band). The
+// cream sits a step below the bone's lit faces and a step above its median, so
+// a bone piece on a light square reads by its outline — as it does on every
+// printed board — and the oxblood is deep enough that charcoal keeps its bone
+// highlights against it and the band still shows red. The margin around the
+// squares stays the glass: the coordinates and the printed border are drawn in
+// the same cream ink, thinned, so nothing outside the well carries a hue.
+// Law 15 does not reach here: draw ops are pixels, and a palette token in an
+// op silently draws white (REFERENCE.md).
+const LIGHT_SQUARE = "#D6CBAF";
+const DARK_SQUARE = "#742C27";
+const BORDER_INK = "#D6CBAF66"; // the hairline round the squares, like a printed board
 
 // Overlay tints, keeping the semantics the `fill` tokens used to carry: accent
 // for the square you picked up, green for where it may go, violet for the move
@@ -132,7 +138,7 @@ const SELECTED_TINT = "#FFB4548C";
 const TARGET_TINT = "#30D1583D";
 const TARGET_DOT = "#30D158B0";
 const LAST_MOVE_TINT = "#8F5DFF3A";
-const LABEL_COLOR = "#FFFFFF59";
+const LABEL_COLOR = "#D6CBAF8C";
 
 const HUMAN = "w";
 const ENGINE_SIDE = "b";
@@ -405,6 +411,21 @@ function drawBoard() {
       }
     }
   }
+
+  // The printed border: one cream hairline a pixel outside the squares, the
+  // way a card board carries a rule between the field and its coordinates.
+  ops.push({
+    op: "line",
+    points: [
+      [BOARD_X - 0.5, BOARD_Y - 0.5],
+      [BOARD_X + BOARD + 0.5, BOARD_Y - 0.5],
+      [BOARD_X + BOARD + 0.5, BOARD_Y + BOARD + 0.5],
+      [BOARD_X - 0.5, BOARD_Y + BOARD + 0.5],
+      [BOARD_X - 0.5, BOARD_Y - 0.5],
+    ],
+    stroke: BORDER_INK,
+    width: 1,
+  });
 
   // Files along the bottom, ranks down the left gutter. `text` draws from its
   // top-left in the same y-down space as everything else here. These are board
