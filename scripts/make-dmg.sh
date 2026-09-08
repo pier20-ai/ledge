@@ -41,10 +41,13 @@ VOLNAME="Ledge"
 DMG="$REPO_ROOT/dist/Ledge-$VERSION.dmg"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/ledge-dmg.XXXXXX")"
 RW="$STAGE/rw.dmg"
-trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true; rm -rf "$STAGE"' EXIT
+MOUNT=""
+trap '[ -n "$MOUNT" ] && hdiutil detach "$MOUNT" -quiet 2>/dev/null; rm -rf "$STAGE"' EXIT
 
 # --- stage ------------------------------------------------------------------
-log "staging $VOLNAME $VERSION…"
+# ${VERSION} braced: some locales let bash fold a following multibyte char
+# (the ellipsis) into the variable name, and set -u makes that fatal.
+log "staging $VOLNAME ${VERSION}…"
 mkdir -p "$STAGE/root/.background"
 cp -R "$APP" "$STAGE/root/Ledge.app"
 ln -s /Applications "$STAGE/root/Applications"
