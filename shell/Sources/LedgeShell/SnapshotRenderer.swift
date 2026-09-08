@@ -352,8 +352,9 @@ enum SnapshotRenderer {
         return view
     }
 
-    /// The parked window, in a view a little larger than itself so the window
-    /// rung of the shadow ramp is in the PNG rather than clipped off it.
+    /// The parked window. The view carries its own shadow margin (it is the
+    /// window, margin and all), so the window rung of the shadow ramp is in
+    /// the PNG without a stage around it.
     private static func parkedSurface(
         app: String,
         content: NSView,
@@ -364,17 +365,13 @@ enum SnapshotRenderer {
         body.rowHeight = NotchMetrics.fallback.closedHeight
         body.setPanelWing(mode: .stage, canToggleGlass: true)
         body.present(.expanded(app: app), content: content, animated: false)
-        let margin = PanelLimits.shadowMargin
-        // The window's height, not the panel's: the window spends its own top
+        // The body's height, not the panel's: the window spends its own top
         // pad, and sized to the panel it clipped the content's last line.
-        let windowHeight = ParkedSurfaceView.windowHeight(forPanelHeight: height)
-        body.frame = CGRect(
-            origin: CGPoint(x: margin, y: margin),
-            size: CGSize(width: width, height: windowHeight)
+        let size = ParkedSurfaceView.windowSize(
+            forBody: CGSize(width: width, height: ParkedSurfaceView.bodyHeight(forPanelHeight: height))
         )
-        let stage = FlippedView(
-            frame: CGRect(x: 0, y: 0, width: width + margin * 2, height: windowHeight + margin * 2)
-        )
+        body.frame = CGRect(origin: .zero, size: size)
+        let stage = FlippedView(frame: CGRect(origin: .zero, size: size))
         stage.addSubview(body)
         stage.layoutSubtreeIfNeeded()
         stage.displayIfNeeded()

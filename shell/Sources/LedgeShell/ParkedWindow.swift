@@ -35,17 +35,41 @@ final class ParkedWindow: NSPanel {
 /// and one control the panel does not have: the ⌃ that flies it home.
 @MainActor
 final class ParkedSurfaceView: FlippedView {
-    /// Air between the window's top edge and the chrome row (G2.4).
+    /// Air between the body's top edge and the chrome row (G2.4).
     static let topPad: CGFloat = 6
 
-    /// The window for a panel this tall: the panel's height plus `topPad`.
-    /// The session measured its tree against the notch's chrome row alone
+    /// **The slack around the body for its shadow** — the notch window's own
+    /// (`PanelLimits.shadowMargin`). The body draws inset by it on all four
+    /// sides, so the shadow falls off *inside* the window. It used to be the
+    /// window's exact size, which cut the shadow square at the window's edge:
+    /// the hard-edged grey block at every rounded corner, on any desktop light
+    /// enough to show a shadow, was the window clipping its own. Nothing but
+    /// the shadow is ever drawn in the margin, and nothing there is hit-tested.
+    static let margin: CGFloat = PanelLimits.shadowMargin
+
+    /// Where the body is: the window inset by `margin`.
+    var bodyRect: CGRect { bounds.insetBy(dx: Self.margin, dy: Self.margin) }
+
+    /// The body for a panel this tall: the panel's height plus `topPad`. The
+    /// session measured its tree against the notch's chrome row alone
     /// (`HostSession.chromeHeight`), and the window spends `topPad` on top of
-    /// that row — so a window exactly the panel's height gave the content six
+    /// that row — so a body exactly the panel's height gave the content six
     /// points less than it was measured at, and every parked app lost the
     /// bottom of its last line. Both sizing sites go through here.
-    static func windowHeight(forPanelHeight height: CGFloat) -> CGFloat {
+    static func bodyHeight(forPanelHeight height: CGFloat) -> CGFloat {
         height + topPad
+    }
+
+    /// The window for a body this size: the body plus `margin` all round.
+    static func windowSize(forBody size: CGSize) -> CGSize {
+        CGSize(width: size.width + margin * 2, height: size.height + margin * 2)
+    }
+
+    /// The body's frame, read back from the window's — the controller's every
+    /// geometry question (the corner the user holds, "is it at the notch") is
+    /// about the glass they can see, never the transparent margin.
+    static func bodyFrame(ofWindow frame: CGRect) -> CGRect {
+        frame.insetBy(dx: margin, dy: margin)
     }
 
     /// The ⌃ (design.html §04 `.window .home`).
@@ -248,7 +272,8 @@ final class ParkedSurfaceView: FlippedView {
     func showSwell(_ content: NSView, height: CGFloat, animated: Bool, onClick: @escaping () -> Void) {
         swell.adopt(content, onClick: onClick)
         swell.isHidden = false
-        swell.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
+        let slab = bodyRect
+        swell.frame = CGRect(x: slab.minX, y: slab.minY, width: slab.width, height: height)
         swell.needsLayout = true
         guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             swell.alphaValue = 1
@@ -284,8 +309,11 @@ final class ParkedSurfaceView: FlippedView {
 
     override func layout() {
         super.layout()
+        // The body is the window inset by `margin` — the shadow falls in the
+        // margin, and nothing else is ever drawn there.
+        let slab = bodyRect
         let path = CGPath(
-            roundedRect: bounds,
+            roundedRect: slab,
             cornerWidth: LedgeMetrics.rWindow,
             cornerHeight: LedgeMetrics.rWindow,
             transform: nil
@@ -295,13 +323,13 @@ final class ParkedSurfaceView: FlippedView {
         body.path = path
         body.shadowPath = path
         rim.path = path
-        applyBodyMaterial(path: path)
+        applyBodyMaterial(slab: slab)
         CATransaction.commit()
 
         let homeSize = home.intrinsicContentSize
         home.frame = CGRect(
-            x: bounds.width - homeSize.width - LedgeMetrics.parkedHomeInset,
-            y: Self.topPad + (rowHeight - homeSize.height) / 2,
+            x: slab.maxX - homeSize.width - LedgeMetrics.parkedHomeInset,
+            y: slab.minY + Self.topPad + (rowHeight - homeSize.height) / 2,
             width: homeSize.width,
             height: homeSize.height
         )
@@ -311,25 +339,25 @@ final class ParkedSurfaceView: FlippedView {
         // window read as different chrome.
         wingBar.cutoutWidth = cutoutWidth
         wingBar.rowHeight = rowHeight
-        // A breath below the window's top edge (G2.4: the beads were touching
+        // A breath below the body's top edge (G2.4: the beads were touching
         // it — the notch panel gets this air from the cutout row; the window
         // has to spend its own).
         wingBar.frame = CGRect(
-            x: 0,
-            y: Self.topPad,
-            width: max(0, home.frame.minX - LedgeMetrics.parkedHomeInset),
+            x: slab.minX,
+            y: slab.minY + Self.topPad,
+            width: max(0, home.frame.minX - LedgeMetrics.parkedHomeInset - slab.minX),
             height: rowHeight
         )
         wingBar.needsLayout = true
 
         // The session's content keeps its own declared width, centred in the
         // floored glass — the notch panel's G2.5 law, kept by the window.
-        let width = contentWidth > 0 ? min(contentWidth, bounds.width) : bounds.width
+        let width = contentWidth > 0 ? min(contentWidth, slab.width) : slab.width
         contentHost.frame = CGRect(
-            x: (bounds.width - width) / 2,
-            y: Self.topPad + rowHeight,
+            x: slab.minX + (slab.width - width) / 2,
+            y: slab.minY + Self.topPad + rowHeight,
             width: width,
-            height: max(0, bounds.height - rowHeight - Self.topPad)
+            height: max(0, slab.height - rowHeight - Self.topPad)
         )
         // The same rounded outline the body draws, carried into the host's
         // coordinates: the clip is the body itself, not a second shape that
@@ -355,8 +383,19 @@ final class ParkedSurfaceView: FlippedView {
             currentContent.autoresizingMask = [.width, .height]
         }
         if !swell.isHidden {
-            swell.frame = CGRect(x: 0, y: 0, width: bounds.width, height: swell.frame.height)
+            swell.frame = CGRect(
+                x: slab.minX, y: slab.minY, width: slab.width, height: swell.frame.height
+            )
         }
+    }
+
+    /// The margin is the shadow's, not Ledge's: a click there goes to whatever
+    /// is under the window — the same rule the notch surface keeps for the
+    /// glass around its shape. (`point` is in the superview's space; as the
+    /// window's content view that is the window's own.)
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bodyRect.contains(convert(point, from: superview)) else { return nil }
+        return super.hitTest(point)
     }
 
     /// The frost exists only while the surface is in a window (see
@@ -367,8 +406,8 @@ final class ParkedSurfaceView: FlippedView {
         needsLayout = true
     }
 
-    private func applyBodyMaterial(path: CGPath) {
-        let glass = bodyMaterial == .chatGlass && bounds.height > 0
+    private func applyBodyMaterial(slab: CGRect) {
+        let glass = bodyMaterial == .chatGlass && slab.height > 0
         body.fillColor = glass ? nil : NSColor.black.cgColor
         bodyGlass.isHidden = !glass
         // Only with a window behind to blur — offscreen the material falls back
@@ -377,12 +416,20 @@ final class ParkedSurfaceView: FlippedView {
         bodyFrost.isHidden = !glass || window == nil
         bodyFrost.layer?.zPosition = ShellSurfaceView.frostZPosition
         guard glass else { return }
-        let bar = min(1, rowHeight / bounds.height)
-        bodyGlass.frame = bounds
-        bodyGlassMask.frame = bounds
-        bodyGlassMask.path = path
-        bodyFrost.frame = bounds
-        bodyFrost.maskImage = ShellSurfaceView.maskImage(for: path, size: bounds.size)
+        // The gradient and the frost take the body's rectangle, so their
+        // outline is the body's own path at the origin.
+        let local = CGPath(
+            roundedRect: CGRect(origin: .zero, size: slab.size),
+            cornerWidth: LedgeMetrics.rWindow,
+            cornerHeight: LedgeMetrics.rWindow,
+            transform: nil
+        )
+        let bar = min(1, rowHeight / slab.height)
+        bodyGlass.frame = slab
+        bodyGlassMask.frame = bodyGlass.bounds
+        bodyGlassMask.path = local
+        bodyFrost.frame = slab
+        bodyFrost.maskImage = ShellSurfaceView.maskImage(for: local, size: slab.size)
         bodyGlass.colors = [NSColor.black.cgColor] + LedgeGlass.chat.map { $0.color.cgColor }
         bodyGlass.locations = [0]
             + LedgeGlass.chat.map { NSNumber(value: Double(bar + (1 - bar) * $0.at)) }

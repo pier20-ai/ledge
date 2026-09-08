@@ -372,11 +372,21 @@ tests (608 shell): the window was sized to the *panel's* height but spends
 its own 6 pt top pad, so every parked app lost the bottom of its last line
 (pre-existing — `ParkedSurfaceView.windowHeight(forPanelHeight:)` is now the
 one sizing rule for both sizing sites and the snapshot renderer); and the
-parked content host never clipped to the body, which G6 exposed — the chat
-pane's web view paints an opaque square backdrop, and at exactly the body's
-width its corners stood out past the rounded glass. The host now carries the
-body's own outline as a layer mask, the way the notch's `contentContainer`
-clips.
+parked content host never clipped to the body (the chat pane's web view
+paints an opaque square backdrop) — the host now carries the body's own
+outline as a layer mask, the way the notch's `contentContainer` clips. That
+was hygiene, not the corner defect Manu saw: **the window was exactly the
+body's size, so the body's drop shadow was cut square at the window's edge**
+— a hard grey block outside every rounded corner on any light desktop, there
+since the first tear. Found by capturing the parked window through the
+window server from a test and reading the corner's alpha (54: shadow, not
+frost — the frost's mask is fine). The window now carries the notch window's
+own `shadowMargin` (28) around the body: `ParkedSurfaceView.margin`,
+`bodyRect`, `windowSize(forBody:)` / `bodyFrame(ofWindow:)`, and the
+controller's every geometry question (the held corner, "at the notch",
+settle, resize) is asked of the body frame. The margin hit-tests to nothing.
+`SelfAdvanceTests.realTimerRuns` polls for the tick instead of sleeping a
+fixed 150 ms (it failed ~1 in 3 under the parallel runner).
 
 Watch at the next device pass: the open morph's arrival recipe (G2.4) was
 tuned for islands arriving beside the cutout; from the corners it may want a

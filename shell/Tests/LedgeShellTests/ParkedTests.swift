@@ -70,8 +70,9 @@ struct ParkedTests {
         let window = try #require(controller.parkedWindowForTesting)
         let view = try #require(controller.parkedSurfaceForTesting)
         let surface = controller.surfaceForTesting
-        #expect(window.frame.width >= surface.visitFloorWidth)
-        #expect(window.frame.width >= PanelLimits.defaultWidth)
+        let body = ParkedSurfaceView.bodyFrame(ofWindow: window.frame)
+        #expect(body.width >= surface.visitFloorWidth)
+        #expect(body.width >= PanelLimits.defaultWidth)
         view.layoutSubtreeIfNeeded()
         let bar = view.wingBarView
         #expect(bar.tearView.isHidden, "a window cannot tear off of itself")
@@ -108,11 +109,12 @@ struct ParkedTests {
         // The fixture's app has no tree, so what parked is the placeholder
         // card — whose panel height is a known number: the card plus the row.
         let panelHeight = HostPlaceholderView.panelHeight + controller.surfaceForTesting.panelWingRowHeight
-        #expect(window.frame.height == ParkedSurfaceView.windowHeight(forPanelHeight: panelHeight))
+        let body = ParkedSurfaceView.bodyFrame(ofWindow: window.frame)
+        #expect(body.height == ParkedSurfaceView.bodyHeight(forPanelHeight: panelHeight))
         view.layoutSubtreeIfNeeded()
         // The content gets what it was measured at: the panel less the row.
         #expect(abs(view.contentHostFrame.height - (panelHeight - view.rowHeight)) < 0.01)
-        #expect(ParkedSurfaceView.windowHeight(forPanelHeight: 300) == 300 + ParkedSurfaceView.topPad)
+        #expect(ParkedSurfaceView.bodyHeight(forPanelHeight: 300) == 300 + ParkedSurfaceView.topPad)
     }
 
     /// The content clips to the body's rounded outline, as it does in the
@@ -136,6 +138,30 @@ struct ParkedTests {
         #expect(path.contains(CGPoint(x: 0.5, y: host.height / 2)))
     }
 
+    /// The window is the body plus a transparent margin for the shadow — the
+    /// notch window's own slack. Sized to the body exactly, the window cut its
+    /// shadow square at its edge: a hard grey block at every rounded corner
+    /// (the "corner problem", present from the first tear — not a G6
+    /// regression). The body draws inset, and the margin is nobody's: a click
+    /// there falls through to whatever is under the window.
+    @Test("The body is inset by the shadow margin, and the margin is not Ledge's")
+    func theBodyLeavesRoomForItsShadow() throws {
+        let (_, controller, _) = try parked()
+        let view = try #require(controller.parkedSurfaceForTesting)
+        view.layoutSubtreeIfNeeded()
+        let margin = ParkedSurfaceView.margin
+        #expect(margin == PanelLimits.shadowMargin, "the same slack the notch window carries")
+        #expect(view.bodyRect == view.bounds.insetBy(dx: margin, dy: margin))
+        // Everything drawn sits inside the body.
+        #expect(view.bodyRect.contains(view.wingBarView.frame))
+        #expect(view.bodyRect.contains(view.homeBead.frame))
+        #expect(view.bodyRect.contains(view.contentHostFrame))
+        // The margin falls through; the body does not.
+        #expect(view.hitTest(CGPoint(x: 2, y: 2)) == nil)
+        #expect(view.hitTest(CGPoint(x: view.bounds.width - 2, y: view.bounds.height - 2)) == nil)
+        #expect(view.hitTest(CGPoint(x: view.bounds.midX, y: view.bounds.midY)) != nil)
+    }
+
     /// G2.10: the window is floored at the islands' span, so a session
     /// narrower than the floor sits centred in the wider glass — the notch's
     /// own law, kept by the window (blocks was left-hugging on device).
@@ -147,7 +173,7 @@ struct ParkedTests {
         try #require(view.contentWidth > 0)
         let host = view.contentHostFrame
         #expect(abs(host.midX - view.bounds.midX) < 0.5, "centred, not left-hugging")
-        #expect(host.width == min(view.contentWidth, view.bounds.width))
+        #expect(host.width == min(view.contentWidth, view.bodyRect.width))
     }
 
     /// G2.10: a walk that pulls the glass out from under a stationary pointer
@@ -220,15 +246,13 @@ struct ParkedTests {
         let screen = try #require(window.screen ?? NSScreen.main)
         #expect(!controller.parkedWindowIsAtTheNotchForTesting, "parked at 400,400: not the notch")
 
-        // Against the ceiling but far to the side: near nothing that means home.
+        // Against the ceiling but far to the side: near nothing that means
+        // home. "Against" is the *body* — the window's transparent shadow
+        // margin reaches `margin` past it.
         let frame = window.frame
+        let ceiling = screen.visibleFrame.maxY + ParkedSurfaceView.margin - frame.height
         window.setFrame(
-            CGRect(
-                x: screen.frame.minX,
-                y: screen.visibleFrame.maxY - frame.height,
-                width: frame.width,
-                height: frame.height
-            ),
+            CGRect(x: screen.frame.minX, y: ceiling, width: frame.width, height: frame.height),
             display: true
         )
         #expect(controller.isParked, "the corner of the screen is not the notch")
@@ -238,7 +262,7 @@ struct ParkedTests {
         window.setFrame(
             CGRect(
                 x: screen.frame.midX - frame.width / 2,
-                y: screen.visibleFrame.maxY - frame.height,
+                y: ceiling,
                 width: frame.width,
                 height: frame.height
             ),
@@ -260,10 +284,15 @@ struct ParkedTests {
         let corner = CGPoint(x: 520, y: 640)
         controller.parkForTesting(at: corner)
         let window = try #require(controller.parkedWindowForTesting)
-        #expect(abs(window.frame.minX - corner.x) < 0.5)
-        #expect(abs(window.frame.maxY - corner.y) < 0.5, "the corner the fingers were holding")
-        #expect(window.frame.width >= PanelLimits.minWidth)
-        #expect(window.frame.height >= PanelLimits.minHeight)
+        // The corner is the body's: the glass under the fingers, not the
+        // transparent shadow margin around it.
+        let body = ParkedSurfaceView.bodyFrame(ofWindow: window.frame)
+        #expect(abs(body.minX - corner.x) < 0.5)
+        #expect(abs(body.maxY - corner.y) < 0.5, "the corner the fingers were holding")
+        #expect(body.width >= PanelLimits.minWidth)
+        #expect(body.height >= PanelLimits.minHeight)
+        #expect(window.frame.width == body.width + ParkedSurfaceView.margin * 2,
+                "the window is the body plus the shadow's slack")
     }
 
     @Test("The tear threshold is a deliberate pull, downward, and it is stated once")
@@ -312,7 +341,9 @@ struct ParkedTests {
 
         for _ in 0..<3 {
             _ = controller.handleSwipe(.left)
-            let frame = try #require(controller.parkedWindowForTesting).frame
+            let frame = ParkedSurfaceView.bodyFrame(
+                ofWindow: try #require(controller.parkedWindowForTesting).frame
+            )
             #expect(abs(frame.minX - corner.x) < 0.5)
             #expect(abs(frame.maxY - corner.y) < 0.5)
         }

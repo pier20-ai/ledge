@@ -718,7 +718,7 @@ final class NotchPanelController {
             // them, so it can never be narrower than they are.
             resizeParked(
                 width: max(width, surface.visitFloorWidth),
-                height: ParkedSurfaceView.windowHeight(forPanelHeight: height)
+                height: ParkedSurfaceView.bodyHeight(forPanelHeight: height)
             )
             surface.setContentOwner(.shell)
             surface.present(.collapsed, content: nil, height: 0, animated: animated)
@@ -1048,7 +1048,7 @@ final class NotchPanelController {
         // a window the panel's exact height was six points short.
         let size = CGSize(
             width: max(PanelLimits.minWidth, shape.width - ShellSurfaceView.fillet * 2),
-            height: ParkedSurfaceView.windowHeight(
+            height: ParkedSurfaceView.bodyHeight(
                 forPanelHeight: max(PanelLimits.minHeight, shape.height)
             )
         )
@@ -1117,25 +1117,39 @@ final class NotchPanelController {
 
     private func moveParked(to topLeft: CGPoint) {
         guard let parked else { return }
-        setParkedFrame(topLeft: topLeft, size: parked.window.frame.size)
+        setParkedFrame(topLeft: topLeft, size: parkedBodyFrame?.size ?? parked.window.frame.size)
     }
 
+    /// `topLeft` and `size` are the **body's** — the glass the user sees and
+    /// holds. The window is that plus `ParkedSurfaceView.margin` all round,
+    /// for the shadow; nothing else here ever thinks in window frames.
     private func setParkedFrame(topLeft: CGPoint, size: CGSize) {
         guard let parked else { return }
         parkedCorner = topLeft
         movingParkedProgrammatically = true
+        let window = ParkedSurfaceView.windowSize(forBody: size)
+        let margin = ParkedSurfaceView.margin
         parked.window.setFrame(
-            CGRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height),
+            CGRect(
+                x: topLeft.x - margin,
+                y: topLeft.y - size.height - margin,
+                width: window.width,
+                height: window.height
+            ),
             display: true
         )
         movingParkedProgrammatically = false
     }
 
+    /// The body's frame on screen — the window's less the shadow margin.
+    private var parkedBodyFrame: CGRect? {
+        parked.map { ParkedSurfaceView.bodyFrame(ofWindow: $0.window.frame) }
+    }
+
     /// The parked window moved. Ours (`setParkedFrame`) is already accounted
     /// for; the user's own background-drag is the case this exists for.
     private func parkedWindowMoved() {
-        guard let parked, !movingParkedProgrammatically else { return }
-        let frame = parked.window.frame
+        guard !movingParkedProgrammatically, let frame = parkedBodyFrame else { return }
         // One position for Ledge, and it is wherever the user just put it.
         parkedCorner = CGPoint(x: frame.minX, y: frame.maxY)
         // Dropped at the notch, it flies home (G2.8). "Dropped" is when the
@@ -1166,8 +1180,8 @@ final class NotchPanelController {
     /// The system constrains a background-drag below the menu bar, so "at the
     /// top" is the visible frame's ceiling, not the screen's.
     private var parkedWindowIsAtTheNotch: Bool {
-        guard let parked, let screen = parked.window.screen ?? NSScreen.main else { return false }
-        let frame = parked.window.frame
+        guard let parked, let screen = parked.window.screen ?? NSScreen.main,
+              let frame = parkedBodyFrame else { return false }
         guard frame.maxY >= screen.visibleFrame.maxY - 8 else { return false }
         let cutout = surface.metrics.closedWidth
         let reach = (screen.frame.midX - cutout / 2 - 40)...(screen.frame.midX + cutout / 2 + 40)
@@ -1179,8 +1193,8 @@ final class NotchPanelController {
     /// a window the user cannot reach: it slides back into view rather than
     /// being left where a slip put it.
     private func settleParked() {
-        guard let parked, let screen = parked.window.screen ?? NSScreen.main else { return }
-        let frame = parked.window.frame
+        guard let parked, let screen = parked.window.screen ?? NSScreen.main,
+              let frame = parkedBodyFrame else { return }
         let visible = screen.visibleFrame
         let x = min(max(frame.minX, visible.minX), max(visible.minX, visible.maxX - frame.width))
         let y = min(max(frame.minY, visible.minY), max(visible.minY, visible.maxY - frame.height))
@@ -1197,8 +1211,7 @@ final class NotchPanelController {
     /// one thing about a parked window that never changes (flow.md: "fixed
     /// size, any position").
     private func resizeParked(width: CGFloat, height: CGFloat) {
-        guard let parked else { return }
-        let frame = parked.window.frame
+        guard parked != nil, let frame = parkedBodyFrame else { return }
         guard abs(frame.width - width) > 0.5 || abs(frame.height - height) > 0.5 else { return }
         setParkedFrame(
             topLeft: parkedCorner ?? CGPoint(x: frame.minX, y: frame.maxY),
@@ -1610,7 +1623,7 @@ final class NotchPanelController {
         priority: NotificationClass
     ) {
         guard let parked else { return }
-        let width = parked.window.frame.width
+        let width = parked.view.bodyRect.width
         let height = parked.view.swellView.preferredHeight(width: width)
         parked.view.showSwell(mini, height: height, animated: true) { [weak self] in
             guard let self else { return }

@@ -105,15 +105,29 @@ struct SelfAdvanceTests {
         _ = window
     }
 
+    /// Polls for the tick rather than sleeping a fixed 150 ms and hoping: the
+    /// suite runs in parallel with every other suite, and a starved main
+    /// thread made the fixed wait fail about one run in three. The deadline is
+    /// generous; the bound on the value is what actually proves the timer is
+    /// interpolating from the clock rather than free-running.
     @Test("The real timer advances the value over a short run-loop spin")
     func realTimerRuns() {
         let (window, slider) = hosted(makeSlider(value: 0, max: 100))
         _ = window
-        slider.applyRate(10)                       // 10 units/s — visible in 150 ms
+        let started = CACurrentMediaTime()
+        slider.applyRate(10)                       // 10 units/s
         #expect(slider.isSelfAdvancing)
-        RunLoop.current.run(until: Date().addingTimeInterval(0.15))
-        #expect(slider.value > 0, "the tick never fired")
-        #expect(slider.value < 10, "and it is interpolating from the clock, not free-running")
+        let deadline = Date().addingTimeInterval(3)
+        while slider.value == 0, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.02))
+        }
+        let elapsed = CACurrentMediaTime() - started
+        #expect(slider.value > 0, "the tick never fired in \(elapsed) s")
+        // Clock-interpolated: never more than the rate times the wall clock
+        // that actually passed (plus one interval of slack for the tick that
+        // landed after the clock was read).
+        #expect(slider.value <= 10 * (elapsed + LedgeMetrics.selfAdvanceInterval),
+                "free-running: \(slider.value) after \(elapsed) s")
     }
 
     // MARK: - Re-anchoring
