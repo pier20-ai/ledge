@@ -38,6 +38,16 @@ final class ParkedSurfaceView: FlippedView {
     /// Air between the window's top edge and the chrome row (G2.4).
     static let topPad: CGFloat = 6
 
+    /// The window for a panel this tall: the panel's height plus `topPad`.
+    /// The session measured its tree against the notch's chrome row alone
+    /// (`HostSession.chromeHeight`), and the window spends `topPad` on top of
+    /// that row — so a window exactly the panel's height gave the content six
+    /// points less than it was measured at, and every parked app lost the
+    /// bottom of its last line. Both sizing sites go through here.
+    static func windowHeight(forPanelHeight height: CGFloat) -> CGFloat {
+        height + topPad
+    }
+
     /// The ⌃ (design.html §04 `.window .home`).
     var onFlyHome: (() -> Void)?
 
@@ -52,6 +62,8 @@ final class ParkedSurfaceView: FlippedView {
     private let wingBar: PanelWingBarView
     private let home: LedgeButton
     private let contentHost = FlippedView()
+    /// The body's outline, in the content host's own space — see `layout`.
+    private let contentMask = CAShapeLayer()
     private var currentContent: NSView?
     private let swell = ParkedSwellView()
 
@@ -158,6 +170,14 @@ final class ParkedSurfaceView: FlippedView {
         rim.lineWidth = LedgeMetrics.hairline
         layer?.addSublayer(rim)
 
+        // The content clips to the body, as the notch panel's container does
+        // (`ShellSurfaceView.contentContainer`). A session's tree — and the
+        // chat pane's web view, which paints an opaque backdrop — is a
+        // square-cornered rectangle; since G6 it is exactly the body's width,
+        // so unclipped its corners stood out past the glass's rounded ones (it
+        // used to sit 21 pt inside them, which hid the omission).
+        contentHost.wantsLayer = true
+        contentHost.layer?.mask = contentMask
         addSubview(contentHost)
         addSubview(wingBar)
         addSubview(home)
@@ -311,6 +331,22 @@ final class ParkedSurfaceView: FlippedView {
             width: width,
             height: max(0, bounds.height - rowHeight - Self.topPad)
         )
+        // The same rounded outline the body draws, carried into the host's
+        // coordinates: the clip is the body itself, not a second shape that
+        // has to agree with it.
+        let hostClip = CGMutablePath()
+        hostClip.addPath(
+            path,
+            transform: CGAffineTransform(
+                translationX: -contentHost.frame.minX,
+                y: -contentHost.frame.minY
+            )
+        )
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentMask.frame = contentHost.bounds
+        contentMask.path = hostClip
+        CATransaction.commit()
         // Only a view that genuinely lives here: after fly-home the composite
         // is the notch panel's again, and resizing it from a shrinking window
         // is exactly the stranded-frame bug (G2.4).

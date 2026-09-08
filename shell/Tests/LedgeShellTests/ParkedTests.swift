@@ -95,6 +95,47 @@ struct ParkedTests {
         #expect(abs(notchSplit.minX - LedgeMetrics.panelWingPad) < 0.01)
     }
 
+    /// The window spends `topPad` on air above its chrome row, which the
+    /// panel never had to — so it is that much taller than the panel it tore
+    /// off, and the content host is exactly the height the session measured
+    /// its tree at. It was the panel's height, and every parked app lost six
+    /// points off its bottom: the first thing Manu saw after G6.
+    @Test("The window is the panel plus its top pad, so nothing at the bottom clips")
+    func theWindowIsTallEnough() throws {
+        let (_, controller, _) = try parked()
+        let window = try #require(controller.parkedWindowForTesting)
+        let view = try #require(controller.parkedSurfaceForTesting)
+        // The fixture's app has no tree, so what parked is the placeholder
+        // card — whose panel height is a known number: the card plus the row.
+        let panelHeight = HostPlaceholderView.panelHeight + controller.surfaceForTesting.panelWingRowHeight
+        #expect(window.frame.height == ParkedSurfaceView.windowHeight(forPanelHeight: panelHeight))
+        view.layoutSubtreeIfNeeded()
+        // The content gets what it was measured at: the panel less the row.
+        #expect(abs(view.contentHostFrame.height - (panelHeight - view.rowHeight)) < 0.01)
+        #expect(ParkedSurfaceView.windowHeight(forPanelHeight: 300) == 300 + ParkedSurfaceView.topPad)
+    }
+
+    /// The content clips to the body's rounded outline, as it does in the
+    /// notch panel. Since G6 the content is exactly the body's width, so a
+    /// square-cornered tree — or the chat pane's web view and its opaque
+    /// backdrop — stood out past the glass's corners without this.
+    @Test("The content host clips to the window's rounded body")
+    func contentClipsToTheBody() throws {
+        let (_, controller, _) = try parked()
+        let view = try #require(controller.parkedSurfaceForTesting)
+        view.layoutSubtreeIfNeeded()
+        let mask = try #require(view.contentHostView.layer?.mask as? CAShapeLayer)
+        let path = try #require(mask.path)
+        let host = view.contentHostFrame
+        #expect(mask.frame.size == host.size)
+        // The body's corner is outside the clip; the bottom edge's middle and
+        // the host's own middle are inside it.
+        #expect(!path.contains(CGPoint(x: 0.5, y: host.height - 0.5)))
+        #expect(!path.contains(CGPoint(x: host.width - 0.5, y: host.height - 0.5)))
+        #expect(path.contains(CGPoint(x: host.width / 2, y: host.height - 0.5)))
+        #expect(path.contains(CGPoint(x: 0.5, y: host.height / 2)))
+    }
+
     /// G2.10: the window is floored at the islands' span, so a session
     /// narrower than the floor sits centred in the wider glass — the notch's
     /// own law, kept by the window (blocks was left-hugging on device).

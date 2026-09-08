@@ -365,9 +365,15 @@ enum SnapshotRenderer {
         body.setPanelWing(mode: .stage, canToggleGlass: true)
         body.present(.expanded(app: app), content: content, animated: false)
         let margin = PanelLimits.shadowMargin
-        body.frame = CGRect(origin: CGPoint(x: margin, y: margin), size: CGSize(width: width, height: height))
+        // The window's height, not the panel's: the window spends its own top
+        // pad, and sized to the panel it clipped the content's last line.
+        let windowHeight = ParkedSurfaceView.windowHeight(forPanelHeight: height)
+        body.frame = CGRect(
+            origin: CGPoint(x: margin, y: margin),
+            size: CGSize(width: width, height: windowHeight)
+        )
         let stage = FlippedView(
-            frame: CGRect(x: 0, y: 0, width: width + margin * 2, height: height + margin * 2)
+            frame: CGRect(x: 0, y: 0, width: width + margin * 2, height: windowHeight + margin * 2)
         )
         stage.addSubview(body)
         stage.layoutSubtreeIfNeeded()

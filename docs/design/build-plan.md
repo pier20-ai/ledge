@@ -367,6 +367,17 @@ So the freeze is now stated (606 shell tests, 382 host):
   the exception. Weather's pane grew from 412 to 452 (it was sized for the
   old 440).
 
+Two parked-window defects surfaced on device the same day, both fixed with
+tests (608 shell): the window was sized to the *panel's* height but spends
+its own 6 pt top pad, so every parked app lost the bottom of its last line
+(pre-existing — `ParkedSurfaceView.windowHeight(forPanelHeight:)` is now the
+one sizing rule for both sizing sites and the snapshot renderer); and the
+parked content host never clipped to the body, which G6 exposed — the chat
+pane's web view paints an opaque square backdrop, and at exactly the body's
+width its corners stood out past the rounded glass. The host now carries the
+body's own outline as a layer mask, the way the notch's `contentContainer`
+clips.
+
 Watch at the next device pass: the open morph's arrival recipe (G2.4) was
 tuned for islands arriving beside the cutout; from the corners it may want a
 beat.

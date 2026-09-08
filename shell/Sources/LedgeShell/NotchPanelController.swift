@@ -716,7 +716,10 @@ final class NotchPanelController {
             // Floored like the notch's own silhouette (G2.5/G2.8): the window
             // carries the same islands with the same notch-sized gap between
             // them, so it can never be narrower than they are.
-            resizeParked(width: max(width, surface.visitFloorWidth), height: height)
+            resizeParked(
+                width: max(width, surface.visitFloorWidth),
+                height: ParkedSurfaceView.windowHeight(forPanelHeight: height)
+            )
             surface.setContentOwner(.shell)
             surface.present(.collapsed, content: nil, height: 0, animated: animated)
         } else {
@@ -1040,9 +1043,14 @@ final class NotchPanelController {
         // furniture): since G2.5 the silhouette is floored at the islands'
         // span, and the window keeps that floor — the same islands, the same
         // notch-sized gap between them (G2.8).
+        // …plus the air the window spends above its own chrome row
+        // (`ParkedSurfaceView.windowHeight`): the panel never needed it, so
+        // a window the panel's exact height was six points short.
         let size = CGSize(
             width: max(PanelLimits.minWidth, shape.width - ShellSurfaceView.fillet * 2),
-            height: max(PanelLimits.minHeight, shape.height)
+            height: ParkedSurfaceView.windowHeight(
+                forPanelHeight: max(PanelLimits.minHeight, shape.height)
+            )
         )
         send(.dragOffNotch)
         guard machine.state == .parked else { return }
