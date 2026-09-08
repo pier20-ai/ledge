@@ -150,7 +150,9 @@ struct ParkedTests {
         let view = try #require(controller.parkedSurfaceForTesting)
         view.layoutSubtreeIfNeeded()
         let margin = ParkedSurfaceView.margin
-        #expect(margin == PanelLimits.shadowMargin, "the same slack the notch window carries")
+        #expect(margin >= LedgeShadow.window.reach, "as far as the window rung is visible")
+        #expect(LedgeShadow.window.reach > PanelLimits.shadowMargin,
+                "the notch's slack was never enough for this ramp")
         #expect(view.bodyRect == view.bounds.insetBy(dx: margin, dy: margin))
         // Everything drawn sits inside the body.
         #expect(view.bodyRect.contains(view.wingBarView.frame))

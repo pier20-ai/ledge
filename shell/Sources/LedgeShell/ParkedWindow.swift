@@ -38,14 +38,17 @@ final class ParkedSurfaceView: FlippedView {
     /// Air between the body's top edge and the chrome row (G2.4).
     static let topPad: CGFloat = 6
 
-    /// **The slack around the body for its shadow** — the notch window's own
-    /// (`PanelLimits.shadowMargin`). The body draws inset by it on all four
-    /// sides, so the shadow falls off *inside* the window. It used to be the
-    /// window's exact size, which cut the shadow square at the window's edge:
-    /// the hard-edged grey block at every rounded corner, on any desktop light
-    /// enough to show a shadow, was the window clipping its own. Nothing but
-    /// the shadow is ever drawn in the margin, and nothing there is hit-tested.
-    static let margin: CGFloat = PanelLimits.shadowMargin
+    /// **The slack around the body for its shadow**: the window rung's own
+    /// `reach` — as far as that ramp is still visible past an edge. The body
+    /// draws inset by it on all four sides, so the shadow fades to nothing
+    /// *inside* the window. It used to be the window's exact size, which cut
+    /// the shadow square at the window's edge — the hard-edged grey block at
+    /// every rounded corner, on any desktop light enough to show a shadow —
+    /// and then the notch's 28 pt, which this ramp outreaches: the same cut,
+    /// one step further out. Derived from the ramp so it cannot drift from
+    /// it. Nothing but the shadow is ever drawn in the margin, and nothing
+    /// there is hit-tested.
+    static let margin: CGFloat = LedgeShadow.window.reach
 
     /// Where the body is: the window inset by `margin`.
     var bodyRect: CGRect { bounds.insetBy(dx: Self.margin, dy: Self.margin) }

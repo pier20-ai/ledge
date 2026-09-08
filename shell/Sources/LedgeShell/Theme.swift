@@ -201,6 +201,16 @@ struct LedgeShadow: Equatable {
     /// every caller's head.
     var shadowRadius: CGFloat { blur / 2 }
 
+    /// How far past a surface's edge the shadow is still visible: the offset
+    /// plus two and a half sigmas of blur, beyond which the Gaussian tail is
+    /// under one percent of the lit opacity. A window that has to *contain*
+    /// its own shadow — the parked window's is drawn into a layer inside its
+    /// frame — must leave at least this much round the body, or its edge cuts
+    /// the shadow square. That was the parked corner defect, twice over: once
+    /// with no margin at all, once with the notch's 28, which this ramp
+    /// outreaches by more than half again.
+    var reach: CGFloat { ceil(yOffset + shadowRadius * 2.5) }
+
     /// The offset in *layer* units. Ledge's chrome layers live under flipped
     /// views, where +y is down; an unflipped host has to negate it, which is
     /// why the caller says which it is rather than this guessing.

@@ -380,8 +380,9 @@ body's size, so the body's drop shadow was cut square at the window's edge**
 — a hard grey block outside every rounded corner on any light desktop, there
 since the first tear. Found by capturing the parked window through the
 window server from a test and reading the corner's alpha (54: shadow, not
-frost — the frost's mask is fine). The window now carries the notch window's
-own `shadowMargin` (28) around the body: `ParkedSurfaceView.margin`,
+frost — the frost's mask is fine). The window now carries the window rung's
+own `LedgeShadow.reach` (offset + 2.5 σ = 68 pt; the notch's 28 was tried
+first and the ramp outreached it) around the body: `ParkedSurfaceView.margin`,
 `bodyRect`, `windowSize(forBody:)` / `bodyFrame(ofWindow:)`, and the
 controller's every geometry question (the held corner, "at the notch",
 settle, resize) is asked of the body frame. The margin hit-tests to nothing.
