@@ -19,6 +19,9 @@ protocol/demo-apps/*/*.tmp
 # sky. `fixture/open-meteo.json` beside it IS tracked — that one is a recorded
 # response the tests parse.
 protocol/demo-apps/weather/cache.json
+# radio: the last directory fetch. `stations.json` beside it IS tracked — the
+# list the app ships with, its fallback when there is no cache and no network.
+protocol/demo-apps/radio/stations.cache.json
 # nowplaying (and the archived music app): album art pulled from the running
 # player, named after the track so the shell re-decodes it (art-<hash>.jpg).
 protocol/demo-apps/nowplaying/art-*.jpg

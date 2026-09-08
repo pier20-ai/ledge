@@ -84,8 +84,13 @@ function dialSize() {
   const asked = Number(ctxRef?.settings?.["dial-size"]);
   return Number.isFinite(asked) && asked > 0 ? asked : DIAL_DEFAULT;
 }
-/** Yesterday's dial, for a cold or offline launch (same pattern as weather). */
-const CACHE = new URL("./stations.json", import.meta.url);
+/** Yesterday's dial, for a cold or offline launch (same pattern as weather).
+ * Written to a gitignored file: `stations.json` beside it IS tracked — the
+ * list this app shipped with, the fallback when there is no cache yet and no
+ * network either. It used to write over the tracked file, which left the
+ * repo dirty every time the dial was tuned. */
+const CACHE = new URL("./stations.cache.json", import.meta.url);
+const SHIPPED = new URL("./stations.json", import.meta.url);
 
 let mirror = MIRRORS[0];
 
@@ -132,11 +137,13 @@ async function loadStations() {
     Bun.write(CACHE, JSON.stringify(fresh)).catch(() => {});
     return fresh;
   }
-  try {
-    const cached = await Bun.file(CACHE).json();
-    if (Array.isArray(cached) && cached.length > 0) return cached;
-  } catch {
-    // No cache is the honest first launch.
+  for (const source of [CACHE, SHIPPED]) {
+    try {
+      const list = await Bun.file(source).json();
+      if (Array.isArray(list) && list.length > 0) return list;
+    } catch {
+      // No cache is an ordinary first launch; the shipped list is next.
+    }
   }
   return null;
 }

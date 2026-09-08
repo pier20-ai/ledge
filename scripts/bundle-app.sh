@@ -4,7 +4,13 @@
 # remember it.
 #
 # Usage:
-#   scripts/bundle-app.sh [--debug] [--output <dir>] [--identity <name>]
+#   scripts/bundle-app.sh [--debug] [--output <dir>] [--identity <name>] [--notarize]
+#
+# --notarize (needs a "Developer ID Application" identity and a notarytool
+#   keychain profile named "ledge-notary") submits the signed app to Apple and
+#   staples the ticket to it. Do this BEFORE make-dmg.sh --notarize: a disk
+#   image's ticket covers the app only while it is inside the image, and the
+#   app the user drags to /Applications needs its own to verify offline.
 #
 # Signing identity (`--identity`, or $LEDGE_SIGN_IDENTITY):
 #   Default is a self-signed certificate named "Ledge Dev" from the login
@@ -29,12 +35,14 @@ OUTPUT_DIR="$REPO_ROOT/dist"
 IDENTITY="${LEDGE_SIGN_IDENTITY:-Ledge Dev}"
 BUNDLE_ID="dev.ledge.shell"
 VERSION="1.0.0"
+NOTARIZE=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --debug) CONFIGURATION="debug"; shift ;;
     --output) OUTPUT_DIR="$2"; shift 2 ;;
     --identity) IDENTITY="$2"; shift 2 ;;
+    --notarize) NOTARIZE=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;
   esac
 done
@@ -172,8 +180,23 @@ log "staging seed payload (apps + node_modules)…"
 SEED_STAGE="$OUTPUT_DIR/seed-stage"
 rm -rf "$SEED_STAGE"
 mkdir -p "$SEED_STAGE/apps"
+# Only what git tracks. The apps write their runtime state beside themselves
+# — every app's console.log, weather's cache.json (the last forecast AND the
+# IP fix that located it), nowplaying's pulled artwork — and all of it is
+# gitignored for exactly that reason: data, not source. A build on a machine
+# that has run the apps must not carry the developer's last hour into a
+# stranger's ~/.ledge. So the exclusions are git's own, not a hand-kept list.
+SEED_EXCLUDES="$OUTPUT_DIR/seed-excludes"
+{
+  git -C "$REPO_ROOT" ls-files --others --ignored --exclude-standard --directory -- protocol/demo-apps
+  git -C "$REPO_ROOT" ls-files --others --exclude-standard --directory -- protocol/demo-apps
+} | sed 's|^protocol/demo-apps/|/|' > "$SEED_EXCLUDES"
 rsync -a --exclude '.build' --exclude 'crash.log' --exclude 'node_modules' \
-  "$DEMO_APPS/" "$SEED_STAGE/apps/"
+  --exclude-from="$SEED_EXCLUDES" "$DEMO_APPS/" "$SEED_STAGE/apps/"
+# …and the guard, because the list above is only as good as .gitignore.
+STRAY="$(find "$SEED_STAGE/apps" \( -name 'console.log' -o -name 'crash.log' -o -name 'cache.json' -o -name 'art-*.jpg' -o -name '*.sqlite*' \) -print)"
+[ -z "$STRAY" ] || fail "runtime artifacts in the seed payload — a developer's data would ship:
+$STRAY"
 rsync -a "$DEMO_APPS/node_modules/" "$SEED_STAGE/node_modules/"
 
 # The stockfish prune, restored in D4 when chess came back to the apps root.
@@ -333,6 +356,24 @@ codesign --force --sign "$IDENTITY" --identifier "$BUNDLE_ID" \
 codesign --verify --deep --strict "$APP" \
   || fail "signature verification failed"
 log "✓ signature verifies"
+
+# --- Notarize (optional) ----------------------------------------------------
+
+if [ "$NOTARIZE" = 1 ]; then
+  case "$IDENTITY" in
+    "Developer ID Application"*) ;;
+    *) fail "--notarize needs a \"Developer ID Application\" identity (signing as: $IDENTITY)" ;;
+  esac
+  ZIP="$OUTPUT_DIR/Ledge-$VERSION.zip"
+  rm -f "$ZIP"
+  ditto -c -k --keepParent "$APP" "$ZIP" || fail "could not zip the app for notarization"
+  log "notarizing the app (this can take a few minutes)…"
+  xcrun notarytool submit "$ZIP" --keychain-profile ledge-notary --wait \
+    || fail "notarization failed (xcrun notarytool log <submission-id> --keychain-profile ledge-notary)"
+  xcrun stapler staple "$APP" || fail "stapling failed"
+  rm -f "$ZIP"
+  log "✓ notarized and stapled"
+fi
 
 log "PASS — $APP"
 log "run it:  open '$APP'"

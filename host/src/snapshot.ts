@@ -38,7 +38,7 @@ export interface CommitDump {
   /** Every canvas the app painted during the same window, keyed by node id
    * (§3.4). The shell replays these as `draw` envelopes after the commit, which
    * is the only way a **panel** canvas is visible to a snapshot at all: three of
-   * the nine demo apps (weather, chess, blocks) are a canvas and nothing else,
+   * the demo apps that are a well (weather, chess, blocks) are a canvas and nothing else,
    * and their whole signature used to render as an empty well.
    *
    * Keys are strings because JSON object keys are. Same capture as `wingOps` —

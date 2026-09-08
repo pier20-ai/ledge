@@ -29,12 +29,11 @@ enough to see the whole idea. We think more of the world should work this way.
 
 ## What's in the box
 
-Nine demo apps, each one folder in [`protocol/demo-apps/`](protocol/demo-apps/),
+Seven demo apps, each one folder in [`protocol/demo-apps/`](protocol/demo-apps/),
 each written the same way yours will be:
 
 **timer** · **weather** · **nowplaying** · **radio** · **scribe** (notes) ·
-**beacon** · **focus** (a garden that grows while you work) · **chess** (with a
-pruned Stockfish) · **blocks**
+**chess** (with a pruned Stockfish) · **blocks**
 
 They are documentation you can play. When you wonder how to do something, read
 the sibling app that already does it.
@@ -176,6 +175,13 @@ scripts/bundle-app.sh --identity -
 
 Pass a Developer ID the same way when you have one. Shipping to other people
 also needs notarization, which needs the paid Apple Developer Program.
+
+**Releasing.** With a Developer ID and a `notarytool` keychain profile named
+`ledge-notary`, the order is: `scripts/bundle-app.sh --identity "Developer ID
+Application: …" --notarize` (signs, notarizes and staples the app), then
+`scripts/make-dmg.sh --identity "Developer ID Application: …" --notarize`
+(wraps, signs, notarizes and staples the image). The app has to carry its own
+ticket: the image's covers it only while it is still inside the image.
 
 **Install:**
 

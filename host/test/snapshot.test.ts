@@ -200,7 +200,7 @@ export default function App() { return <text content="quiet" />; }
   });
 
   // `draws`: the same capture, kept for EVERY canvas rather than the wing's one.
-  // A panel canvas is the case this exists for — three of the nine demo apps are
+  // A panel canvas is the case this exists for — three of the demo apps are
   // a well and nothing else, and their whole signature used to be invisible.
   test("--wing keeps every panel canvas the monitor painted, keyed by node id", async () => {
     const appsRoot = await tempAppsRoot(`/** @jsxImportSource react */

@@ -408,7 +408,7 @@ enum SnapshotRenderer {
     }
 
     /// Above any seq the commit replay above can reach (one per dump, and there
-    /// are nine demo apps).
+    /// are seven demo apps).
     private static let drawSeqBase = 1_000
 
     private static func surface(
