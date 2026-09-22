@@ -153,7 +153,11 @@ cp "$SHELL_BIN" "$CONTENTS/MacOS/LedgeShell"
 # intact: rename it and the generated accessor traps at first use.
 SHELL_RESOURCES="$SHELL_DIR/.build/$CONFIGURATION/LedgeShell_LedgeShell.bundle"
 [ -d "$SHELL_RESOURCES" ] || fail "no shell resource bundle at $SHELL_RESOURCES"
-[ -f "$SHELL_RESOURCES/editor/index.html" ] || fail "the resource bundle carries no editor"
+# SwiftPM emits the bundle flat on older toolchains and as a full macOS
+# bundle (Contents/Resources/…) on newer ones; Bundle.module handles either.
+[ -f "$SHELL_RESOURCES/editor/index.html" ] \
+  || [ -f "$SHELL_RESOURCES/Contents/Resources/editor/index.html" ] \
+  || fail "the resource bundle carries no editor"
 rsync -a "$SHELL_RESOURCES" "$CONTENTS/Resources/"
 # The Bun runtime, named for its job rather than its implementation: this
 # process IS the Ledge host, and "ledge-host" in Activity Monitor (or in a
