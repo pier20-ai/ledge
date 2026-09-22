@@ -91,8 +91,8 @@ menu dead; `‹|›` must be ONE split bead, not two buttons; bar gets a constan
 width with controls at its OUTER edges (they hugged the cutout — felt wrong
 live; design.html §01 was right all along). Root confusion: no demo app
 declares `<summary>`, so the no-summary→visit rule fired on every hover and
-read as "click is broken." **NO COMMITS until Manu regains confidence — his
-explicit ruling.** Next feel test only after C+D.
+read as "click is broken." **Commits paused until the next feel test passes.**
+Next feel test only after C+D.
 
 ## Phase S — the split (revised per G1)
 

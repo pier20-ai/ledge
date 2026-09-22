@@ -59,3 +59,4 @@ protocol/demo-apps-archive/music/art-*.jpg
 protocol/demo-apps-archive/trader/ledger.sqlite*
 protocol/demo-apps/timer/alarms.json
 protocol/demo-apps/scribe/recordings/
+.builder.json

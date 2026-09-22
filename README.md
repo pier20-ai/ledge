@@ -275,7 +275,8 @@ An app's own folder holds its `app.jsx`, whatever it persists, its
 
 ## License
 
-MIT — see [LICENSE](LICENSE). The built app bundles the
-[Bun](https://bun.sh) runtime (MIT, which statically includes JavaScriptCore);
-the DMG and app artwork were generated for this project and ship under the same
-license as the repo.
+MIT — see [LICENSE](LICENSE). The built app redistributes third-party
+software — the [Bun](https://bun.sh) runtime (MIT), and **Stockfish (GPL-3.0)**
+inside the chess demo's seed payload — detailed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). The DMG and app artwork were
+generated for this project and ship under the same license as the repo.
