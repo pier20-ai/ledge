@@ -1,8 +1,21 @@
-# Ledge
+<p align="center">
+  <img src="docs/media/hero.png" alt="Ledge — apps that live in the notch" width="760">
+</p>
 
 Apps that live in the notch — written by you, or by your coding agent, while you watch.
 
-<!-- demo GIF goes here before launch: the tweet cut, or `scripts/snapshot-demos.sh` output -->
+<table>
+  <tr>
+    <td width="46%"><img src="docs/media/app-chess.webp" alt="the chess demo app, mid-game against Stockfish"></td>
+    <td width="54%"><img src="docs/media/app-blocks.png" alt="the blocks demo app, mid-fall"></td>
+  </tr>
+  <tr>
+    <td colspan="1"><img src="docs/media/app-radio.png" alt="the radio demo app, tuned to Nostalgie HQ"></td>
+    <td colspan="1"><img src="docs/media/app-weather.png" alt="the weather demo app, rain all afternoon"></td>
+  </tr>
+</table>
+
+<p align="center"><sub>chess · blocks · radio · weather — four of the demo apps, all rendered as native AppKit in the panel</sub></p>
 
 A Ledge app is one folder with an `app.jsx` in it. You write React; it renders
 as **native AppKit views** in a panel hanging off the MacBook's camera housing —
